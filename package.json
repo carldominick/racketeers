@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "vinext build",
     "deploy": "node scripts/check-deploy.mjs && wrangler deploy",
-    "test": "node --test tests/tournament-logic.test.mjs",
+    "test": "node --test tests/tournament-logic.test.mjs tests/payment-proof.test.mjs",
     "test:render": "node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"

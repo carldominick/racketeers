@@ -42,3 +42,33 @@ Cloudflare documentation:
 - https://developers.cloudflare.com/workers/vite-plugin/get-started/
 - https://developers.cloudflare.com/d1/get-started/
 - https://developers.cloudflare.com/workers/configuration/secrets/
+
+## Payment screenshots (optional)
+
+Players can select a payment screenshot during registration or upload/replace it later with their registration PIN while registration is open. Organizers can view and download proofs from each player card in Registration. For a pair registered together, the proof belongs to the primary registration ID. Proofs do not automatically mark either player as paid.
+
+PNG/JPG/WebP input is limited to 5 MB and converted in the browser to a PNG (maximum 2000 pixels on the longest side). The private storage key is `payments/<registration-ID>.png`. A replacement overwrites that key. PIN authorization is required to read screenshots; no public bucket URL is used. Screenshot storage is separate from tournament JSON saves to avoid sync conflicts.
+
+### Enable storage
+
+1. Enable Cloudflare R2 under Storage & databases → R2. Standard storage includes a free monthly allowance; billing setup is required and excess usage is billable. See https://developers.cloudflare.com/r2/pricing/.
+2. Create a **private Standard** bucket named `racketeers-payments`. Leave public access disabled.
+3. Add this top-level property to `wrangler.json`, commit, and redeploy:
+
+```json
+"r2_buckets": [
+  { "binding": "PAYMENT_PROOFS", "bucket_name": "racketeers-payments" }
+]
+```
+
+Create the bucket before committing the binding. Until it is connected, registration continues to work and upload controls show that storage is unavailable. No API keys are needed in the browser or repository. Do not enable public access on the bucket.
+
+After activation, verify a disposable registration upload, organizer preview, and PIN-based replacement. Automated API tests use isolated mock storage; they do not write to the production database or R2 bucket.
+
+Removing a registration blocks its file from being retrieved through the application. Files remain in the private bucket until the organizer removes them there; tournament JSON export/import does not include screenshots.
+
+### Organizer payment instructions and confirmation
+
+The organizer Registration tab includes Player payment details: bank/provider, account number (stored as text to preserve leading zeroes), account holder, and instructions. These fields are stored in a separate D1 table and can be saved even before R2 is enabled. An optional QR/payment image is uploaded to the same private R2 bucket at `payment-instructions/qr.png` and served publicly through the payment-settings endpoint so registrants can see it. Receipt screenshots remain PIN-protected.
+
+Organizers use View payment screenshot and Confirm payment received on each registration card. Confirmation is reversible and uses the existing protected registration save flow. For a pair, review which players the payment covers and confirm each applicable individual record. Uploading or replacing a screenshot never changes the paid status automatically.
