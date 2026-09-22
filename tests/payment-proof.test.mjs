@@ -111,3 +111,24 @@ test('only organizers can delete a payment photo without deleting the registrati
   assert.equal(JSON.stringify(state), savedState);
   assert.equal((await handlePaymentProof(req({ metadata: true }), target)).status, 404);
 });
+
+test('organizer uploads and either reciprocal partner can read shared proof; unrelated players cannot', async () => {
+ objects.clear();
+ const first=state.registrations[0], second=state.registrations[1];
+ Object.assign(first,{partnerId:second.id,divisionId:'d'}); Object.assign(second,{partnerId:first.id,divisionId:'d'});
+ const upload=await handlePaymentProof(req({method:'POST',organizer:'876543'}),env);
+ assert.equal(upload.status,200);
+ const result=await upload.json(); assert.deepEqual(result.linkedRegistrationIds,[first.id,second.id].sort());
+ assert.equal(objects.size,1);
+ assert.equal((await handlePaymentProof(req({id:second.id}),env)).status,200);
+ assert.equal((await handlePaymentProof(req({pin:'87654321'}),env)).status,200);
+ assert.equal((await handlePaymentProof(req({pin:'99999999'}),env)).status,401);
+ const pairedEnv={...env,PAYMENT_PROOFS:{...env.PAYMENT_PROOFS,delete:async key=>objects.delete(key)}};
+ assert.equal((await handlePaymentProof(req({method:'DELETE',id:second.id,organizer:'876543'}),pairedEnv)).status,200);
+ assert.equal((await handlePaymentProof(req(),env)).status,404);
+ await handlePaymentProof(req({method:'POST'}),env);
+ second.partnerId=null;
+ assert.equal((await handlePaymentProof(req({id:second.id}),env)).status,401);
+ assert.equal((await handlePaymentProof(req({id:second.id,pin:'87654321'}),env)).status,404);
+ delete first.partnerId;delete first.divisionId;delete second.partnerId;delete second.divisionId;
+});

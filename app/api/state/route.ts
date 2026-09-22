@@ -76,6 +76,7 @@ export async function GET(request: Request) {
   const row = await ensureRow();
   const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
   const isOrganizer = await authorized(request.headers.get("x-organizer-pin"), state);
+  if (request.headers.has("x-organizer-pin") && !isOrganizer) return Response.json({ error: "Organizer PIN did not match." }, { status: 401 });
   return Response.json({ state: isOrganizer ? state : publicState(state), revision: row.revision, organizer: isOrganizer, updatedAt: row.updated_at });
 }
 
@@ -90,7 +91,7 @@ export async function POST(request: Request) {
   if (body.action === "changeOrganizerPin") {
     if (!(await authorized(body.pin ?? null, state))) return Response.json({ error: "Current organizer PIN did not match." }, { status: 401 });
     const newPin = clean(body.newPin, 10);
-    if (!/^\d{4,10}$/.test(newPin)) return Response.json({ error: "The new organizer PIN must contain 4–10 digits." }, { status: 400 });
+    if (!/^\d{8,10}$/.test(newPin)) return Response.json({ error: "The new organizer PIN must contain 8–10 digits." }, { status: 400 });
     const saved = await saveStateAtRevision({ ...state, organizerPinHash: await sha(newPin) }, row.revision);
     if (!saved) return Response.json({ error: "Tournament settings changed at the same time. Please try again." }, { status: 409 });
     return Response.json({ ok: true, revision: saved.revision });
@@ -196,6 +197,7 @@ export async function PATCH(request: Request) {
   const next = { ...current, matches: current.matches.map((item) => item.id === match.id ? { ...item, sets, status: body.status === "finished" ? "live" as const : body.status ?? "live" } : item), updatedAt: new Date().toISOString() };
   const revision = row.revision + 1;
   const db = await database();
-  await db.prepare("UPDATE tournament_state SET revision = ?, payload = ?, updated_at = ? WHERE id = ?").bind(revision, JSON.stringify(next), next.updatedAt, ROW_ID).run();
+  const saved = await db.prepare("UPDATE tournament_state SET revision = ?, payload = ?, updated_at = ? WHERE id = ? AND revision = ?").bind(revision, JSON.stringify(next), next.updatedAt, ROW_ID, row.revision).run();
+  if (saved.meta.changes !== 1) return Response.json({ error: "Tournament changed at the same time. Please retry the score update." }, { status: 409 });
   return Response.json({ state: publicState(next), revision });
 }

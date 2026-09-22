@@ -45,22 +45,28 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
     const registrationPin = request.headers.get("x-registration-pin") ?? "";
     const organizer = /^\d{4,10}$/.test(organizerPin) && await hash(organizerPin) === state.organizerPinHash;
     const registration = state.registrations.find(r => r.id === registrationId);
-    const owner = registration && /^\d{8,10}$/.test(registrationPin) && await hash(registrationPin) === registration.registrationPinHash;
+    const partner = registration && state.registrations.find(r => r.id === registration.partnerId && r.partnerId === registration.id && r.divisionId === registration.divisionId);
+    const owner = registration && /^\d{8,10}$/.test(registrationPin) && [registration.registrationPinHash, partner?.registrationPinHash].filter(Boolean).includes(await hash(registrationPin));
     if (!organizer && !owner) return reply({ error: "A valid organizer or registration PIN is required." }, 401);
     if (!registration) return reply({ error: "Registration not found." }, 404);
     if (!env.PAYMENT_PROOFS) return reply({ error: "Payment screenshot uploads are not available yet. Please contact the organizer." }, 503);
-    const filename = `${registrationId}.png`;
-    const key = `payments/${filename}`;
+    const linkedRegistrationIds = [registration.id, ...(partner ? [partner.id] : [])].sort();
+    const filename = `${linkedRegistrationIds[0]}.png`;
+    // A pair-specific location prevents a newly uploaded receipt following a later partner change.
+    const key = partner ? `payments/pairs/${linkedRegistrationIds.join("/")}/${filename}` : `payments/${filename}`;
+    const keys = [...new Set([key, ...linkedRegistrationIds.map(id => `payments/${id}.png`)])];
     if (request.method === "DELETE") {
       if (!organizer) return reply({ error: "Only organizers can delete payment photos." }, 403);
-      await env.PAYMENT_PROOFS.delete(key);
+      for (const candidate of keys) await env.PAYMENT_PROOFS.delete(candidate);
       return reply({ ok: true });
     }
     if (request.method === "GET") {
       const metadataOnly = url.searchParams.get("metadata") === "1";
-      const object = metadataOnly ? await env.PAYMENT_PROOFS.head(key) : await env.PAYMENT_PROOFS.get(key);
+      const available = await Promise.all(keys.map(async candidate => ({ key: candidate, metadata: await env.PAYMENT_PROOFS!.head(candidate) })));
+      const selected = available.filter(item => item.metadata).sort((a, b) => b.metadata!.uploaded.getTime() - a.metadata!.uploaded.getTime())[0];
+      const object = selected && (metadataOnly ? selected.metadata : await env.PAYMENT_PROOFS.get(selected.key));
       if (!object) return reply({ error: "No payment screenshot uploaded." }, 404);
-      if (metadataOnly) return reply({ filename, size: object.size, uploadedAt: object.uploaded.toISOString() });
+      if (metadataOnly) return reply({ filename, size: object.size, uploadedAt: object.uploaded.toISOString(), linkedRegistrationIds });
       return new Response(object.body, { headers: { ...headers, "Content-Type": "image/png", "Content-Disposition": `inline; filename="${filename}"`, "Content-Security-Policy": "default-src 'none'; sandbox" } });
     }
     if (!organizer && state.status !== "registration") return reply({ error: "Payment uploads are locked outside the Registration phase." }, 423);
@@ -75,7 +81,7 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
     if (!width || !height || width * height > 24_000_000) return reply({ error: "Screenshot dimensions are too large." }, 415);
     await env.PAYMENT_PROOFS.put(key, bytes, { httpMetadata: { contentType: "image/png", contentDisposition: `inline; filename="${filename}"` } });
     // Proof storage is separate from whole-tournament saves. Uploads never mark a payment as verified.
-    return reply({ ok: true, filename });
+    return reply({ ok: true, filename, linkedRegistrationIds });
   } catch {
     return reply({ error: "The payment screenshot could not be processed. Please try again." }, 500);
   }
