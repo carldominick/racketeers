@@ -35,7 +35,7 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
   try {
     const url = new URL(request.url);
     if (request.method === "GET" && url.searchParams.get("capabilities") === "1") return reply({ enabled: Boolean(env.PAYMENT_PROOFS), maxBytes: MAX_PROOF_BYTES });
-    if (request.method !== "GET" && request.method !== "POST") return reply({ error: "Method not allowed." }, 405);
+    if (request.method !== "GET" && request.method !== "POST" && request.method !== "DELETE") return reply({ error: "Method not allowed." }, 405);
     const registrationId = url.searchParams.get("registrationId") ?? "";
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(registrationId)) return reply({ error: "Invalid registration ID." }, 400);
     const row = await env.DB.prepare("SELECT payload FROM tournament_state WHERE id = ?").bind("racketeers").first<{ payload: string }>();
@@ -51,6 +51,11 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
     if (!env.PAYMENT_PROOFS) return reply({ error: "Payment screenshot uploads are not available yet. Please contact the organizer." }, 503);
     const filename = `${registrationId}.png`;
     const key = `payments/${filename}`;
+    if (request.method === "DELETE") {
+      if (!organizer) return reply({ error: "Only organizers can delete payment photos." }, 403);
+      await env.PAYMENT_PROOFS.delete(key);
+      return reply({ ok: true });
+    }
     if (request.method === "GET") {
       const metadataOnly = url.searchParams.get("metadata") === "1";
       const object = metadataOnly ? await env.PAYMENT_PROOFS.head(key) : await env.PAYMENT_PROOFS.get(key);

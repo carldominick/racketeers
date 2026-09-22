@@ -83,3 +83,12 @@ main.dark { --ink:#f5f8fa; --muted:#9eaab5; --line:#33414c; --paper:#101820; --c
 .payment-qr { display:flex; flex-direction:column; align-items:flex-start; gap:.75rem; margin-top:1rem; }
 .payment-qr img { width:100%; max-width:320px; height:auto; object-fit:contain; background:white; padding:12px; border-radius:8px; }
 .payment-confirmation { display:flex; flex-direction:column; gap:.5rem; }
+
+.photo-upload-control { display:flex; flex-direction:column; align-items:flex-start; gap:.65rem; min-width:0; }
+.photo-upload-control input[hidden] { display:none !important; }
+.photo-upload-control span { overflow-wrap:anywhere; }
+.upload-photo-button { min-height:44px; padding:.8rem 1.2rem; font-weight:700; }
+.registration-id-display { display:flex; flex-direction:column; gap:.35rem; padding:.7rem; border:1px solid #94a3b855; border-radius:8px; background:#f1f5f9; color:#0f172a; }
+.registration-id-display code { user-select:all; overflow-wrap:anywhere; font-size:.9rem; }
+.registration-save-warning { padding:1rem; margin:1rem 0; border:2px solid #d97706; border-radius:10px; background:#fffbeb; color:#78350f; text-align:left; }
+.registration-save-warning p { color:inherit; line-height:1.6; margin:.5rem 0 0; }

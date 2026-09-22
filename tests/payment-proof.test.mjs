@@ -97,3 +97,17 @@ test('upload size is capped at exactly 2 MiB for receipts and payment QR images'
  const response = await handlePaymentSettings(new Request('https://test/api/payment-settings?image=1', {method:'POST', headers:{'x-organizer-pin':'876543','content-type':'image/png'},body:oversized}),env);
  assert.equal(response.status,413);
 });
+
+test('only organizers can delete a payment photo without deleting the registration', async () => {
+  const bucket = { ...env.PAYMENT_PROOFS, delete: async key => objects.delete(key) };
+  const target = { ...env, PAYMENT_PROOFS: bucket };
+  await handlePaymentProof(req({ method: 'POST' }), target);
+  const savedState = JSON.stringify(state);
+  assert.equal((await handlePaymentProof(req({ method: 'DELETE' }), target)).status, 403);
+  assert.ok(objects.has('payments/player-test.png'));
+  assert.equal((await handlePaymentProof(req({ method: 'DELETE', pin: '' }), target)).status, 401);
+  assert.equal((await handlePaymentProof(req({ method: 'DELETE', organizer: '876543' }), target)).status, 200);
+  assert.equal(objects.has('payments/player-test.png'), false);
+  assert.equal(JSON.stringify(state), savedState);
+  assert.equal((await handlePaymentProof(req({ metadata: true }), target)).status, 404);
+});
