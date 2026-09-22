@@ -88,3 +88,12 @@ test('organizer QR image is public but uploads and removal require organizer PIN
  assert.equal((await handlePaymentSettings(request('DELETE','876543'),settingsEnv)).status,200);
  assert.equal((await handlePaymentSettings(request('GET'),settingsEnv)).status,404);
 });
+
+
+test('upload size is capped at exactly 2 MiB for receipts and payment QR images', async () => {
+ assert.equal(MAX_PROOF_BYTES, 2 * 1024 * 1024);
+ const oversized = new Uint8Array(MAX_PROOF_BYTES + 1);
+ assert.equal((await handlePaymentProof(req({method:'POST', body:oversized}), env)).status, 413);
+ const response = await handlePaymentSettings(new Request('https://test/api/payment-settings?image=1', {method:'POST', headers:{'x-organizer-pin':'876543','content-type':'image/png'},body:oversized}),env);
+ assert.equal(response.status,413);
+});

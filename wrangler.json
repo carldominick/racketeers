@@ -15,5 +15,11 @@
       "database_name": "racketeers-db",
       "database_id": "b58e6311-5f06-42ee-a633-b7b37dbcb218"
     }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PAYMENT_PROOFS",
+      "bucket_name": "racketeers-payments"
+    }
   ]
 }

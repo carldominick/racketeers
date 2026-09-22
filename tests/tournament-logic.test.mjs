@@ -437,3 +437,12 @@ test("64 disposable pairs form eight pools of eight and schedule next Saturday w
 });
 
 test.after(async () => rm(dir, { recursive: true, force: true }));
+
+
+test("new registration IDs are alphanumeric, random, and unique", () => {
+  const registrations = Array.from({ length: 2000 }, () => logic.makeRegistration("division"));
+  assert.equal(new Set(registrations.map(r => r.id)).size, 2000);
+  for (const registration of registrations) assert.match(registration.id, /^REG[A-F0-9]{32}$/);
+  const next = logic.makeUniqueRegistration("division", 2000, registrations);
+  assert.ok(!registrations.some(r => r.id === next.id));
+});

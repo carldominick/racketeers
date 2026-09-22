@@ -218,7 +218,12 @@ export function stageLabel(stage: MatchStage) {
 }
 
 export function makeRegistrationEditPin() {
-  return String(Math.floor(10_000_000 + Math.random() * 90_000_000));
+  // Rejection sampling avoids modulo bias while retaining the existing eight-digit PIN format.
+  const values = new Uint32Array(1);
+  const range = 90_000_000;
+  const limit = Math.floor(0x100000000 / range) * range;
+  do { crypto.getRandomValues(values); } while (values[0] >= limit);
+  return String(10_000_000 + values[0] % range);
 }
 
 export function regenerateMatchPin(state: TournamentState, matchId: string): TournamentState {
@@ -468,7 +473,16 @@ export function reseedChampionships(state: TournamentState): TournamentState {
 }
 
 export function makeRegistration(divisionId: string, index = 0): PlayerRegistration {
-  return { id: id("player"), name: `Player ${index + 1}`, divisionId, paid: false, shirtReceived: false, shirtSize: "M", partnerId: null, partnerName: "", teamName: "", playerLevel: "Beginner", desiredLevel: "Beginner", poolOverride: null };
+  return { id: `REG${crypto.randomUUID().replace(/-/g, "").toUpperCase()}`, name: `Player ${index + 1}`, divisionId, paid: false, shirtReceived: false, shirtSize: "M", partnerId: null, partnerName: "", teamName: "", playerLevel: "Beginner", desiredLevel: "Beginner", poolOverride: null };
+}
+
+export function makeUniqueRegistration(divisionId: string, index: number, existing: PlayerRegistration[]): PlayerRegistration {
+  const used = new Set(existing.map(player => player.id));
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const registration = makeRegistration(divisionId, index);
+    if (!used.has(registration.id)) return registration;
+  }
+  throw new Error("Unable to allocate a unique registration ID. Please try again.");
 }
 
 export function availablePartnerRegistrations(registrations: PlayerRegistration[], player: PlayerRegistration) {

@@ -1,6 +1,6 @@
 import type { TournamentState } from "./tournament";
 
-export const MAX_PROOF_BYTES = 5 * 1024 * 1024;
+export const MAX_PROOF_BYTES = 2 * 1024 * 1024;
 type StoredProof = { body?: ReadableStream; size: number; uploaded: Date };
 export type ProofEnvironment = {
   DB: { prepare(sql: string): { bind(...values: unknown[]): { first<T>(): Promise<T | null>; run(): Promise<unknown> }; run(): Promise<unknown> } };
@@ -60,9 +60,9 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
     }
     if (!organizer && state.status !== "registration") return reply({ error: "Payment uploads are locked outside the Registration phase." }, 423);
     if (request.headers.get("content-type") !== "image/png") return reply({ error: "Upload a PNG screenshot." }, 415);
-    if (Number(request.headers.get("content-length") || 0) > MAX_PROOF_BYTES) return reply({ error: "Screenshot must be 5 MB or smaller." }, 413);
+    if (Number(request.headers.get("content-length") || 0) > MAX_PROOF_BYTES) return reply({ error: "Screenshot must be 2 MB or smaller." }, 413);
     let bytes: Uint8Array;
-    try { bytes = await boundedBody(request); } catch { return reply({ error: "Screenshot must be 5 MB or smaller." }, 413); }
+    try { bytes = await boundedBody(request); } catch { return reply({ error: "Screenshot must be 2 MB or smaller." }, 413); }
     const signature = [137,80,78,71,13,10,26,10];
     if (bytes.length < 45 || !signature.every((b,i) => bytes[i] === b) || String.fromCharCode(...bytes.slice(12,16)) !== "IHDR" || String.fromCharCode(...bytes.slice(-8,-4)) !== "IEND") return reply({ error: "The file is not a valid PNG screenshot." }, 415);
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -100,7 +100,7 @@ export async function handlePaymentSettings(request: Request, env: ProofEnvironm
       if (!env.PAYMENT_PROOFS) return reply({ error: "Image storage has not been connected." }, 503);
       if (request.headers.get("content-type") !== "image/png") return reply({ error: "Upload a PNG payment image." }, 415);
       let bytes: Uint8Array;
-      try { bytes = await boundedBody(request); } catch { return reply({ error: "Image must be 5 MB or smaller." }, 413); }
+      try { bytes = await boundedBody(request); } catch { return reply({ error: "Image must be 2 MB or smaller." }, 413); }
       const signature = [137,80,78,71,13,10,26,10];
       if (bytes.length < 45 || !signature.every((b,i) => bytes[i] === b) || String.fromCharCode(...bytes.slice(12,16)) !== "IHDR" || String.fromCharCode(...bytes.slice(-8,-4)) !== "IEND") return reply({ error: "Invalid PNG image." }, 415);
       const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);

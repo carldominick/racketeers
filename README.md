@@ -47,7 +47,7 @@ Cloudflare documentation:
 
 Players can select a payment screenshot during registration or upload/replace it later with their registration PIN while registration is open. Organizers can view and download proofs from each player card in Registration. For a pair registered together, the proof belongs to the primary registration ID. Proofs do not automatically mark either player as paid.
 
-PNG/JPG/WebP input is limited to 5 MB and converted in the browser to a PNG (maximum 2000 pixels on the longest side). The private storage key is `payments/<registration-ID>.png`. A replacement overwrites that key. PIN authorization is required to read screenshots; no public bucket URL is used. Screenshot storage is separate from tournament JSON saves to avoid sync conflicts.
+PNG/JPG/WebP input is limited to 2 MB and converted in the browser to a PNG (maximum 2000 pixels on the longest side). The private storage key is `payments/<registration-ID>.png`. A replacement overwrites that key. PIN authorization is required to read screenshots; no public bucket URL is used. Screenshot storage is separate from tournament JSON saves to avoid sync conflicts.
 
 ### Enable storage
 
@@ -72,3 +72,5 @@ Removing a registration blocks its file from being retrieved through the applica
 The organizer Registration tab includes Player payment details: bank/provider, account number (stored as text to preserve leading zeroes), account holder, and instructions. These fields are stored in a separate D1 table and can be saved even before R2 is enabled. An optional QR/payment image is uploaded to the same private R2 bucket at `payment-instructions/qr.png` and served publicly through the payment-settings endpoint so registrants can see it. Receipt screenshots remain PIN-protected.
 
 Organizers use View payment screenshot and Confirm payment received on each registration card. Confirmation is reversible and uses the existing protected registration save flow. For a pair, review which players the payment covers and confirm each applicable individual record. Uploading or replacing a screenshot never changes the paid status automatically.
+
+New registration IDs use REG followed by a cryptographically generated UUID with no separators (35 alphanumeric characters). Public registration ignores supplied IDs and generates them on the server, checks current registration collisions, and retains the same ID during PIN-authorized edits. IDs are references, not passwords: matching registration PIN authorization is required for private receipts. Existing IDs are retained so existing pairings and screenshots continue working. Both receipt and QR uploads are capped at 2 MiB on the client and server, including images converted to PNG.

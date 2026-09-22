@@ -1,4 +1,4 @@
-import { hydrateTournament, initialTournament, isSetWon, makeRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
+import { hydrateTournament, initialTournament, isSetWon, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
 
 const ROW_ID = "racketeers";
 
@@ -117,13 +117,14 @@ export async function POST(request: Request) {
       registrationPinHash = await sha(editPin);
       if (!state.registrations.some((registration) => registration.registrationPinHash === registrationPinHash)) break;
     }
+    if (state.registrations.some(registration => registration.registrationPinHash === registrationPinHash)) return Response.json({ error: "Unable to allocate a unique registration PIN. Please try again." }, { status: 503 });
     const registeredLevel = clean(form.desiredLevel, 30) || "Beginner";
-    const registration = { ...makeRegistration(division.id, state.registrations.length), name: clean(form.name), partnerName: "", shirtSize: clean(form.shirtSize, 8) || "M", playerLevel: registeredLevel, desiredLevel: registeredLevel, teamName: clean(form.teamName), registrationPinHash, selfRegistered: true };
+    const registration = { ...makeUniqueRegistration(division.id, state.registrations.length, state.registrations), name: clean(form.name), partnerName: "", shirtSize: clean(form.shirtSize, 8) || "M", playerLevel: registeredLevel, desiredLevel: registeredLevel, teamName: clean(form.teamName), registrationPinHash, selfRegistered: true };
     const newRegistrations: PlayerRegistration[] = [registration];
     const partnerName = division.mode === "singles" ? "" : clean(form.partnerName);
     if (partnerName) {
       const partnerRegisteredLevel = clean(form.partnerDesiredLevel, 30) || registeredLevel;
-      const partner = { ...makeRegistration(division.id, state.registrations.length + 1), name: partnerName, shirtSize: clean(form.partnerShirtSize, 8) || "M", playerLevel: partnerRegisteredLevel, desiredLevel: partnerRegisteredLevel, teamName: clean(form.teamName), partnerId: registration.id, selfRegistered: true };
+      const partner = { ...makeUniqueRegistration(division.id, state.registrations.length + 1, [...state.registrations, ...newRegistrations]), name: partnerName, shirtSize: clean(form.partnerShirtSize, 8) || "M", playerLevel: partnerRegisteredLevel, desiredLevel: partnerRegisteredLevel, teamName: clean(form.teamName), partnerId: registration.id, selfRegistered: true };
       registration.partnerId = partner.id;
       newRegistrations.push(partner);
     }

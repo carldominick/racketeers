@@ -2,10 +2,10 @@
 /* eslint-disable @next/next/no-img-element -- Authenticated blob previews must not pass through an image proxy. */
 import { useEffect, useRef, useState } from "react";
 
-const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_BYTES = 2 * 1024 * 1024;
 export async function preparePaymentImage(file: File): Promise<Blob> {
   if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) throw new Error("Choose a PNG, JPG, or WebP screenshot.");
-  if (file.size > MAX_BYTES) throw new Error("Choose a screenshot smaller than 5 MB.");
+  if (file.size > MAX_BYTES) throw new Error("Choose a screenshot smaller than 2 MB.");
   const image = await createImageBitmap(file);
   try {
     const scale = Math.min(1, 2000 / Math.max(image.width, image.height));
@@ -67,5 +67,5 @@ export function PaymentProof({ registrationId, pin, organizer = false, canUpload
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to load screenshot."); }
     finally { setBusy(false); }
   };
-  return <section className="payment-proof"><strong>Payment screenshot</strong><small>Registration ID: {registrationId}</small>{filename ? <button type="button" className="secondary" disabled={busy} onClick={() => void view()}>View payment screenshot</button> : <span>{enabled ? "No screenshot uploaded." : "Screenshot uploads are not available yet."}</span>}{canUpload && enabled && <label>{filename ? "Replace screenshot" : "Upload screenshot"}<input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={event => { void upload(event.target.files?.[0]); event.target.value = ""; }} /><small>PNG, JPG, or WebP · up to 5 MB. Stored as {registrationId}.png.</small></label>}{busy && <p role="status">Processing screenshot…</p>}{message && <p role="status">{message}</p>}{preview && <div className="payment-proof-preview"><button type="button" className="ghost" onClick={() => setPreview("")}>Close screenshot</button><img src={preview} alt="Uploaded payment screenshot" /><a href={preview} download={filename}>Download {filename}</a></div>}</section>;
+  return <section className="payment-proof"><strong>Payment screenshot</strong><small>Registration ID: {registrationId}</small>{filename ? <button type="button" className="secondary" disabled={busy} onClick={() => void view()}>View payment screenshot</button> : <span>{enabled ? "No screenshot uploaded." : "Screenshot uploads are not available yet."}</span>}{canUpload && enabled && <label>{filename ? "Replace screenshot" : "Upload screenshot"}<input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={event => { void upload(event.target.files?.[0]); event.target.value = ""; }} /><small>PNG, JPG, or WebP · up to 2 MB. Stored as {registrationId}.png.</small></label>}{busy && <p role="status">Processing screenshot…</p>}{message && <p role="status">{message}</p>}{preview && <div className="payment-proof-preview"><button type="button" className="ghost" onClick={() => setPreview("")}>Close screenshot</button><img src={preview} alt="Uploaded payment screenshot" /><a href={preview} download={filename}>Download {filename}</a></div>}</section>;
 }
