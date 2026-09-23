@@ -139,3 +139,21 @@ main input:focus-visible, main select:focus-visible, main textarea:focus-visible
 .access-dialog > p:not(.eyebrow) { line-height:1.55; margin-bottom:16px; }
 .access-dialog form { display:grid; gap:14px; }
 .access-dialog label { font-weight:700; }
+
+/* Projector pages are measured and paginated to the available screen height. */
+.projector-container { height:auto; padding:12px 2vw 16px; }
+.auto-projector { position:relative; width:100%; min-width:0; display:flex; flex-direction:column; overflow:hidden; }
+.auto-projector header { padding:0 0 14px; }
+.auto-projector header p { margin:0 0 5px; color:var(--muted); font-size:14px; }
+.auto-projector h2 { margin:0; font-size:clamp(20px,2.5vw,38px); font-weight:800; line-height:1.2; overflow-wrap:anywhere; }
+.auto-projector table { width:100%; min-width:0; table-layout:fixed; border:1px solid var(--line); background:var(--card); }
+.auto-projector th,.auto-projector td { padding:10px 12px; font-size:clamp(12px,1.4vw,24px); line-height:1.3; overflow-wrap:anywhere; }
+.auto-projector th { font-size:clamp(10px,1vw,16px); }
+.auto-projector td small { display:block; font-size:.75em; color:var(--muted); margin:4px 0; }
+.projector-match-table th:first-child { width:25%; }.projector-match-table th:last-child { width:22%; }
+.projector-standings-table th:first-child { width:5%; }.projector-standings-table th:nth-child(2) { width:47%; }
+.projector-page { flex:1; min-height:0; }
+.projector-measure { position:absolute; top:0; left:0; width:100%; visibility:hidden; pointer-events:none; }
+.auto-projector footer { height:50px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--muted); font-size:12px; }
+.projector-empty { margin:24px 0; color:var(--muted); }
+@media(max-width:650px) { .auto-projector th,.auto-projector td { padding:7px 4px; }.auto-projector footer { font-size:10px; }.auto-projector footer > span:nth-child(2) { display:none; } }

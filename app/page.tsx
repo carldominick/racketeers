@@ -1,6 +1,7 @@
 "use client";
 
 import { PaymentSettings } from "./components/payment-settings";
+import { Projector } from "./components/projector";
 import { RegistrationPin } from "./components/registration-pin";
 import { PhotoUploadButton, PaymentProof, preparePaymentImage, uploadPaymentImage } from "./components/payment-proof";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -325,7 +326,6 @@ export default function Home() {
   const [selectedMatch, setSelectedMatch] = useState("");
   const [umpirePin, setUmpirePin] = useState("");
   const [umpireUnlocked, setUmpireUnlocked] = useState(false);
-  const [projectorSlide, setProjectorSlide] = useState(0);
   const [printMode, setPrintMode] = useState<PrintMode>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const umpireTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -359,7 +359,6 @@ export default function Home() {
     const timer = setInterval(() => { if (!dirty) void fetchState(); }, ms);
     return () => clearInterval(timer);
   }, [view, dirty, fetchState, state.updatedAt, umpireUnlocked]);
-  useEffect(() => { const timer = setInterval(() => setProjectorSlide((slide) => slide + 1), 15000); return () => clearInterval(timer); }, []);
   useEffect(() => {
     if (!printMode) return;
     const finish = () => setPrintMode(null);
@@ -550,8 +549,6 @@ export default function Home() {
   const publicMatches = state.matches.filter((match) => match.entryAId && match.entryBId);
   const liveMatches = publicMatches.filter((match) => match.status === "live");
   const finishedMatches = publicMatches.filter((match) => match.status === "finished");
-  const projectorSections = ["live", "finished", ...state.divisions.map((division) => `standing:${division.id}`)];
-  const activeProjector = projectorSections[projectorSlide % Math.max(1, projectorSections.length)] ?? "live";
 
   const renderStandings = () => <div className="stack">{state.divisions.map((division) => <section className="card standings-card" key={division.id}><div className="section-head"><div><p className="eyebrow">Regular stage</p><h2>{division.name} Standings</h2></div><span className="tie-note">Wins → Point Difference → Points For</span></div><StandingsTable state={state} division={division} /></section>)}</div>;
 
@@ -590,7 +587,7 @@ export default function Home() {
   const umpireContent = !umpireUnlocked ? <section className="gate card"><div className="gate-icon">🏸</div><p className="eyebrow">Umpire console</p><h2>Open a Match</h2><p>Enter the four-digit match PIN. The correct scorecard will open automatically.</p><form onSubmit={async (event) => { event.preventDefault(); const response = await fetch("/api/state", { method: "POST", headers: { "content-type": "application/json", ...(unlocked ? { "x-organizer-pin": organizerPin } : { "x-umpire-pin": umpireAccessPin }) }, body: JSON.stringify({ action: "verifyMatch", pin: umpirePin }) }); const data = await response.json(); if (!response.ok || !data.match) return alert(data.error || "Match PIN did not match an available game."); setSelectedMatch(data.match.id); setState((current) => ({ ...current, matches: current.matches.map((match) => match.id === data.match.id ? data.match : match) })); setUmpireUnlocked(true); }}><input aria-label="Match PIN" type="password" inputMode="numeric" autoComplete="off" placeholder="Match PIN" value={umpirePin} onChange={(event) => setUmpirePin(event.target.value.replace(/\D/g, "").slice(0, 4))} /><button className="primary" disabled={umpirePin.length !== 4}>Open Scorecard</button></form></section> : umpireMatch ? <section className="umpire-shell"><div className="section-head"><div><p className="eyebrow">Every tap is queued and synced in order</p><h2>{umpireMatch.label}</h2></div><div className="action-row"><button className="ghost" onClick={() => setPrintMode({ type: "scorecard", matchId: umpireMatch.id })}>Print Manual Card</button><button className="ghost" onClick={() => setUmpireUnlocked(false)}>Exit Match</button></div></div><MatchCard match={umpireMatch} state={state} scoreEditable onScoreStep={changeUmpireScore} onCompleteSet={finishUmpireSet} onUncompleteSet={unlockUmpireSet} /></section> : null;
 
   const spectatorContent = <div className="stack"><section className="scoreboard-hero"><p className="eyebrow">Live tournament</p><h2>{state.tournamentName}</h2><p>{liveMatches.length} live · {finishedMatches.length} finished · {state.courts} courts</p></section><div className="live-grid">{(liveMatches.length ? liveMatches : publicMatches.filter((match) => match.status !== "finished").slice(0, 6)).map((match) => <MatchCard key={match.id} match={match} state={state} />)}</div>{renderStandings()}</div>;
-  const projectorContent = <section className="projector-stage">{activeProjector === "live" && <div className="projector-slide"><p className="eyebrow">Live Games</p><h2>{state.tournamentName}</h2><div className="projector-grid">{(liveMatches.length ? liveMatches : publicMatches.filter((match) => match.status === "ready").slice(0, 4)).map((match) => <MatchCard key={match.id} match={match} state={state} />)}</div></div>}{activeProjector === "finished" && <div className="projector-slide"><p className="eyebrow">Finished Games</p><h2>Latest Results</h2><div className="projector-grid">{finishedMatches.slice(-4).map((match) => <MatchCard key={match.id} match={match} state={state} />)}</div></div>}{activeProjector.startsWith("standing:") && (() => { const division = state.divisions.find((item) => item.id === activeProjector.split(":")[1]); return division ? <div className="projector-slide standing-slide"><p className="eyebrow">Standings</p><h2>{division.name}</h2><StandingsTable state={state} division={division} /></div> : null; })()}<div className="slide-progress"><span>{projectorSections.indexOf(activeProjector) + 1} / {projectorSections.length}</span><i key={projectorSlide} /></div></section>;
+  const projectorContent = <Projector state={state} />;
 
   return <main className={`${state.theme === "dark" ? "dark" : ""} ${view === "register" ? "registration-view" : ""}`}>
     <header className="topbar" inert={accessOpen || Boolean(registrationDialog)}><div className="brand"><div className="mark">R</div><div><p>Racketeers</p><h1>Badminton Tournament Tracker</h1></div></div><nav className="view-switch" aria-label="View">{(unlocked ? ["organizer", "register", "umpire", "spectator", "projector"] : umpireAccessPin ? ["umpire", "spectator"] : ["register", "spectator"]).map(item => <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item as View)}>{item === "register" ? "Registration" : item[0].toUpperCase() + item.slice(1)}</button>)}<button disabled={dirty || sync === "saving"} onClick={() => { setOrganizerPin(""); setUnlocked(false); setUmpireAccessPin(""); setUmpireUnlocked(false); setUmpirePin(""); setView("register"); setAccessPin(""); setAccessMessage(""); setAccessOpen(true); void fetchState(""); }}>{unlocked || umpireAccessPin ? "Sign out / switch access" : "Staff access"}</button></nav><div className="header-tools"><span className={`sync ${sync}`}>● {sync === "saved" ? "Synced" : sync === "saving" ? "Saving" : "Offline"}</span><button aria-label="Toggle theme" className="theme" onClick={() => setState(current => ({ ...current, theme: current.theme === "light" ? "dark" : "light" }))}>{state.theme === "light" ? "☾" : "☀"}</button></div></header>
