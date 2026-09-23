@@ -34,6 +34,9 @@ export type PlayerRegistration = {
   poolOverride?: number | null;
   registrationPinHash?: string;
   selfRegistered?: boolean;
+  club?: string;
+  personId?: string;
+  secondShirt?: "black" | "tournament";
 };
 
 export type Division = {
@@ -85,6 +88,7 @@ export type TournamentState = {
   status: TournamentPhase;
   tournamentName: string;
   organizerPinHash?: string;
+  umpirePinHash?: string;
   theme: "light" | "dark";
   startDate: string;
   endDate: string;
@@ -148,15 +152,15 @@ export function makeDivision(name: string, mode: Mode): Division {
     qualifiersPerSubBracket: 1,
     knockoutSize: 8,
     manualChampionshipMatchups: false,
-    registrationManaged: false,
-    entries: Array.from({ length: teamCount }, (_, index) => makeEntry(index, mode, playersPerTeam, playersPerPair)),
+    registrationManaged: true,
+    entries: [],
   };
 }
 
 export function initialTournament(): TournamentState {
   const divisions = [makeDivision("Division 1", "doubles")];
   const base: TournamentState = {
-    version: 1,
+    version: 5,
     status: "setup",
     tournamentName: "Racketeers Badminton Cup",
     theme: "light",
@@ -181,6 +185,7 @@ export function displayName(entry?: Entry | null) {
 }
 
 export function regenerateEntries(division: Division): Division {
+  if (division.registrationManaged) return division;
   const wanted = Math.max(2, division.mode === "singles" ? division.playerCount : division.mode === "doubles" ? division.pairCount : division.teamCount);
   const entries = Array.from({ length: wanted }, (_, index) => {
     const old = division.entries[index];
@@ -498,7 +503,7 @@ export function syncRegistrationsToEntries(state: TournamentState): TournamentSt
     }
     if (division.mode === "doubles") {
       const used = new Set<string>();
-      const pairKeys = new Set<string>();
+
       const entries: Entry[] = [];
       for (const player of players) {
         if (used.has(player.id)) continue;
@@ -507,8 +512,7 @@ export function syncRegistrationsToEntries(state: TournamentState): TournamentSt
         const pairPlayers = partner ? [player, partner] : [player];
         const names = pairPlayers.map((item) => item.name).filter(Boolean);
         const pairKey = [...names].map((name) => name.trim().toLowerCase()).sort().join("|");
-        if (pairKey && pairKeys.has(pairKey)) continue;
-        if (pairKey) pairKeys.add(pairKey);
+
         const registrationIds = pairPlayers.map((item) => item.id);
         const sortedIds = [...registrationIds].sort();
         const old = division.entries.find((entry) => entry.registrationIds?.some((registrationId) => registrationIds.includes(registrationId))) ?? division.entries.find((entry) => [...entry.players].map((name) => name.toLowerCase()).sort().join("|") === pairKey);
@@ -531,8 +535,9 @@ export function hydrateTournament(input: TournamentState): TournamentState {
   const baseRegistrations = (input.registrations ?? []).map((registration) => ({ ...registration, partnerName: registration.partnerName ?? "", playerLevel: registration.playerLevel ?? "Beginner", desiredLevel: registration.desiredLevel ?? registration.playerLevel ?? "Beginner", poolOverride: registration.poolOverride ?? null }));
   const registrations: PlayerRegistration[] = [...baseRegistrations];
   for (const division of input.divisions ?? []) {
-    if (!division.registrationManaged || registrations.some((registration) => registration.divisionId === division.id) || !division.entries?.length) continue;
+    if ((input.version ?? 1) >= 5 || !division.registrationManaged || registrations.some((registration) => registration.divisionId === division.id) || !division.entries?.length) continue;
     for (const entry of division.entries) {
+      if (!entry.registrationIds?.length) continue;
       const memberIds = entry.players.map((_, index) => entry.registrationIds?.[index] ?? `recovered-${division.id}-${entry.id}-${index}`);
       entry.players.forEach((name, index) => {
         const pairStart = Math.floor(index / Math.max(1, division.playersPerPair ?? 2)) * Math.max(1, division.playersPerPair ?? 2);
@@ -590,7 +595,7 @@ export function hydrateTournament(input: TournamentState): TournamentState {
     if (matchPin) usedPins.add(matchPin);
     return { ...match, pin: matchPin, format: match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21") };
   });
-  return { ...input, version: Math.max(4, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
+  return { ...input, version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
 }
 
 export function addDivision(state: TournamentState, name = `Division ${state.divisions.length + 1}`): TournamentState {
@@ -601,7 +606,7 @@ export function duplicateDivision(state: TournamentState, divisionId: string): T
   const source = state.divisions.find((division) => division.id === divisionId);
   if (!source) return state;
   const fresh = makeDivision(`${source.name} Copy`, source.mode);
-  const duplicate = regenerateEntries({ ...source, id: fresh.id, name: fresh.name, entries: [], registrationManaged: false });
+  const duplicate = regenerateEntries({ ...source, id: fresh.id, name: fresh.name, entries: [], registrationManaged: true });
   return { ...state, divisions: [...state.divisions, duplicate] };
 }
 

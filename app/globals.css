@@ -92,3 +92,11 @@ main.dark { --ink:#f5f8fa; --muted:#9eaab5; --line:#33414c; --paper:#101820; --c
 .registration-id-display code { user-select:all; overflow-wrap:anywhere; font-size:.9rem; }
 .registration-save-warning { padding:1rem; margin:1rem 0; border:2px solid #d97706; border-radius:10px; background:#fffbeb; color:#78350f; text-align:left; }
 .registration-save-warning p { color:inherit; line-height:1.6; margin:.5rem 0 0; }
+
+.modal-backdrop { position:fixed; inset:0; background:rgb(10 20 30 / 65%); z-index:100; display:flex; align-items:flex-start; justify-content:center; overflow:auto; padding:32px 16px; }
+.access-dialog { width:min(100%, 480px); margin:auto; }
+.access-dialog form { display:grid; gap:16px; }
+.access-dialog input { width:100%; }
+.registration-dialog { width:min(100%, 1000px); display:grid; gap:12px; }
+.registration-dialog > .secondary { justify-self:end; }
+@media print { .modal-backdrop { display:none; } }

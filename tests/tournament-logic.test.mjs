@@ -11,12 +11,22 @@ const outfile = path.join(dir, "logic.mjs");
 await build({ entryPoints: [path.resolve("lib/tournament.ts")], outfile, bundle: true, platform: "node", format: "esm" });
 const logic = await import(pathToFileURL(outfile));
 
-test("new tournaments start with one fully customizable division", () => {
+// Explicit disposable fixtures. Production division creation never generates people.
+function fixtureDivision(name, mode) {
+ const division = {...logic.makeDivision(name, mode), registrationManaged:false};
+ return logic.regenerateEntries(division);
+}
+function fixtureTournament() {
+ const state = logic.initialTournament();
+ return logic.regenerateMatches({...state,version:4,divisions:[fixtureDivision('Division 1','doubles')]});
+}
+
+test("new tournaments start with one empty customizable division", () => {
   const state = logic.initialTournament();
   assert.equal(state.status, "setup");
   assert.deepEqual(state.divisions.map((division) => division.name), ["Division 1"]);
-  assert.ok(state.matches.some((match) => match.stage === "regular"));
-  assert.ok(state.matches.some((match) => match.stage === "gold"));
+  assert.equal(state.registrations.length, 0);
+  assert.equal(state.divisions[0].entries.length, 0);
 });
 
 test("regular games use 31 win-by-two with a cap of 35", () => {
@@ -26,7 +36,7 @@ test("regular games use 31 win-by-two with a cap of 35", () => {
 });
 
 test("rapid umpire point taps accumulate without reverting and respect score bounds", () => {
-  let match = logic.initialTournament().matches.find((item) => item.stage === "regular");
+  let match = fixtureTournament().matches.find((item) => item.stage === "regular");
   for (let tap = 0; tap < 12; tap++) match = logic.adjustMatchScore(match, 0, "a", 1);
   assert.equal(match.sets[0].a, 12);
   for (let tap = 0; tap < 20; tap++) match = logic.adjustMatchScore(match, 0, "a", -1);
@@ -36,7 +46,7 @@ test("rapid umpire point taps accumulate without reverting and respect score bou
 });
 
 test("set completion is available only after a valid winning score", () => {
-  let match = logic.initialTournament().matches.find((item) => item.stage === "regular");
+  let match = fixtureTournament().matches.find((item) => item.stage === "regular");
   match.sets = [{ a: 31, b: 30, complete: false }];
   assert.equal(logic.completeMatchSet(match, 0), match);
   match = logic.adjustMatchScore(match, 0, "a", 1);
@@ -45,7 +55,7 @@ test("set completion is available only after a valid winning score", () => {
 });
 
 test("completed umpire sets stay locked until explicitly reopened", () => {
-  let match = logic.initialTournament().matches.find((item) => item.stage === "regular");
+  let match = fixtureTournament().matches.find((item) => item.stage === "regular");
   match.sets = [{ a: 32, b: 30, complete: false }];
   match = logic.completeMatchSet(match, 0);
   const locked = logic.adjustMatchScore(match, 0, "a", 1);
@@ -58,14 +68,14 @@ test("completed umpire sets stay locked until explicitly reopened", () => {
 });
 
 test("validated sets cannot be reopened", () => {
-  const match = logic.initialTournament().matches.find((item) => item.stage === "regular");
+  const match = fixtureTournament().matches.find((item) => item.stage === "regular");
   match.sets = [{ a: 32, b: 30, complete: true }];
   match.validated = true;
   assert.equal(logic.uncompleteMatchSet(match, 0), match);
 });
 
 test("organizer validation locks the result and releases its court", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const match = state.matches.find((item) => item.stage === "regular");
   match.court = 2;
   match.status = "live";
@@ -78,7 +88,7 @@ test("organizer validation locks the result and releases its court", () => {
 });
 
 test("medal games require two completed winning sets", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const match = state.matches.find((item) => item.stage === "gold");
   match.entryAId = state.divisions[0].entries[0].id;
   match.entryBId = state.divisions[0].entries[1].id;
@@ -87,7 +97,7 @@ test("medal games require two completed winning sets", () => {
 });
 
 test("standings resolve tied wins by point difference then points for", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const division = state.divisions[0];
   const regular = state.matches.filter((match) => match.divisionId === division.id && match.stage === "regular");
   for (const match of regular) {
@@ -103,7 +113,7 @@ test("standings resolve tied wins by point difference then points for", () => {
 });
 
 test("direct medal games re-seed from the latest validated standings", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const division = state.divisions[0];
   const regular = state.matches.filter((match) => match.divisionId === division.id && match.stage === "regular");
   regular.forEach((match, index) => { match.sets = [{ a: index % 2 ? 20 : 31, b: index % 2 ? 31 : 10, complete: true }]; match.status = "finished"; match.validated = true; });
@@ -116,7 +126,7 @@ test("direct medal games re-seed from the latest validated standings", () => {
 });
 
 test("team rosters preserve pair-sized groups", () => {
-  const division = logic.makeDivision("Team Event", "team");
+  const division = fixtureDivision("Team Event", "team");
   division.playersPerTeam = 6;
   division.playersPerPair = 2;
   const updated = logic.regenerateEntries(division);
@@ -125,7 +135,7 @@ test("team rosters preserve pair-sized groups", () => {
 });
 
 test("schedule uses every available court without duplicate time slots", () => {
-  const state = logic.assignSchedule({ ...logic.initialTournament(), courts: 3, gameDuration: 20 });
+  const state = logic.assignSchedule({ ...fixtureTournament(), courts: 3, gameDuration: 20 });
   const seen = new Set();
   for (const match of state.matches) {
     const key = `${match.scheduledAt}-${match.court}`;
@@ -135,7 +145,7 @@ test("schedule uses every available court without duplicate time slots", () => {
 });
 
 test("unfinished court assignments block overlapping games", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const [first, second] = state.matches;
   first.court = 1; first.scheduledAt = null; first.status = "live";
   second.court = null; second.scheduledAt = null;
@@ -145,7 +155,7 @@ test("unfinished court assignments block overlapping games", () => {
 });
 
 test("registration partner selection synchronizes doubles entries", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const division = state.divisions[0];
   const first = logic.makeRegistration(division.id, 0);
   const second = logic.makeRegistration(division.id, 1);
@@ -159,7 +169,7 @@ test("registration partner selection synchronizes doubles entries", () => {
 });
 
 test("registration remains the idempotent source for derived player entries", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const division = state.divisions[0];
   const first = logic.makeRegistration(division.id, 0);
   const second = logic.makeRegistration(division.id, 1);
@@ -180,7 +190,7 @@ test("registration remains the idempotent source for derived player entries", ()
 });
 
 test("hydration restores registration rows from managed entries after a public-view overwrite", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   state.divisions[0].registrationManaged = true;
   const first = logic.makeRegistration(state.divisions[0].id, 0);
   const second = logic.makeRegistration(state.divisions[0].id, 1);
@@ -204,7 +214,7 @@ test("hydration restores registration rows from managed entries after a public-v
 });
 
 test("already paired players are hidden from unrelated partner selectors", () => {
-  const divisionId = logic.initialTournament().divisions[0].id;
+  const divisionId = fixtureTournament().divisions[0].id;
   const first = logic.makeRegistration(divisionId, 0);
   const second = logic.makeRegistration(divisionId, 1);
   const third = logic.makeRegistration(divisionId, 2);
@@ -216,7 +226,7 @@ test("already paired players are hidden from unrelated partner selectors", () =>
 });
 
 test("removing the final registered player does not recreate placeholder players", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const division = state.divisions[0];
   division.registrationManaged = true;
   const player = logic.makeRegistration(division.id, 0);
@@ -228,7 +238,7 @@ test("removing the final registered player does not recreate placeholder players
 });
 
 test("organizers can add, duplicate, rename, and remove divisions safely", () => {
-  let state = logic.initialTournament();
+  let state = fixtureTournament();
   state = logic.addDivision(state, "Mixed Doubles");
   assert.equal(state.divisions.length, 2);
   assert.equal(state.divisions[1].name, "Mixed Doubles");
@@ -240,12 +250,12 @@ test("organizers can add, duplicate, rename, and remove divisions safely", () =>
   state = logic.removeDivision(state, removedId);
   assert.equal(state.divisions.length, 2);
   assert.equal(state.divisions.some((division) => division.id === removedId), false);
-  const oneDivision = logic.initialTournament();
+  const oneDivision = fixtureTournament();
   assert.equal(logic.removeDivision(oneDivision, oneDivision.divisions[0].id).divisions.length, 1);
 });
 
 test("custom group brackets respect the organizer match count and format", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const division = state.divisions[0];
   division.bracketFormat = "custom";
   division.customGroupGameCount = 5;
@@ -257,7 +267,7 @@ test("custom group brackets respect the organizer match count and format", () =>
 });
 
 test("manual championship matchups are not overwritten by automatic reseeding", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const division = state.divisions[0];
   division.manualChampionshipMatchups = true;
   const gold = state.matches.find((match) => match.divisionId === division.id && match.stage === "gold");
@@ -269,7 +279,7 @@ test("manual championship matchups are not overwritten by automatic reseeding", 
 });
 
 test("older saved tournaments hydrate registration and match-format fields", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   delete state.registrations;
   for (const division of state.divisions) {
     delete division.groupMatchFormat;
@@ -284,7 +294,7 @@ test("older saved tournaments hydrate registration and match-format fields", () 
 });
 
 test("sub-brackets split entries into balanced pools and qualify independently", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const division = state.divisions[0];
   division.subBracketCount = 2;
   division.qualifiersPerSubBracket = 2;
@@ -299,7 +309,7 @@ test("sub-brackets split entries into balanced pools and qualify independently",
 });
 
 test("ladderized draws scale from round of 64 through the final", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   state.divisions[0].championshipFormat = "ladderized";
   state.divisions[0].knockoutSize = 64;
   const rebuilt = logic.regenerateMatches(state);
@@ -310,7 +320,7 @@ test("ladderized draws scale from round of 64 through the final", () => {
 });
 
 test("validated ladder semifinals advance winners into the final", () => {
-  let state = logic.initialTournament();
+  let state = fixtureTournament();
   state.divisions[0].championshipFormat = "ladderized";
   state.divisions[0].knockoutSize = 4;
   state = logic.regenerateMatches(state);
@@ -324,7 +334,7 @@ test("validated ladder semifinals advance winners into the final", () => {
 });
 
 test("un-validating a result preserves the score but unlocks organizer editing", () => {
-  let state = logic.initialTournament();
+  let state = fixtureTournament();
   const match = state.matches.find((item) => item.stage === "regular");
   match.sets = [{ a: 31, b: 18, complete: true }]; match.validated = true; match.status = "finished"; match.court = null;
   state = logic.unvalidateTournamentMatch(state, match.id);
@@ -335,7 +345,7 @@ test("un-validating a result preserves the score but unlocks organizer editing",
 });
 
 test("self-service typed pairs migrate into individual Players entries", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const division = state.divisions[0];
   division.registrationManaged = true;
   const player = logic.makeRegistration(division.id, 0);
@@ -350,7 +360,7 @@ test("self-service registration PINs are eight numeric digits", () => {
 });
 
 test("umpire PIN regeneration produces a visible unique four-digit PIN", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const target = state.matches[0];
   const previous = target.pin;
   const updated = logic.regenerateMatchPin(state, target.id);
@@ -361,7 +371,7 @@ test("umpire PIN regeneration produces a visible unique four-digit PIN", () => {
 });
 
 test("hydration repairs missing and duplicate umpire PINs", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   state.matches[0].pin = "";
   state.matches[1].pin = state.matches[2].pin;
   const hydrated = logic.hydrateTournament(state);
@@ -370,7 +380,7 @@ test("hydration repairs missing and duplicate umpire PINs", () => {
 });
 
 test("legacy typed partners become separate player records with a reciprocal pair", () => {
-  const state = logic.initialTournament();
+  const state = fixtureTournament();
   const player = logic.makeRegistration(state.divisions[0].id, 0);
   player.name = "Legacy Player";
   player.partnerName = "Legacy Partner";
@@ -385,9 +395,9 @@ test("legacy typed partners become separate player records with a reciprocal pai
 });
 
 test("64 disposable pairs form eight pools of eight and schedule next Saturday without mutating live-shaped input", () => {
-  const untouched = logic.initialTournament();
+  const untouched = fixtureTournament();
   const untouchedSnapshot = JSON.stringify(untouched);
-  let simulation = logic.initialTournament();
+  let simulation = fixtureTournament();
   const division = simulation.divisions[0];
   division.registrationManaged = true;
   division.pairCount = 64;

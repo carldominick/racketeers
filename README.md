@@ -74,3 +74,11 @@ The organizer Registration tab includes Player payment details: bank/provider, a
 Organizers use View payment screenshot and Confirm payment received on each registration card. Confirmation is reversible and uses the existing protected registration save flow. For a pair, review which players the payment covers and confirm each applicable individual record. Uploading or replacing a screenshot never changes the paid status automatically.
 
 New registration IDs use REG followed by a cryptographically generated UUID with no separators (35 alphanumeric characters). Public registration ignores supplied IDs and generates them on the server, checks current registration collisions, and retains the same ID during PIN-authorized edits. IDs are references, not passwords: matching registration PIN authorization is required for private receipts. Existing IDs are retained so existing pairings and screenshots continue working. Both receipt and QR uploads are capped at 2 MiB on the client and server, including images converted to PNG.
+
+## Registration and page access
+
+- Opening the site prompts for an organizer or umpire PIN, with a public option for Registration and Spectator views. Organizer access includes every view. Umpire access includes Umpire and Spectator only.
+- Set the shared umpire page PIN in Organizer → Setup → Umpire page access (8–10 digits, different from the organizer PIN). Rotating it immediately rejects the previous PIN on scoring APIs. Individual match PINs are still required.
+- Club/group is optional for each player. After saving an entry, or reopening it using its private PIN, choose Add second entry for the appropriate player. Select the same or another division, keep or change the partner, and choose a black or second tournament shirt. Each entry has its own registration ID and edit PIN; the records retain a shared player identity. Linked players can have at most two entries.
+- Organizer Add Player opens the same registration form. New or duplicated divisions do not create player records. Legacy placeholder entries without registration IDs are not recovered as registrations.
+- Registration, access, and UI tests use isolated in-memory fixtures and never modify the production database.

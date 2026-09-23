@@ -39,6 +39,7 @@ async function ensureRow() {
 function publicState(state: TournamentState) {
   const safe = structuredClone(state);
   delete safe.organizerPinHash;
+  delete safe.umpirePinHash;
   safe.registrations = [];
   safe.matches = safe.matches.map((match) => ({ ...match, pin: "" }));
   return safe;
@@ -46,6 +47,12 @@ function publicState(state: TournamentState) {
 
 async function authorized(pin: string | null, state: TournamentState) {
   return Boolean(pin && state.organizerPinHash && (await sha(pin)) === state.organizerPinHash);
+}
+
+async function umpireAuthorized(request: Request, state: TournamentState) {
+  if (await authorized(request.headers.get("x-organizer-pin"), state)) return true;
+  const pin = request.headers.get("x-umpire-pin");
+  return Boolean(pin && state.umpirePinHash && await sha(pin) === state.umpirePinHash);
 }
 
 function clean(value: unknown, max = 80) {
@@ -56,7 +63,7 @@ function editableRegistration(registration: PlayerRegistration, state?: Tourname
   const { registrationPinHash: _secret, ...safe } = registration;
   void _secret;
   const partner = state?.registrations.find((candidate) => candidate.id === registration.partnerId);
-  return { ...safe, partnerName: partner?.name ?? safe.partnerName, partnerShirtSize: partner?.shirtSize ?? "M", partnerDesiredLevel: partner?.desiredLevel ?? safe.desiredLevel };
+  return { ...safe, partnerName: partner?.name ?? safe.partnerName, partnerShirtSize: partner?.shirtSize ?? "M", partnerDesiredLevel: partner?.desiredLevel ?? safe.desiredLevel, partnerClub: partner?.club ?? "", partnerSecondShirt: partner?.secondShirt, partnerId: partner?.id ?? null, partnerEntryCount: partner ? state?.registrations.filter(r => (r.personId || r.id) === (partner.personId || partner.id)).length : 0, entryCount: state?.registrations.filter(r => (r.personId || r.id) === (registration.personId || registration.id)).length ?? 1 };
 }
 
 async function registrationForPin(state: TournamentState, value: string) {
@@ -83,7 +90,20 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const row = await ensureRow();
   const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
-  const body = (await request.json()) as { action?: string; pin?: string; newPin?: string; matchId?: string; registration?: Partial<PlayerRegistration> & { partnerShirtSize?: string; partnerDesiredLevel?: string } };
+  const body = (await request.json()) as { action?: string; pin?: string; newPin?: string; matchId?: string; registration?: Partial<PlayerRegistration> & { partnerShirtSize?: string; partnerDesiredLevel?: string; partnerClub?: string; sourceRegistrationId?: string; samePartner?: boolean; partnerSecondShirt?: "black" | "tournament" } };
+  if (body.action === "verifyAccess") {
+    if (await authorized(body.pin ?? null, state)) return Response.json({ role: "organizer" });
+    if (body.pin && state.umpirePinHash && await sha(body.pin) === state.umpirePinHash) return Response.json({ role: "umpire" });
+    return Response.json({ error: "Access PIN did not match." }, { status: 401 });
+  }
+  if (body.action === "changeUmpirePin") {
+    if (!(await authorized(request.headers.get("x-organizer-pin"), state))) return Response.json({ error: "Organizer PIN required." }, { status: 401 });
+    const newPin = body.newPin ?? "";
+    if (!/^\d{8,10}$/.test(newPin)) return Response.json({ error: "Use 8–10 digits for the umpire PIN." }, { status: 400 });
+    if (await authorized(newPin, state)) return Response.json({ error: "Use a different PIN from the organizer PIN." }, { status: 400 });
+    const saved = await saveStateAtRevision({ ...state, umpirePinHash: await sha(newPin) }, row.revision);
+    return saved ? Response.json({ ok: true, revision: saved.revision }) : Response.json({ error: "Settings changed. Try again." }, { status: 409 });
+  }
   if (body.action === "verifyOrganizer") {
     const ok = await authorized(body.pin ?? null, state);
     return Response.json({ ok }, { status: ok ? 200 : 401 });
@@ -92,11 +112,13 @@ export async function POST(request: Request) {
     if (!(await authorized(body.pin ?? null, state))) return Response.json({ error: "Current organizer PIN did not match." }, { status: 401 });
     const newPin = clean(body.newPin, 10);
     if (!/^\d{8,10}$/.test(newPin)) return Response.json({ error: "The new organizer PIN must contain 8–10 digits." }, { status: 400 });
+    if (await sha(newPin) === state.umpirePinHash) return Response.json({ error: "Use a different PIN from the umpire PIN." }, { status: 400 });
     const saved = await saveStateAtRevision({ ...state, organizerPinHash: await sha(newPin) }, row.revision);
     if (!saved) return Response.json({ error: "Tournament settings changed at the same time. Please try again." }, { status: 409 });
     return Response.json({ ok: true, revision: saved.revision });
   }
   if (body.action === "verifyMatch") {
+    if (!(await umpireAuthorized(request, state))) return Response.json({ error: "Umpire page access is required." }, { status: 401 });
     const matches = state.matches.filter((item) => item.pin === body.pin && !item.validated);
     if (matches.length > 1) return Response.json({ error: "This PIN matches more than one game. Ask the organizer to regenerate the match PINs." }, { status: 409 });
     const match = matches[0];
@@ -107,10 +129,21 @@ export async function POST(request: Request) {
     return Response.json({ ok: Boolean(registration), registration: registration ? editableRegistration(registration, state) : null }, { status: registration ? 200 : 401 });
   }
   if (body.action === "registerPlayer") {
-    if (state.status !== "registration") return Response.json({ error: "Player registration is not currently open." }, { status: 423 });
+    const isOrganizer = await authorized(request.headers.get("x-organizer-pin"), state);
+    if (!isOrganizer && state.status !== "registration") return Response.json({ error: "Player registration is not currently open." }, { status: 423 });
     const form = body.registration ?? {};
     const division = state.divisions.find((item) => item.id === form.divisionId);
     if (!division || !clean(form.name)) return Response.json({ error: "A player name and division are required." }, { status: 400 });
+    if (division.mode === "doubles" && !clean(form.partnerName)) return Response.json({ error: "Both player names are required." }, { status: 400 });
+    const source = form.sourceRegistrationId ? state.registrations.find(r => r.id === form.sourceRegistrationId) : null;
+    const sourceOwner = source && state.registrations.find(r => r.id === source.partnerId && r.partnerId === source.id);
+    if (form.sourceRegistrationId && (!source || !isOrganizer && (!body.pin || ![source.registrationPinHash, sourceOwner?.registrationPinHash].filter(Boolean).includes(await sha(body.pin))))) return Response.json({ error: "The original registration PIN is required to add a second entry." }, { status: 401 });
+    const sourcePartner = source && form.samePartner && division.mode !== "singles" ? state.registrations.find(r => r.id === source.partnerId && r.partnerId === source.id) : null;
+    for (const person of [source, sourcePartner]) {
+      if (person && state.registrations.filter(r => (r.personId || r.id) === (person.personId || person.id)).length >= 2) return Response.json({ error: "This player already has two entries." }, { status: 409 });
+    }
+    if (source && !["black", "tournament"].includes(form.secondShirt || "")) return Response.json({ error: "Choose a black shirt or second tournament shirt." }, { status: 400 });
+    if (sourcePartner && !["black", "tournament"].includes(form.partnerSecondShirt || "")) return Response.json({ error: "Choose the second shirt for the partner." }, { status: 400 });
     let editPin = "";
     let registrationPinHash = "";
     for (let attempt = 0; attempt < 20; attempt++) {
@@ -120,12 +153,12 @@ export async function POST(request: Request) {
     }
     if (state.registrations.some(registration => registration.registrationPinHash === registrationPinHash)) return Response.json({ error: "Unable to allocate a unique registration PIN. Please try again." }, { status: 503 });
     const registeredLevel = clean(form.desiredLevel, 30) || "Beginner";
-    const registration = { ...makeUniqueRegistration(division.id, state.registrations.length, state.registrations), name: clean(form.name), partnerName: "", shirtSize: clean(form.shirtSize, 8) || "M", playerLevel: registeredLevel, desiredLevel: registeredLevel, teamName: clean(form.teamName), registrationPinHash, selfRegistered: true };
+    const registration = { ...makeUniqueRegistration(division.id, state.registrations.length, state.registrations), name: source?.name || clean(form.name), club: clean(form.club), personId: source ? source.personId || source.id : undefined, secondShirt: source ? form.secondShirt : undefined, partnerName: "", shirtSize: clean(form.shirtSize, 8) || "M", playerLevel: registeredLevel, desiredLevel: registeredLevel, teamName: clean(form.teamName), registrationPinHash, selfRegistered: true };
     const newRegistrations: PlayerRegistration[] = [registration];
     const partnerName = division.mode === "singles" ? "" : clean(form.partnerName);
     if (partnerName) {
       const partnerRegisteredLevel = clean(form.partnerDesiredLevel, 30) || registeredLevel;
-      const partner = { ...makeUniqueRegistration(division.id, state.registrations.length + 1, [...state.registrations, ...newRegistrations]), name: partnerName, shirtSize: clean(form.partnerShirtSize, 8) || "M", playerLevel: partnerRegisteredLevel, desiredLevel: partnerRegisteredLevel, teamName: clean(form.teamName), partnerId: registration.id, selfRegistered: true };
+      const partner = { ...makeUniqueRegistration(division.id, state.registrations.length + 1, [...state.registrations, ...newRegistrations]), name: sourcePartner?.name || partnerName, club: clean(form.partnerClub), personId: sourcePartner ? sourcePartner.personId || sourcePartner.id : undefined, secondShirt: sourcePartner ? form.partnerSecondShirt : undefined, shirtSize: clean(form.partnerShirtSize, 8) || "M", playerLevel: partnerRegisteredLevel, desiredLevel: partnerRegisteredLevel, teamName: clean(form.teamName), partnerId: registration.id, selfRegistered: true };
       registration.partnerId = partner.id;
       newRegistrations.push(partner);
     }
@@ -142,13 +175,14 @@ export async function POST(request: Request) {
     const divisionId = clean(form.divisionId) || existing.divisionId;
     const division = state.divisions.find((item) => item.id === divisionId);
     if (!division || !clean(form.name ?? existing.name)) return Response.json({ error: "A player name and division are required." }, { status: 400 });
+    if (division.mode === "doubles" && !clean(form.partnerName ?? state.registrations.find(r => r.id === existing.partnerId)?.name)) return Response.json({ error: "Both player names are required." }, { status: 400 });
     const registeredLevel = clean(form.desiredLevel ?? existing.desiredLevel, 30) || "Beginner";
     const existingPartner = state.registrations.find((candidate) => candidate.id === existing.partnerId);
     const partnerRegisteredLevel = clean(form.partnerDesiredLevel ?? existingPartner?.desiredLevel ?? registeredLevel, 30) || registeredLevel;
     const partnerName = division.mode === "singles" ? "" : clean(form.partnerName ?? existingPartner?.name);
-    let updatedPartner = existingPartner ? { ...existingPartner, divisionId, name: partnerName, shirtSize: clean(form.partnerShirtSize ?? existingPartner.shirtSize, 8) || "M", desiredLevel: partnerRegisteredLevel, teamName: clean(form.teamName ?? existingPartner.teamName) } : null;
-    if (!updatedPartner && partnerName) updatedPartner = { ...makeRegistration(divisionId, state.registrations.length), name: partnerName, shirtSize: clean(form.partnerShirtSize, 8) || "M", desiredLevel: partnerRegisteredLevel, playerLevel: partnerRegisteredLevel, teamName: clean(form.teamName), partnerId: existing.id, selfRegistered: true };
-    const updated: PlayerRegistration = { ...existing, divisionId, name: clean(form.name ?? existing.name), partnerName: "", partnerId: updatedPartner?.id ?? null, shirtSize: clean(form.shirtSize ?? existing.shirtSize, 8), desiredLevel: registeredLevel, teamName: clean(form.teamName ?? existing.teamName) };
+    let updatedPartner: PlayerRegistration | null = existingPartner && partnerName ? { ...existingPartner, divisionId, name: partnerName, club: clean(form.partnerClub ?? existingPartner.club), secondShirt: existingPartner.secondShirt ? ((form.partnerSecondShirt ?? existingPartner.secondShirt) === "black" ? "black" as const : "tournament" as const) : undefined, shirtSize: clean(form.partnerShirtSize ?? existingPartner.shirtSize, 8) || "M", desiredLevel: partnerRegisteredLevel, teamName: clean(form.teamName ?? existingPartner.teamName) } : null;
+    if (!updatedPartner && partnerName) updatedPartner = { ...makeRegistration(divisionId, state.registrations.length), name: partnerName, club: clean(form.partnerClub), shirtSize: clean(form.partnerShirtSize, 8) || "M", desiredLevel: partnerRegisteredLevel, playerLevel: partnerRegisteredLevel, teamName: clean(form.teamName), partnerId: existing.id, selfRegistered: true };
+    const updated: PlayerRegistration = { ...existing, divisionId, name: clean(form.name ?? existing.name), club: clean(form.club ?? existing.club), secondShirt: existing.secondShirt ? ((form.secondShirt ?? existing.secondShirt) === "black" ? "black" : "tournament") : undefined, partnerName: "", partnerId: updatedPartner?.id ?? null, shirtSize: clean(form.shirtSize ?? existing.shirtSize, 8), desiredLevel: registeredLevel, teamName: clean(form.teamName ?? existing.teamName) };
     if (updatedPartner) updatedPartner.partnerId = updated.id;
     let registrations = state.registrations.map((registration) => registration.id === existing.id ? updated : updatedPartner && registration.id === updatedPartner.id ? updatedPartner : registration);
     if (updatedPartner && !registrations.some((registration) => registration.id === updatedPartner!.id)) registrations = [...registrations, updatedPartner];
@@ -169,7 +203,7 @@ export async function PUT(request: Request) {
   const body = (await request.json()) as { state?: TournamentState; expectedRevision?: number };
   if (!body.state) return Response.json({ error: "State is required" }, { status: 400 });
   if (body.expectedRevision !== row.revision) return Response.json({ error: "State changed on another device", state: current, revision: row.revision }, { status: 409 });
-  const next = { ...hydrateTournament(body.state), organizerPinHash: current.organizerPinHash, updatedAt: new Date().toISOString() };
+  const next = { ...hydrateTournament(body.state), organizerPinHash: current.organizerPinHash, umpirePinHash: current.umpirePinHash, updatedAt: new Date().toISOString() };
   const revision = row.revision + 1;
   const db = await database();
   const saved = await db.prepare("UPDATE tournament_state SET revision = ?, payload = ?, updated_at = ? WHERE id = ? AND revision = ?").bind(revision, JSON.stringify(next), next.updatedAt, ROW_ID, row.revision).run();
@@ -183,6 +217,7 @@ export async function PUT(request: Request) {
 export async function PATCH(request: Request) {
   const row = await ensureRow();
   const current = hydrateTournament(JSON.parse(row.payload) as TournamentState);
+  if (!(await umpireAuthorized(request, current))) return Response.json({ error: "Umpire page access is required." }, { status: 401 });
   const body = (await request.json()) as { matchId?: string; pin?: string; sets?: Array<{ a: number; b: number; complete: boolean }>; status?: "ready" | "live" | "finished" };
   const match = current.matches.find((item) => item.id === body.matchId);
   if (!match || !body.pin || match.pin !== body.pin) return Response.json({ error: "Valid match PIN required" }, { status: 401 });

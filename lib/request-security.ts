@@ -41,7 +41,7 @@ export async function protectedRequest(request: Request, db: Database, next: (re
       }
       request = new Request(request, { body: length ? bytes : null });
     }
-    const credentialRequest = request.headers.has("x-organizer-pin") || request.headers.has("x-registration-pin") || url.pathname === "/api/state" && request.method !== "GET";
+    const credentialRequest = request.headers.has("x-umpire-pin") || request.headers.has("x-organizer-pin") || request.headers.has("x-registration-pin") || url.pathname === "/api/state" && request.method !== "GET";
     const registering = action === "registerPlayer";
     let key = ""; const now = Date.now();
     if (credentialRequest) {
