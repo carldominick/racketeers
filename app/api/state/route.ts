@@ -1,6 +1,14 @@
 import { hydrateTournament, initialTournament, isSetWon, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
 
 const ROW_ID = "racketeers";
+type EntryForm = Partial<PlayerRegistration> & { partnerShirtSize?: string; partnerDesiredLevel?: string; partnerClub?: string; sourceRegistrationId?: string; samePartner?: boolean; partnerSecondShirt?: "black" | "tournament" };
+type RegistrationForm = EntryForm & { secondEntry?: EntryForm };
+function organizerState(state: TournamentState) {
+  return { ...state, registrations: state.registrations.map(({ registrationPinRecovery: secret, ...registration }) => { void secret; return registration; }) };
+}
+function registrationsForHash(state: TournamentState, hash?: string) {
+  return hash ? state.registrations.filter(r => r.registrationPinHash === hash).map(r => editableRegistration(r, state)) : [];
+}
 
 async function database() {
   const runtime = await import("cloudflare:workers");
@@ -60,15 +68,15 @@ function clean(value: unknown, max = 80) {
 }
 
 function editableRegistration(registration: PlayerRegistration, state?: TournamentState) {
-  const { registrationPinHash: _secret, ...safe } = registration;
-  void _secret;
+  const { registrationPinHash: _secret, registrationPinRecovery: _recovery, ...safe } = registration;
+  void _secret; void _recovery;
   const partner = state?.registrations.find((candidate) => candidate.id === registration.partnerId);
   return { ...safe, partnerName: partner?.name ?? safe.partnerName, partnerShirtSize: partner?.shirtSize ?? "M", partnerDesiredLevel: partner?.desiredLevel ?? safe.desiredLevel, partnerClub: partner?.club ?? "", partnerSecondShirt: partner?.secondShirt, partnerId: partner?.id ?? null, partnerEntryCount: partner ? state?.registrations.filter(r => (r.personId || r.id) === (partner.personId || partner.id)).length : 0, entryCount: state?.registrations.filter(r => (r.personId || r.id) === (registration.personId || registration.id)).length ?? 1 };
 }
 
-async function registrationForPin(state: TournamentState, value: string) {
+async function registrationForPin(state: TournamentState, value: string, registrationId?: string) {
   const pinHash = await sha(value);
-  return state.registrations.find((registration) => registration.registrationPinHash === pinHash);
+  return state.registrations.find((registration) => registration.registrationPinHash === pinHash && (!registrationId || registration.id === registrationId));
 }
 
 async function saveStateAtRevision(state: TournamentState, revision: number) {
@@ -84,13 +92,27 @@ export async function GET(request: Request) {
   const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
   const isOrganizer = await authorized(request.headers.get("x-organizer-pin"), state);
   if (request.headers.has("x-organizer-pin") && !isOrganizer) return Response.json({ error: "Organizer PIN did not match." }, { status: 401 });
-  return Response.json({ state: isOrganizer ? state : publicState(state), revision: row.revision, organizer: isOrganizer, updatedAt: row.updated_at });
+  return Response.json({ state: isOrganizer ? organizerState(state) : publicState(state), revision: row.revision, organizer: isOrganizer, updatedAt: row.updated_at });
 }
 
 export async function POST(request: Request) {
   const row = await ensureRow();
   const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
-  const body = (await request.json()) as { action?: string; pin?: string; newPin?: string; matchId?: string; registration?: Partial<PlayerRegistration> & { partnerShirtSize?: string; partnerDesiredLevel?: string; partnerClub?: string; sourceRegistrationId?: string; samePartner?: boolean; partnerSecondShirt?: "black" | "tournament" } };
+  const body = (await request.json()) as { action?: string; pin?: string; newPin?: string; matchId?: string; registrationId?: string; registration?: RegistrationForm };
+  if (body.action === "viewRegistrationPin" || body.action === "replaceRegistrationPin") {
+    if (!(await authorized(request.headers.get("x-organizer-pin"), state))) return Response.json({ error: "Organizer access is required." }, { status: 401 });
+    const selected = state.registrations.find(r => r.id === body.registrationId);
+    if (!selected) return Response.json({ error: "Registration not found." }, { status: 404 });
+    const owner = selected.registrationPinHash ? selected : state.registrations.find(r => r.id === selected.partnerId && r.partnerId === selected.id && r.registrationPinHash) || selected;
+    if (body.action === "viewRegistrationPin") return Response.json({ pin: owner.registrationPinRecovery || null, canReplace: true }, { headers: { "Cache-Control": "private, no-store" } });
+    let replacement = "", replacementHash = "";
+    for (let n = 0; n < 20; n++) { replacement = makeRegistrationEditPin(); replacementHash = await sha(replacement); if (!state.registrations.some(r => r.registrationPinHash === replacementHash)) break; }
+    if (state.registrations.some(r => r.registrationPinHash === replacementHash)) return Response.json({ error: "Could not create a unique PIN. Try again." }, { status: 503 });
+    const registrations = state.registrations.map(r => r.id === owner.id || Boolean(owner.registrationPinHash && r.registrationPinHash === owner.registrationPinHash) ? { ...r, registrationPinHash: replacementHash, registrationPinRecovery: replacement } : r);
+    const saved = await saveStateAtRevision({ ...state, registrations }, row.revision);
+    if (!saved) return Response.json({ error: "Registration changed. Please try again." }, { status: 409 });
+    return Response.json({ pin: replacement, revision: saved.revision }, { headers: { "Cache-Control": "private, no-store" } });
+  }
   if (body.action === "verifyAccess") {
     if (await authorized(body.pin ?? null, state)) return Response.json({ role: "organizer" });
     if (body.pin && state.umpirePinHash && await sha(body.pin) === state.umpirePinHash) return Response.json({ role: "umpire" });
@@ -125,8 +147,8 @@ export async function POST(request: Request) {
     return Response.json({ ok: Boolean(match), match: match ? { ...match, pin: "" } : null }, { status: match ? 200 : 401 });
   }
   if (body.action === "lookupRegistration") {
-    const registration = body.pin ? await registrationForPin(state, body.pin) : null;
-    return Response.json({ ok: Boolean(registration), registration: registration ? editableRegistration(registration, state) : null }, { status: registration ? 200 : 401 });
+    const registration = body.pin ? await registrationForPin(state, body.pin, body.registrationId) : null;
+    return Response.json({ ok: Boolean(registration), registration: registration ? editableRegistration(registration, state) : null, registrations: registration ? registrationsForHash(state, registration.registrationPinHash) : [] }, { status: registration ? 200 : 401 });
   }
   if (body.action === "registerPlayer") {
     const isOrganizer = await authorized(request.headers.get("x-organizer-pin"), state);
@@ -144,6 +166,13 @@ export async function POST(request: Request) {
     }
     if (source && !["black", "tournament"].includes(form.secondShirt || "")) return Response.json({ error: "Choose a black shirt or second tournament shirt." }, { status: 400 });
     if (sourcePartner && !["black", "tournament"].includes(form.partnerSecondShirt || "")) return Response.json({ error: "Choose the second shirt for the partner." }, { status: 400 });
+    const second = form.secondEntry;
+    const secondDivision = second && state.divisions.find(d => d.id === second.divisionId);
+    if (second && (source || !secondDivision || typeof second !== "object" || Array.isArray(second))) return Response.json({ error: "Choose a valid division for the second entry. Only two entries are allowed." }, { status: 400 });
+    if (second && !["black", "tournament"].includes(second.secondShirt || "")) return Response.json({ error: "Choose the second-entry shirt." }, { status: 400 });
+    if (second && secondDivision?.mode === "doubles" && !clean(second.samePartner ? form.partnerName : second.partnerName)) return Response.json({ error: "Enter a partner for the second entry." }, { status: 400 });
+    if (second?.samePartner && (!clean(form.partnerName) || division.mode === "singles")) return Response.json({ error: "The first entry has no partner to reuse." }, { status: 400 });
+    if (second?.samePartner && secondDivision?.mode !== "singles" && !["black", "tournament"].includes(second.partnerSecondShirt || "")) return Response.json({ error: "Choose the partner’s second-entry shirt." }, { status: 400 });
     let editPin = "";
     let registrationPinHash = "";
     for (let attempt = 0; attempt < 20; attempt++) {
@@ -153,7 +182,7 @@ export async function POST(request: Request) {
     }
     if (state.registrations.some(registration => registration.registrationPinHash === registrationPinHash)) return Response.json({ error: "Unable to allocate a unique registration PIN. Please try again." }, { status: 503 });
     const registeredLevel = clean(form.desiredLevel, 30) || "Beginner";
-    const registration = { ...makeUniqueRegistration(division.id, state.registrations.length, state.registrations), name: source?.name || clean(form.name), club: clean(form.club), personId: source ? source.personId || source.id : undefined, secondShirt: source ? form.secondShirt : undefined, partnerName: "", shirtSize: clean(form.shirtSize, 8) || "M", playerLevel: registeredLevel, desiredLevel: registeredLevel, teamName: clean(form.teamName), registrationPinHash, selfRegistered: true };
+    const registration = { ...makeUniqueRegistration(division.id, state.registrations.length, state.registrations), name: source?.name || clean(form.name), club: clean(form.club), personId: source ? source.personId || source.id : undefined, secondShirt: source ? form.secondShirt : undefined, partnerName: "", shirtSize: clean(form.shirtSize, 8) || "M", playerLevel: registeredLevel, desiredLevel: registeredLevel, teamName: clean(form.teamName), registrationPinHash, registrationPinRecovery: editPin, selfRegistered: true };
     const newRegistrations: PlayerRegistration[] = [registration];
     const partnerName = division.mode === "singles" ? "" : clean(form.partnerName);
     if (partnerName) {
@@ -162,14 +191,29 @@ export async function POST(request: Request) {
       registration.partnerId = partner.id;
       newRegistrations.push(partner);
     }
-    const next = syncRegistrationsToEntries({ ...state, divisions: state.divisions.map((item) => item.id === division.id ? { ...item, registrationManaged: true } : item), registrations: [...state.registrations, ...newRegistrations] });
+    const paymentGroupId = source?.paymentGroupId || source?.id || registration.id;
+    newRegistrations.forEach(r => { r.paymentGroupId = paymentGroupId; });
+    let existingRegistrations = state.registrations;
+    if (source && !source.paymentGroupId) existingRegistrations = state.registrations.map(r => r.id === source.id || r.id === sourceOwner?.id ? { ...r, paymentGroupId } : r);
+    if (second && secondDivision) {
+      const linked: PlayerRegistration = { ...makeUniqueRegistration(secondDivision.id, state.registrations.length + newRegistrations.length, [...state.registrations, ...newRegistrations]), name: registration.name, club: registration.club, personId: registration.id, secondShirt: second.secondShirt, shirtSize: clean(second.shirtSize, 8) || registration.shirtSize, desiredLevel: registration.desiredLevel, playerLevel: registration.playerLevel, teamName: clean(second.teamName), registrationPinHash, registrationPinRecovery: editPin, paymentGroupId, selfRegistered: true };
+      newRegistrations.push(linked);
+      const firstPartner = newRegistrations.find(r => r.id === registration.partnerId);
+      const secondPartnerName = secondDivision.mode === "singles" ? "" : clean(second.samePartner ? firstPartner?.name : second.partnerName);
+      if (secondPartnerName) {
+        const partner: PlayerRegistration = { ...makeUniqueRegistration(secondDivision.id, state.registrations.length + newRegistrations.length, [...state.registrations, ...newRegistrations]), name: secondPartnerName, club: second.samePartner ? firstPartner?.club : clean(second.partnerClub), personId: second.samePartner ? firstPartner?.id : undefined, secondShirt: second.samePartner ? second.partnerSecondShirt : undefined, shirtSize: clean(second.partnerShirtSize, 8) || firstPartner?.shirtSize || "M", desiredLevel: second.samePartner ? firstPartner?.desiredLevel || "Beginner" : clean(second.partnerDesiredLevel, 30) || "Beginner", playerLevel: second.samePartner ? firstPartner?.playerLevel || "Beginner" : clean(second.partnerDesiredLevel, 30) || "Beginner", teamName: linked.teamName, partnerId: linked.id, paymentGroupId, selfRegistered: true };
+        linked.partnerId = partner.id; newRegistrations.push(partner);
+      }
+    }
+    const divisionIds = new Set(newRegistrations.map(r => r.divisionId));
+    const next = syncRegistrationsToEntries({ ...state, divisions: state.divisions.map(item => divisionIds.has(item.id) ? { ...item, registrationManaged: true } : item), registrations: [...existingRegistrations, ...newRegistrations] });
     const saved = await saveStateAtRevision(next, row.revision);
     if (!saved) return Response.json({ error: "Registration changed at the same time. Please submit once more." }, { status: 409 });
-    return Response.json({ ok: true, registration: editableRegistration(registration, next), editPin, revision: saved.revision });
+    return Response.json({ ok: true, registration: editableRegistration(registration, next), registrations: registrationsForHash(next, registrationPinHash), editPin, revision: saved.revision });
   }
   if (body.action === "updateRegistration") {
     if (state.status !== "registration") return Response.json({ error: "Registration changes are locked once the tournament is no longer in the registration phase." }, { status: 423 });
-    const existing = body.pin ? await registrationForPin(state, body.pin) : null;
+    const existing = body.pin ? await registrationForPin(state, body.pin, body.registrationId) : null;
     const form = body.registration ?? {};
     if (!existing) return Response.json({ error: "Registration PIN did not match." }, { status: 401 });
     const divisionId = clean(form.divisionId) || existing.divisionId;
@@ -181,7 +225,7 @@ export async function POST(request: Request) {
     const partnerRegisteredLevel = clean(form.partnerDesiredLevel ?? existingPartner?.desiredLevel ?? registeredLevel, 30) || registeredLevel;
     const partnerName = division.mode === "singles" ? "" : clean(form.partnerName ?? existingPartner?.name);
     let updatedPartner: PlayerRegistration | null = existingPartner && partnerName ? { ...existingPartner, divisionId, name: partnerName, club: clean(form.partnerClub ?? existingPartner.club), secondShirt: existingPartner.secondShirt ? ((form.partnerSecondShirt ?? existingPartner.secondShirt) === "black" ? "black" as const : "tournament" as const) : undefined, shirtSize: clean(form.partnerShirtSize ?? existingPartner.shirtSize, 8) || "M", desiredLevel: partnerRegisteredLevel, teamName: clean(form.teamName ?? existingPartner.teamName) } : null;
-    if (!updatedPartner && partnerName) updatedPartner = { ...makeRegistration(divisionId, state.registrations.length), name: partnerName, club: clean(form.partnerClub), shirtSize: clean(form.partnerShirtSize, 8) || "M", desiredLevel: partnerRegisteredLevel, playerLevel: partnerRegisteredLevel, teamName: clean(form.teamName), partnerId: existing.id, selfRegistered: true };
+    if (!updatedPartner && partnerName) updatedPartner = { ...makeRegistration(divisionId, state.registrations.length), name: partnerName, club: clean(form.partnerClub), shirtSize: clean(form.partnerShirtSize, 8) || "M", desiredLevel: partnerRegisteredLevel, playerLevel: partnerRegisteredLevel, teamName: clean(form.teamName), partnerId: existing.id, paymentGroupId: existing.paymentGroupId, selfRegistered: true };
     const updated: PlayerRegistration = { ...existing, divisionId, name: clean(form.name ?? existing.name), club: clean(form.club ?? existing.club), secondShirt: existing.secondShirt ? ((form.secondShirt ?? existing.secondShirt) === "black" ? "black" : "tournament") : undefined, partnerName: "", partnerId: updatedPartner?.id ?? null, shirtSize: clean(form.shirtSize ?? existing.shirtSize, 8), desiredLevel: registeredLevel, teamName: clean(form.teamName ?? existing.teamName) };
     if (updatedPartner) updatedPartner.partnerId = updated.id;
     let registrations = state.registrations.map((registration) => registration.id === existing.id ? updated : updatedPartner && registration.id === updatedPartner.id ? updatedPartner : registration);
@@ -190,7 +234,7 @@ export async function POST(request: Request) {
     const next = syncRegistrationsToEntries({ ...state, divisions: state.divisions.map((item) => item.id === divisionId ? { ...item, registrationManaged: true } : item), registrations });
     const saved = await saveStateAtRevision(next, row.revision);
     if (!saved) return Response.json({ error: "Registration changed at the same time. Please save once more." }, { status: 409 });
-    return Response.json({ ok: true, registration: editableRegistration(updated, next), revision: saved.revision });
+    return Response.json({ ok: true, registration: editableRegistration(updated, next), registrations: registrationsForHash(next, updated.registrationPinHash), revision: saved.revision });
   }
   return Response.json({ error: "Unsupported action" }, { status: 400 });
 }
@@ -202,16 +246,18 @@ export async function PUT(request: Request) {
   if (!(await authorized(pin, current))) return Response.json({ error: "Organizer PIN required" }, { status: 401 });
   const body = (await request.json()) as { state?: TournamentState; expectedRevision?: number };
   if (!body.state) return Response.json({ error: "State is required" }, { status: 400 });
-  if (body.expectedRevision !== row.revision) return Response.json({ error: "State changed on another device", state: current, revision: row.revision }, { status: 409 });
-  const next = { ...hydrateTournament(body.state), organizerPinHash: current.organizerPinHash, umpirePinHash: current.umpirePinHash, updatedAt: new Date().toISOString() };
+  if (body.expectedRevision !== row.revision) return Response.json({ error: "State changed on another device", state: organizerState(current), revision: row.revision }, { status: 409 });
+  const proposed = hydrateTournament(body.state);
+  proposed.registrations = proposed.registrations.map(r => { const previous = current.registrations.find(p => p.id === r.id); return { ...r, registrationPinHash: previous?.registrationPinHash, registrationPinRecovery: previous?.registrationPinRecovery, paymentGroupId: previous?.paymentGroupId }; });
+  const next = { ...proposed, organizerPinHash: current.organizerPinHash, umpirePinHash: current.umpirePinHash, updatedAt: new Date().toISOString() };
   const revision = row.revision + 1;
   const db = await database();
   const saved = await db.prepare("UPDATE tournament_state SET revision = ?, payload = ?, updated_at = ? WHERE id = ? AND revision = ?").bind(revision, JSON.stringify(next), next.updatedAt, ROW_ID, row.revision).run();
   if (saved.meta.changes !== 1) {
     const latest = await db.prepare("SELECT revision, payload FROM tournament_state WHERE id = ?").bind(ROW_ID).first<{ revision: number; payload: string }>();
-    return Response.json({ error: "State changed on another device", state: latest ? hydrateTournament(JSON.parse(latest.payload) as TournamentState) : current, revision: latest?.revision ?? row.revision }, { status: 409 });
+    return Response.json({ error: "State changed on another device", state: organizerState(latest ? hydrateTournament(JSON.parse(latest.payload) as TournamentState) : current), revision: latest?.revision ?? row.revision }, { status: 409 });
   }
-  return Response.json({ state: next, revision });
+  return Response.json({ state: organizerState(next), revision });
 }
 
 export async function PATCH(request: Request) {

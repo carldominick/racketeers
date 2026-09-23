@@ -132,3 +132,23 @@ test('organizer uploads and either reciprocal partner can read shared proof; unr
  assert.equal((await handlePaymentProof(req({id:second.id,pin:'87654321'}),env)).status,404);
  delete first.partnerId;delete first.divisionId;delete second.partnerId;delete second.divisionId;
 });
+
+test('combined entries share one upload across all players while unrelated registrations remain private',async()=>{
+ objects.clear();const first=state.registrations[0];first.paymentGroupId=first.id;
+ state.registrations.push({id:'combined-second',paymentGroupId:first.id,paid:false},{id:'combined-partner',paymentGroupId:first.id,paid:false});
+ const upload=await handlePaymentProof(req({method:'POST'}),env);assert.equal(upload.status,200);
+ const result=await upload.json();assert.equal(result.linkedRegistrationIds.length,3);assert.equal(objects.size,1);assert.ok(objects.has(`payments/groups/${first.id}/${first.id}.png`));
+ for(const id of result.linkedRegistrationIds)assert.equal((await handlePaymentProof(req({id}),env)).status,200);
+ assert.equal((await handlePaymentProof(req({id:'combined-second',pin:'87654321'}),env)).status,401);
+ assert.equal((await handlePaymentProof(req({id:'player-other'}),env)).status,401);assert.equal(first.paid,false);
+ await handlePaymentProof(req({id:'combined-second',method:'POST'}),env);assert.equal(objects.size,1);
+ state.registrations.splice(2);delete first.paymentGroupId;
+});
+test('adding a later entry keeps a legacy pair receipt available to its payment group',async()=>{
+ objects.clear();const [first,second]=state.registrations;
+ Object.assign(first,{partnerId:second.id,divisionId:'d'});Object.assign(second,{partnerId:first.id,divisionId:'d'});
+ await handlePaymentProof(req({method:'POST'}),env);
+ first.paymentGroupId=first.id;second.paymentGroupId=first.id;state.registrations.push({id:'later-entry',paymentGroupId:first.id});
+ assert.equal((await handlePaymentProof(req({id:'later-entry'}),env)).status,200);
+ state.registrations.pop();for(const r of [first,second]){delete r.paymentGroupId;delete r.partnerId;delete r.divisionId;}
+});

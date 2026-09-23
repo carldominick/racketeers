@@ -86,3 +86,45 @@ test('legacy placeholder entries without registration IDs never become registrat
  const state=logic.initialTournament();state.version=4;state.divisions[0].entries=[logic.makeEntry(0,'doubles')];
  assert.equal(logic.hydrateTournament(state).registrations.length,0);
 });
+
+test('combined entries save atomically with one PIN, a shared payment group, and selectable edits',async()=>{
+ let state=await reset();state=logic.addDivision(state,'Second division');saved.payload=JSON.stringify(state);
+ const response=await post(create(state.divisions[0].id,{secondEntry:{divisionId:state.divisions[1].id,samePartner:true,secondShirt:'black',partnerSecondShirt:'tournament'}}));
+ assert.equal(response.status,200);const result=await response.json();assert.equal(saved.revision,2);assert.equal(result.registrations.length,2);
+ const current=JSON.parse(saved.payload);assert.equal(current.registrations.length,4);assert.equal(new Set(current.registrations.map(r=>r.paymentGroupId)).size,1);
+ assert.ok(current.divisions.every(d=>d.entries.length===1));
+ const second=result.registrations[1];assert.equal(second.secondShirt,'black');assert.equal(second.personId,result.registration.id);
+ const lookup=await (await post({action:'lookupRegistration',pin:result.editPin,registrationId:second.id})).json();assert.equal(lookup.registration.id,second.id);assert.equal(lookup.registrations.length,2);
+ const edit=await post({action:'updateRegistration',pin:result.editPin,registrationId:second.id,registration:{club:'Updated'}});assert.equal(edit.status,200);assert.equal((await edit.json()).registration.club,'Updated');
+ const foreign=await (await post(create(state.divisions[0].id,{name:'Other'}))).json();
+ assert.equal((await post({action:'lookupRegistration',pin:result.editPin,registrationId:foreign.registration.id})).status,401);
+ assert.equal((await post({action:'updateRegistration',pin:result.editPin,registrationId:foreign.registration.id,registration:{name:'Wrong'}})).status,401);
+ assert.equal((await post({...create(state.divisions[0].id,{sourceRegistrationId:result.registration.id,secondShirt:'black'}),pin:result.editPin})).status,409);
+ assert.equal(JSON.stringify(result).includes('registrationPinRecovery'),false);assert.equal(JSON.stringify(lookup).includes('registrationPinHash'),false);
+});
+test('combined same-division entries support different partners and reject invalid second entries without saving',async()=>{
+ const state=await reset(), id=state.divisions[0].id;
+ for(const secondEntry of [{divisionId:'missing',secondShirt:'black'},{divisionId:id,secondShirt:'invalid'},{divisionId:id,secondShirt:'black',partnerName:''}]){
+  assert.equal((await post(create(id,{secondEntry}))).status,400);assert.equal(saved.revision,1);assert.equal(JSON.parse(saved.payload).registrations.length,0);
+ }
+ const result=await (await post(create(id,{secondEntry:{divisionId:id,samePartner:false,partnerName:'Morgan',partnerClub:'Other Club',secondShirt:'tournament'}}))).json();
+ assert.equal(result.registrations.length,2);assert.equal(result.registrations[1].partnerName,'Morgan');assert.equal(result.registrations[1].partnerClub,'Other Club');assert.equal(JSON.parse(saved.payload).divisions[0].entries.length,2);
+});
+test('only organizers recover PINs; replacements rotate every linked entry and legacy PINs can be replaced',async()=>{
+ const state=await reset(),id=state.divisions[0].id;
+ const result=await (await post(create(id,{secondEntry:{divisionId:id,samePartner:true,secondShirt:'black',partnerSecondShirt:'black'}}))).json();
+ const registrationId=result.registration.partnerId;
+ assert.equal((await post({action:'viewRegistrationPin',registrationId})).status,401);
+ assert.equal((await post({action:'replaceRegistrationPin',registrationId})).status,401);
+ const shown=await post({action:'viewRegistrationPin',registrationId},org);assert.equal(shown.headers.get('cache-control'),'private, no-store');assert.equal((await shown.json()).pin,result.editPin);
+ for(const headers of [{},org]){const data=await (await api.GET(new Request('https://test/api/state',{headers}))).text();assert.equal(data.includes('registrationPinRecovery'),false);assert.equal(data.includes(result.editPin),false);}
+ const replacement=await (await post({action:'replaceRegistrationPin',registrationId},org)).json();assert.notEqual(replacement.pin,result.editPin);
+ assert.equal((await post({action:'lookupRegistration',pin:result.editPin})).status,401);
+ const lookup=await (await post({action:'lookupRegistration',pin:replacement.pin})).json();assert.equal(lookup.registrations.length,2);
+ const legacy=JSON.parse(saved.payload);legacy.registrations.forEach(r=>delete r.registrationPinRecovery);saved.payload=JSON.stringify(legacy);
+ assert.equal((await (await post({action:'viewRegistrationPin',registrationId},org)).json()).pin,null);
+ assert.match((await (await post({action:'replaceRegistrationPin',registrationId},org)).json()).pin,/^\d{8,10}$/);
+ const before=JSON.parse(saved.payload);const incoming=structuredClone(before);incoming.registrations.forEach(r=>{r.registrationPinRecovery='forged';r.registrationPinHash='forged';r.paymentGroupId='forged';});
+ const savedResponse=await api.PUT(request({state:incoming,expectedRevision:saved.revision},org,'PUT'));assert.equal(savedResponse.status,200);assert.equal((await savedResponse.text()).includes('registrationPinRecovery'),false);
+ assert.equal(JSON.parse(saved.payload).registrations[0].registrationPinRecovery,before.registrations[0].registrationPinRecovery);assert.equal(JSON.parse(saved.payload).registrations[0].paymentGroupId,before.registrations[0].paymentGroupId);
+});

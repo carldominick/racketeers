@@ -46,15 +46,20 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
     const organizer = /^\d{4,10}$/.test(organizerPin) && await hash(organizerPin) === state.organizerPinHash;
     const registration = state.registrations.find(r => r.id === registrationId);
     const partner = registration && state.registrations.find(r => r.id === registration.partnerId && r.partnerId === registration.id && r.divisionId === registration.divisionId);
-    const owner = registration && /^\d{8,10}$/.test(registrationPin) && [registration.registrationPinHash, partner?.registrationPinHash].filter(Boolean).includes(await hash(registrationPin));
+    const groupMembers = registration?.paymentGroupId ? state.registrations.filter(r => r.paymentGroupId === registration.paymentGroupId) : [];
+    const owner = registration && /^\d{8,10}$/.test(registrationPin) && [registration.registrationPinHash, partner?.registrationPinHash, ...groupMembers.map(r => r.registrationPinHash)].filter(Boolean).includes(await hash(registrationPin));
     if (!organizer && !owner) return reply({ error: "A valid organizer or registration PIN is required." }, 401);
     if (!registration) return reply({ error: "Registration not found." }, 404);
     if (!env.PAYMENT_PROOFS) return reply({ error: "Payment screenshot uploads are not available yet. Please contact the organizer." }, 503);
-    const linkedRegistrationIds = [registration.id, ...(partner ? [partner.id] : [])].sort();
-    const filename = `${linkedRegistrationIds[0]}.png`;
-    // A pair-specific location prevents a newly uploaded receipt following a later partner change.
-    const key = partner ? `payments/pairs/${linkedRegistrationIds.join("/")}/${filename}` : `payments/${filename}`;
-    const keys = [...new Set([key, ...linkedRegistrationIds.map(id => `payments/${id}.png`)])];
+    const linkedRegistrationIds = (groupMembers.length ? groupMembers.map(r => r.id) : [registration.id, ...(partner ? [partner.id] : [])]).sort();
+    const filename = `${registration.paymentGroupId || linkedRegistrationIds[0]}.png`;
+    const pairKey = (ids: string[]) => { const sorted = [...ids].sort(); return `payments/pairs/${sorted.join("/")}/${sorted[0]}.png`; };
+    const key = registration.paymentGroupId ? `payments/groups/${registration.paymentGroupId}/${filename}` : partner ? pairKey(linkedRegistrationIds) : `payments/${filename}`;
+    const legacyPairs = groupMembers.flatMap(member => {
+      const other = groupMembers.find(r => r.id === member.partnerId && r.partnerId === member.id && r.divisionId === member.divisionId);
+      return other ? [pairKey([member.id, other.id])] : [];
+    });
+    const keys = [...new Set([key, ...legacyPairs, ...linkedRegistrationIds.map(id => `payments/${id}.png`)])];
     if (request.method === "DELETE") {
       if (!organizer) return reply({ error: "Only organizers can delete payment photos." }, 403);
       for (const candidate of keys) await env.PAYMENT_PROOFS.delete(candidate);

@@ -33,6 +33,9 @@ export type PlayerRegistration = {
   desiredLevel: string;
   poolOverride?: number | null;
   registrationPinHash?: string;
+  /** Server-only recoverable value; never included in normal state or player responses. */
+  registrationPinRecovery?: string;
+  paymentGroupId?: string;
   selfRegistered?: boolean;
   club?: string;
   personId?: string;
