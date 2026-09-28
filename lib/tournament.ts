@@ -20,6 +20,8 @@ export type Entry = {
 };
 
 export type PlayerRegistration = {
+  facebookProfile?: string;
+  phone?: string;
   id: string;
   name: string;
   divisionId: string;
@@ -691,4 +693,22 @@ export function resetRegistrations(state: TournamentState, divisionId?: string):
     divisions: state.divisions.map(d => affected.has(d.id) ? { ...d, registrationManaged: true, entries: [], playerCount: 0, pairCount: 0, teamCount: 0 } : d),
     matches: state.matches.filter(m => !affected.has(m.divisionId)),
   };
+}
+
+/** Validate contact details without assuming a specific country phone format. */
+export function contactError(facebookProfile?: string, phone?: string): string | null {
+  try {
+    const url = new URL(facebookProfile || "");
+    if (url.protocol !== "https:" || !["facebook.com", "www.facebook.com", "m.facebook.com", "mbasic.facebook.com"].includes(url.hostname) || url.pathname === "/" || url.username || url.password) return "Enter a Facebook profile link starting with https://www.facebook.com/.";
+  } catch { return "Enter a valid Facebook profile link, including https://."; }
+  const number = (phone || "").trim();
+  if (!/^[+\d\s().-]+$/.test(number) || number.replace(/\D/g, "").length < 7 || number.replace(/\D/g, "").length > 15) return "Enter a valid phone/mobile number with 7–15 digits.";
+  return null;
+}
+
+export function syncPlayerContacts(registrations: PlayerRegistration[], updates: PlayerRegistration[]): PlayerRegistration[] {
+  return registrations.map(player => {
+    const updated = updates.find(item => (item.personId || item.id) === (player.personId || player.id));
+    return updated ? { ...player, facebookProfile: updated.facebookProfile, phone: updated.phone } : player;
+  });
 }

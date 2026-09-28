@@ -17,7 +17,7 @@ async function reset(){const state=logic.initialTournament();Object.assign(state
 const request=(body,headers={},method='POST')=>new Request('https://test/api/state',{method,headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
 const post=(body,headers)=>api.POST(request(body,headers));
 const org={'x-organizer-pin':'12345678'};
-const create=(divisionId,extra={})=>({action:'registerPlayer',registration:{divisionId,name:'Alex',partnerName:'Sam',club:'Cebu Club',partnerClub:'Rackets',...extra}});
+const create=(divisionId,extra={})=>({action:'registerPlayer',registration:{divisionId,name:'Alex',partnerName:'Sam',club:'Cebu Club',partnerClub:'Rackets',facebookProfile:'https://www.facebook.com/alex.test',phone:'09123456789',partnerFacebookProfile:'https://www.facebook.com/sam.test',partnerPhone:'+639123456780',...extra}});
 
 test('new and duplicated divisions stay empty through regeneration and hydration',()=>{
  let state=logic.initialTournament();assert.equal(state.registrations.length,0);assert.equal(state.divisions[0].entries.length,0);
@@ -107,7 +107,7 @@ test('combined same-division entries support different partners and reject inval
  for(const secondEntry of [{divisionId:'missing',secondShirt:'black'},{divisionId:id,secondShirt:'invalid'},{divisionId:id,secondShirt:'black',partnerName:''}]){
   assert.equal((await post(create(id,{secondEntry}))).status,400);assert.equal(saved.revision,1);assert.equal(JSON.parse(saved.payload).registrations.length,0);
  }
- const result=await (await post(create(id,{secondEntry:{divisionId:id,samePartner:false,partnerName:'Morgan',partnerClub:'Other Club',secondShirt:'tournament'}}))).json();
+ const result=await (await post(create(id,{secondEntry:{divisionId:id,samePartner:false,partnerName:'Morgan',partnerClub:'Other Club',partnerFacebookProfile:'https://facebook.com/morgan.test',partnerPhone:'09123456788',secondShirt:'tournament'}}))).json();
  assert.equal(result.registrations.length,2);assert.equal(result.registrations[1].partnerName,'Morgan');assert.equal(result.registrations[1].partnerClub,'Other Club');assert.equal(JSON.parse(saved.payload).divisions[0].entries.length,2);
 });
 test('only organizers recover PINs; replacements rotate every linked entry and legacy PINs can be replaced',async()=>{
@@ -148,40 +148,55 @@ test('registration reset requires organizer, confirmation and current revision; 
  assert.equal((await post({action:'lookupRegistration',pin:first.editPin})).status,401);
 });
 
-test('division level choices restrict both players and independently validate combined entries', async()=>{
- let state=await reset();state=logic.addDivision(state,'Advanced bracket');
- state.divisions[0].allowedDesiredLevels=['Beginner','Intermediate'];
- state.divisions[1].allowedDesiredLevels=['Advanced','Open'];saved.payload=JSON.stringify(state);
- const first=state.divisions[0].id, second=state.divisions[1].id;
- assert.equal((await post(create(first,{desiredLevel:'Advanced'}))).status,400);
- assert.equal((await post(create(first,{partnerDesiredLevel:'Open'}),org)).status,400);
- const combined={desiredLevel:'Intermediate',partnerDesiredLevel:'Beginner',secondEntry:{divisionId:second,samePartner:true,secondShirt:'black',partnerSecondShirt:'tournament',desiredLevel:'Advanced',partnerDesiredLevel:'Open'}};
- const response=await post(create(first,combined));assert.equal(response.status,200);
- const result=await response.json();const current=JSON.parse(saved.payload);
- assert.deepEqual(current.registrations.filter(r=>r.divisionId===second).map(r=>r.desiredLevel),['Advanced','Open']);
- assert.equal((await post(create(first,{...combined,secondEntry:{...combined.secondEntry,partnerDesiredLevel:'Beginner'}}))).status,400);
- assert.equal(JSON.parse(saved.payload).registrations.length,4);
- assert.equal((await post({action:'updateRegistration',pin:result.editPin,registrationId:result.registration.id,registration:{desiredLevel:'Open'}})).status,400);
- assert.equal((await post({action:'updateRegistration',pin:result.editPin,registrationId:result.registration.id,registration:{desiredLevel:'Beginner'}})).status,200);
- const restricted=JSON.parse(saved.payload);restricted.divisions[0].allowedDesiredLevels=['Intermediate'];saved.payload=JSON.stringify(restricted);
- assert.equal((await post({action:'updateRegistration',pin:result.editPin,registrationId:result.registration.id,registration:{club:'Updated club'}})).status,200);
- assert.deepEqual(logic.registrationLevels({}),logic.REGISTRATION_LEVELS);
- assert.deepEqual(logic.registrationLevels({allowedDesiredLevels:['Open','Open','Pro']}),['Open','Pro']);
+
+test('each player needs Facebook and phone contacts; old level restrictions no longer apply', async()=>{
+ const state=await reset();const id=state.divisions[0].id;
+ state.divisions[0].allowedDesiredLevels=['Pro'];saved.payload=JSON.stringify(state);
+ for(const patch of [{facebookProfile:''},{phone:''},{partnerFacebookProfile:''},{partnerPhone:''},{facebookProfile:'https://facebook.com.evil.test/person'},{phone:'abc'},{facebookProfile:'javascript:alert(1)'}]) {
+  assert.equal((await post(create(id,patch))).status,400);
+ }
+ assert.equal(JSON.parse(saved.payload).registrations.length,0);
+ const response=await post(create(id));assert.equal(response.status,200);
+ const result=await response.json();assert.equal(result.registration.desiredLevel,'');
+ assert.equal(result.registration.partnerFacebookProfile,'https://www.facebook.com/sam.test');
+ const publicResult=await (await api.GET(new Request('https://test/api/state'))).json();
+ assert.doesNotMatch(JSON.stringify(publicResult),/alex.test|sam.test|09123456789/);
+ const organizer=await (await api.GET(new Request('https://test/api/state',{headers:org}))).json();
+ assert.equal(organizer.state.registrations[0].phone,'09123456789');
 });
 
+test('combined entries reuse same-player contacts and require separate new-partner contacts',async()=>{
+ let state=await reset();state=logic.addDivision(state);saved.payload=JSON.stringify(state);
+ const id=state.divisions[0].id, secondId=state.divisions[1].id;
+ const same={divisionId:secondId,samePartner:true,secondShirt:'black',partnerSecondShirt:'tournament'};
+ const result=await (await post(create(id,{secondEntry:same}))).json();
+ let records=JSON.parse(saved.payload).registrations;
+ assert.equal(records.length,4);
+ assert.equal(records[0].facebookProfile,records[2].facebookProfile);
+ assert.equal(records[1].phone,records[3].phone);
+ const second=result.registrations.find(r=>r.divisionId===secondId);
+ assert.equal((await post({action:'updateRegistration',pin:result.editPin,registrationId:second.id,registration:{phone:'+639998887777',partnerFacebookProfile:'https://facebook.com/new.sam'}})).status,200);
+ records=JSON.parse(saved.payload).registrations;
+ assert.equal(records[0].phone,'+639998887777');assert.equal(records[2].phone,'+639998887777');
+ assert.equal(records[1].facebookProfile,'https://facebook.com/new.sam');assert.equal(records[3].facebookProfile,'https://facebook.com/new.sam');
+ const different={divisionId:secondId,samePartner:false,partnerName:'Morgan',secondShirt:'tournament'};
+ assert.equal((await post(create(id,{secondEntry:different}))).status,400);
+ const response=await post(create(id,{secondEntry:{...different,partnerFacebookProfile:'https://facebook.com/morgan',partnerPhone:'09111222333'}}));
+ assert.equal(response.status,200);const savedResult=await response.json();
+ const newPartner=JSON.parse(saved.payload).registrations.find(r=>r.id===savedResult.registrations.find(r=>r.divisionId===secondId).partnerId);
+ assert.equal(newPartner.facebookProfile,'https://facebook.com/morgan');assert.equal(newPartner.phone,'09111222333');
+});
 
-test('custom levels persist and validate for registration and partner edits', async()=>{
- const state=await reset();const division=state.divisions[0];
- division.customDesiredLevels=['Beginners','Amateurs','Advance','Pro'];
- division.allowedDesiredLevels=['Amateurs','Pro'];saved.payload=JSON.stringify(state);
- assert.ok(logic.divisionLevelOptions(division).includes('Beginners'));
- assert.deepEqual(logic.cleanLevelNames([' Pro ','pro','','Amateurs']),['Pro','Amateurs']);
- const response=await post(create(division.id,{desiredLevel:'Pro',partnerDesiredLevel:'Amateurs'}));
- assert.equal(response.status,200);const result=await response.json();
- assert.equal(result.registration.desiredLevel,'Pro');assert.equal(result.registration.partnerDesiredLevel,'Amateurs');
- assert.equal((await post(create(division.id,{desiredLevel:'Beginners',partnerDesiredLevel:'Pro'}))).status,400);
- assert.equal((await post({action:'updateRegistration',pin:result.editPin,registrationId:result.registration.id,registration:{partnerDesiredLevel:'Pro'}})).status,200);
- const hydrated=logic.hydrateTournament(JSON.parse(saved.payload));
- assert.deepEqual(hydrated.divisions[0].customDesiredLevels,division.customDesiredLevels);
- assert.deepEqual(logic.registrationLevels(hydrated.divisions[0]),['Amateurs','Pro']);
+test('later second entries reuse saved contacts and legacy registrations can supply missing contacts',async()=>{
+ const state=await reset();const id=state.divisions[0].id;
+ const first=await (await post(create(id))).json();
+ const request={action:'registerPlayer',pin:first.editPin,registration:{divisionId:id,name:'Alex',partnerName:'Sam',sourceRegistrationId:first.registration.id,samePartner:true,secondShirt:'black',partnerSecondShirt:'black'}};
+ const different={...request,registration:{...request.registration,samePartner:false,partnerName:'New partner'}};
+ assert.equal((await post(different)).status,400);
+ const response=await post(request);assert.equal(response.status,200);
+ assert.equal((await response.json()).registration.partnerPhone,'+639123456780');
+ const current=JSON.parse(saved.payload);for(const r of current.registrations){delete r.phone;delete r.facebookProfile;}saved.payload=JSON.stringify(current);
+ assert.equal((await post({action:'updateRegistration',pin:first.editPin,registration:{club:'Club'}})).status,400);
+ assert.equal((await post({action:'updateRegistration',pin:first.editPin,registration:{facebookProfile:'https://facebook.com/alex',phone:'09123456789',partnerFacebookProfile:'https://facebook.com/sam',partnerPhone:'09123456780'}})).status,200);
+ assert.ok(JSON.parse(saved.payload).registrations.every(r=>r.phone && r.facebookProfile));
 });
