@@ -175,3 +175,20 @@ main input:focus-visible, main select:focus-visible, main textarea:focus-visible
 .countdown-clock strong { font-size: clamp(24px, 6vw, 60px); font-variant-numeric: tabular-nums; }
 .countdown-clock span { color: var(--muted); font-size: clamp(11px, 2vw, 14px); }
 .tournament-countdown small { display: block; margin-top: 18px; color: var(--muted); }
+.shirt-size-guide { display: flex; align-items: center; gap: 20px; padding: 18px; margin: 16px 0; border: 1px solid var(--line); border-radius: 16px; background: var(--card); }
+.shirt-size-guide h3 { font-size: 18px; font-weight: 750; margin-bottom: 6px; }
+.shirt-size-guide p { margin-bottom: 12px; }
+.shirt-size-guide small { display: block; margin-top: 10px; color: var(--muted); }
+.shirt-guide-preview { flex: 0 0 200px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; cursor: zoom-in; background: #111; }
+.shirt-guide-preview img { display: block; width: 100%; height: auto; }
+.shirt-guide-dialog { width: min(1200px, 96vw); max-width: 96vw; max-height: 94dvh; padding: 20px; border: 1px solid #ccc; border-radius: 18px; background: #fff; color: #182018; margin: auto; overflow: auto; }
+.shirt-guide-dialog::backdrop { background: rgb(0 0 0 / .78); }
+.shirt-guide-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.shirt-guide-dialog h2 { font-size: 22px; font-weight: 750; }
+.shirt-guide-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 16px 0; }
+.shirt-guide-controls output { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
+.shirt-guide-controls a { text-decoration: underline; color: #354a00; }
+.shirt-guide-image { max-height: 62dvh; overflow: auto; background: #101010; border-radius: 8px; }
+.shirt-guide-image img { display: block; width: 100%; max-width: none; height: auto; }
+.shirt-guide-dialog p { margin-top: 14px; }
+@media (max-width: 600px) { .shirt-size-guide { align-items: stretch; flex-direction: column; } .shirt-guide-preview { flex: auto; width: 100%; } .shirt-guide-dialog { padding: 14px; } }
