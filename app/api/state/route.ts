@@ -1,4 +1,4 @@
-import { hydrateTournament, initialTournament, isSetWon, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
+import { resetRegistrations, hydrateTournament, initialTournament, isSetWon, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
 
 const ROW_ID = "racketeers";
 type EntryForm = Partial<PlayerRegistration> & { partnerShirtSize?: string; partnerDesiredLevel?: string; partnerClub?: string; sourceRegistrationId?: string; samePartner?: boolean; partnerSecondShirt?: "black" | "tournament" };
@@ -98,7 +98,15 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const row = await ensureRow();
   const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
-  const body = (await request.json()) as { action?: string; pin?: string; newPin?: string; matchId?: string; registrationId?: string; registration?: RegistrationForm };
+  const body = (await request.json()) as { action?: string; divisionId?: string; expectedRevision?: number; confirmation?: string; pin?: string; newPin?: string; matchId?: string; registrationId?: string; registration?: RegistrationForm };
+  if (body.action === "resetRegistrations") {
+    if (!(await authorized(request.headers.get("x-organizer-pin"), state))) return Response.json({ error: "Organizer access is required." }, { status: 401 });
+    if (body.confirmation !== "RESET") return Response.json({ error: "Type RESET to confirm removal." }, { status: 400 });
+    if (body.divisionId !== undefined && !state.divisions.some(d => d.id === body.divisionId)) return Response.json({ error: "Division not found." }, { status: 404 });
+    if (body.expectedRevision !== row.revision) return Response.json({ error: "Tournament data changed. Refresh and review the reset again." }, { status: 409 });
+    const saved = await saveStateAtRevision(resetRegistrations(state, body.divisionId), row.revision);
+    return saved ? Response.json({ ok: true, revision: saved.revision }) : Response.json({ error: "Tournament data changed. Refresh and review the reset again." }, { status: 409 });
+  }
   if (body.action === "viewRegistrationPin" || body.action === "replaceRegistrationPin") {
     if (!(await authorized(request.headers.get("x-organizer-pin"), state))) return Response.json({ error: "Organizer access is required." }, { status: 401 });
     const selected = state.registrations.find(r => r.id === body.registrationId);

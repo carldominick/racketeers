@@ -661,3 +661,15 @@ export function isCourtAvailable(state: TournamentState, court: number, matchId:
     return gap < Math.max(5, state.gameDuration) * 60_000;
   });
 }
+
+/** Clear a registration scope without regenerating placeholder entries or changing other divisions. */
+export function resetRegistrations(state: TournamentState, divisionId?: string): TournamentState {
+  const affected = new Set(state.divisions.filter(d => !divisionId || d.id === divisionId).map(d => d.id));
+  const removed = new Set(state.registrations.filter(r => affected.has(r.divisionId)).map(r => r.id));
+  return {
+    ...state,
+    registrations: state.registrations.filter(r => !removed.has(r.id)).map(r => removed.has(r.partnerId || "") ? { ...r, partnerId: null, partnerName: "" } : r),
+    divisions: state.divisions.map(d => affected.has(d.id) ? { ...d, registrationManaged: true, entries: [], playerCount: 0, pairCount: 0, teamCount: 0 } : d),
+    matches: state.matches.filter(m => !affected.has(m.divisionId)),
+  };
+}

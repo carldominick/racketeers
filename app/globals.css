@@ -157,3 +157,7 @@ main input:focus-visible, main select:focus-visible, main textarea:focus-visible
 .auto-projector footer { height:50px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--muted); font-size:12px; }
 .projector-empty { margin:24px 0; color:var(--muted); }
 @media(max-width:650px) { .auto-projector th,.auto-projector td { padding:7px 4px; }.auto-projector footer { font-size:10px; }.auto-projector footer > span:nth-child(2) { display:none; } }
+.summary-player { display:grid; gap:5px; padding-top:12px; border-top:1px solid var(--line); }
+.guided-summary-entry .summary-player strong { font-size:14px; overflow-wrap:anywhere; }
+.registration-reset { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; }
+.registration-reset h2 { font-weight:800; font-size:20px; }.registration-reset p { color:var(--muted); }.registration-reset [role="status"] { flex-basis:100%; }

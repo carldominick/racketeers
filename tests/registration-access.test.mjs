@@ -128,3 +128,22 @@ test('only organizers recover PINs; replacements rotate every linked entry and l
  const savedResponse=await api.PUT(request({state:incoming,expectedRevision:saved.revision},org,'PUT'));assert.equal(savedResponse.status,200);assert.equal((await savedResponse.text()).includes('registrationPinRecovery'),false);
  assert.equal(JSON.parse(saved.payload).registrations[0].registrationPinRecovery,before.registrations[0].registrationPinRecovery);assert.equal(JSON.parse(saved.payload).registrations[0].paymentGroupId,before.registrations[0].paymentGroupId);
 });
+
+test('registration reset requires organizer, confirmation and current revision; division reset preserves other entries',async()=>{
+ let state=await reset();state=logic.addDivision(state,'Keep');saved.payload=JSON.stringify(state);
+ const first=await (await post(create(state.divisions[0].id,{secondEntry:{divisionId:state.divisions[1].id,samePartner:true,secondShirt:'black',partnerSecondShirt:'black'}}))).json();
+ let current=JSON.parse(saved.payload);current=logic.regenerateMatches(current);saved.payload=JSON.stringify(current);
+ const kept=current.registrations.filter(r=>r.divisionId===state.divisions[1].id);
+ const action={action:'resetRegistrations',divisionId:state.divisions[0].id,confirmation:'RESET',expectedRevision:saved.revision};
+ assert.equal((await post(action)).status,401);
+ assert.equal((await post({...action,confirmation:''},org)).status,400);
+ assert.equal((await post({...action,expectedRevision:0},org)).status,409);
+ assert.equal((await post({...action,divisionId:'unknown'},org)).status,404);
+ assert.equal((await post(action,org)).status,200);
+ let next=JSON.parse(saved.payload);assert.deepEqual(next.registrations,kept);assert.equal(next.divisions[0].entries.length,0);assert.equal(next.divisions[0].name,state.divisions[0].name);assert.equal(next.matches.some(m=>m.divisionId===state.divisions[0].id),false);
+ assert.deepEqual(next.divisions[1],current.divisions[1]);assert.equal((await post({action:'lookupRegistration',pin:first.editPin,registrationId:kept.find(r=>r.registrationPinHash).id})).status,200);
+ assert.equal(logic.hydrateTournament(next).registrations.length,kept.length);
+ assert.equal((await post({action:'resetRegistrations',confirmation:'RESET',expectedRevision:saved.revision},org)).status,200);
+ next=JSON.parse(saved.payload);assert.equal(next.registrations.length,0);assert.equal(next.matches.length,0);assert.ok(next.divisions.every(d=>d.entries.length===0));assert.equal(next.organizerPinHash,current.organizerPinHash);assert.equal(next.status,current.status);
+ assert.equal((await post({action:'lookupRegistration',pin:first.editPin})).status,401);
+});
