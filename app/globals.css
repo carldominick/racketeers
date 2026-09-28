@@ -166,3 +166,12 @@ main input:focus-visible, main select:focus-visible, main textarea:focus-visible
 .division-level-options legend { font-weight: 700; }
 .division-level-options p { color: var(--muted); margin-bottom: 12px; }
 .division-level-options .action-row { margin-top: 12px; flex-wrap: wrap; gap: 20px; }
+
+.tournament-countdown { max-width: 900px; margin: 32px auto; padding: clamp(24px, 5vw, 64px); text-align: center; }
+.tournament-countdown h2 { font-size: clamp(28px, 5vw, 48px); line-height: 1.15; margin: 12px 0; }
+.tournament-countdown .countdown-title { font-size: 22px; font-weight: 700; margin: 20px 0 10px; }
+.countdown-clock { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(8px, 2vw, 20px); margin: 32px 0; }
+.countdown-clock div { background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 20px 6px; display: grid; gap: 8px; }
+.countdown-clock strong { font-size: clamp(24px, 6vw, 60px); font-variant-numeric: tabular-nums; }
+.countdown-clock span { color: var(--muted); font-size: clamp(11px, 2vw, 14px); }
+.tournament-countdown small { display: block; margin-top: 18px; color: var(--muted); }

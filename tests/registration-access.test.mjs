@@ -26,11 +26,11 @@ test('new and duplicated divisions stay empty through regeneration and hydration
  const stale={...state,divisions:[{...state.divisions[0],entries:[logic.makeEntry(0,'doubles',2,2)]}]};
  assert.equal(logic.hydrateTournament(stale).registrations.length,0);
 });
-test('clubs are optional, persisted separately, and available on PIN lookup',async()=>{
+test('clubs are required, persisted separately, and available on PIN lookup',async()=>{
  const state=await reset();const response=await post(create(state.divisions[0].id));assert.equal(response.status,200);
  const result=await response.json();assert.match(result.registration.id,/^[A-Z0-9]+$/);assert.equal(result.registration.club,'Cebu Club');assert.equal(result.registration.partnerClub,'Rackets');
  const lookup=await (await post({action:'lookupRegistration',pin:result.editPin})).json();assert.equal(lookup.registration.club,'Cebu Club');
- assert.equal((await post(create(state.divisions[0].id,{name:'Lee',partnerName:'Pat',club:undefined,partnerClub:undefined}))).status,200);
+ assert.equal((await post(create(state.divisions[0].id,{name:'Lee',partnerName:'Pat',club:undefined,partnerClub:undefined}))).status,400);
 });
 test('linked same-division pair entries remain distinct and require original PIN; a third is rejected',async()=>{
  const state=await reset();const first=await (await post(create(state.divisions[0].id))).json();
@@ -44,7 +44,7 @@ test('linked same-division pair entries remain distinct and require original PIN
 test('second entry can target another division with a different partner and organizer can use the same endpoint',async()=>{
  let state=await reset();state=logic.addDivision(state,'Another Division');saved.payload=JSON.stringify(state);
  const first=await (await post(create(state.divisions[0].id))).json();
- const second=create(state.divisions[1].id,{sourceRegistrationId:first.registration.id,samePartner:false,partnerName:'Morgan',secondShirt:'tournament'});
+ const second=create(state.divisions[1].id,{sourceRegistrationId:first.registration.id,samePartner:false,partnerName:'Morgan',partnerClub:'Other Club',secondShirt:'tournament'});
  const response=await post(second,org);assert.equal(response.status,200);const result=await response.json();assert.equal(result.registration.partnerName,'Morgan');
  const current=JSON.parse(saved.payload);assert.equal(current.divisions[1].entries.length,1);assert.equal(current.registrations.find(r=>r.id===result.registration.partnerId).personId,undefined);
 });
@@ -152,7 +152,7 @@ test('registration reset requires organizer, confirmation and current revision; 
 test('each player needs Facebook and phone contacts; old level restrictions no longer apply', async()=>{
  const state=await reset();const id=state.divisions[0].id;
  state.divisions[0].allowedDesiredLevels=['Pro'];saved.payload=JSON.stringify(state);
- for(const patch of [{facebookProfile:''},{phone:''},{partnerFacebookProfile:''},{partnerPhone:''},{facebookProfile:'https://facebook.com.evil.test/person'},{phone:'abc'},{facebookProfile:'javascript:alert(1)'}]) {
+ for(const patch of [{club:''},{partnerClub:''},{facebookProfile:''},{phone:''},{partnerFacebookProfile:''},{partnerPhone:''},{facebookProfile:'https://facebook.com.evil.test/person'},{phone:'abc'},{facebookProfile:'javascript:alert(1)'}]) {
   assert.equal((await post(create(id,patch))).status,400);
  }
  assert.equal(JSON.parse(saved.payload).registrations.length,0);
@@ -179,7 +179,7 @@ test('combined entries reuse same-player contacts and require separate new-partn
  records=JSON.parse(saved.payload).registrations;
  assert.equal(records[0].phone,'+639998887777');assert.equal(records[2].phone,'+639998887777');
  assert.equal(records[1].facebookProfile,'https://facebook.com/new.sam');assert.equal(records[3].facebookProfile,'https://facebook.com/new.sam');
- const different={divisionId:secondId,samePartner:false,partnerName:'Morgan',secondShirt:'tournament'};
+ const different={divisionId:secondId,samePartner:false,partnerName:'Morgan',partnerClub:'Other Club',secondShirt:'tournament'};
  assert.equal((await post(create(id,{secondEntry:different}))).status,400);
  const response=await post(create(id,{secondEntry:{...different,partnerFacebookProfile:'https://facebook.com/morgan',partnerPhone:'09111222333'}}));
  assert.equal(response.status,200);const savedResult=await response.json();
@@ -199,4 +199,32 @@ test('later second entries reuse saved contacts and legacy registrations can sup
  assert.equal((await post({action:'updateRegistration',pin:first.editPin,registration:{club:'Club'}})).status,400);
  assert.equal((await post({action:'updateRegistration',pin:first.editPin,registration:{facebookProfile:'https://facebook.com/alex',phone:'09123456789',partnerFacebookProfile:'https://facebook.com/sam',partnerPhone:'09123456780'}})).status,200);
  assert.ok(JSON.parse(saved.payload).registrations.every(r=>r.phone && r.facebookProfile));
+});
+
+test('setup stays editable during registration and setup/registration lock during live until phase is reopened',async()=>{
+ let state=await reset();const id=state.divisions[0].id;
+ await post(create(id));state=JSON.parse(saved.payload);
+ const save=async next=>api.PUT(request({state:next,expectedRevision:saved.revision},org,'PUT'));
+ state.tournamentName='Updated while registration open';assert.equal((await save(state)).status,200);
+ state=JSON.parse(saved.payload);state.status='live';assert.equal((await save(state)).status,200);
+ assert.equal((await post(create(id),org)).status,423);
+ assert.equal((await post({action:'resetRegistrations',confirmation:'RESET',expectedRevision:saved.revision},org)).status,423);
+ state=JSON.parse(saved.payload);
+ assert.equal((await save({...state,tournamentName:'Blocked'})).status,423);
+ assert.equal((await save({...state,registrations:[]})).status,423);
+ // Organizer responses omit PIN recovery, and a phase-only save must still succeed.
+ const safe=await (await api.GET(new Request('https://test/api/state',{headers:org}))).json();
+ assert.equal((await save({...safe.state,status:'registration'})).status,200);
+ state=JSON.parse(saved.payload);state.startDate='2027-05-01';assert.equal((await save(state)).status,200);
+});
+
+test('public spectator data stays hidden before live while staff preview and live results remain available',async()=>{
+ let state=await reset();await post(create(state.divisions[0].id));await post(create(state.divisions[0].id,{name:'Other',partnerName:'Player'}));
+ state=logic.regenerateMatches(JSON.parse(saved.payload));state.umpirePinHash=await hash('87654321');saved.payload=JSON.stringify(state);
+ const get=async headers=>(await (await api.GET(new Request('https://test/api/state',{headers}))).json()).state;
+ const pre=await get({});assert.equal(pre.matches.length,0);assert.ok(pre.divisions.every(d=>d.entries.length===0));
+ const staff=await get({'x-umpire-pin':'87654321'});assert.ok(staff.matches.length>0);assert.ok(staff.divisions[0].entries.length>0);assert.equal(staff.registrations.length,0);
+ state.status='live';saved.payload=JSON.stringify(state);const live=await get({});assert.ok(live.matches.length>0);assert.ok(live.divisions[0].entries.length>0);
+ assert.equal(logic.tournamentStartTime({startDate:'2026-10-01',dayStart:'08:30'}),Date.parse('2026-10-01T00:30:00Z'));
+ assert.ok(Number.isNaN(logic.tournamentStartTime({startDate:'',dayStart:''})));
 });

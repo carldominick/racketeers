@@ -712,3 +712,21 @@ export function syncPlayerContacts(registrations: PlayerRegistration[], updates:
     return updated ? { ...player, facebookProfile: updated.facebookProfile, phone: updated.phone } : player;
   });
 }
+
+export function tournamentEditingLocked(status: TournamentPhase): boolean {
+  return status === "live" || status === "completed";
+}
+
+export function tournamentStartTime(state: Pick<TournamentState, "startDate" | "dayStart">): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(state.startDate) || !/^\d{2}:\d{2}$/.test(state.dayStart)) return NaN;
+  return Date.parse(state.startDate + "T" + state.dayStart + ":00+08:00");
+}
+
+/** Fields edited in Setup, excluding roster overrides used in the Players tab. */
+export function setupConfiguration(state: TournamentState) {
+  return {
+    tournamentName: state.tournamentName, startDate: state.startDate, endDate: state.endDate,
+    dayStart: state.dayStart, dayEnd: state.dayEnd, gameDuration: state.gameDuration, courts: state.courts,
+    divisions: state.divisions.map(({ entries, ...configuration }) => { void entries; return configuration; }),
+  };
+}
