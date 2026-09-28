@@ -166,5 +166,22 @@ test('division level choices restrict both players and independently validate co
  const restricted=JSON.parse(saved.payload);restricted.divisions[0].allowedDesiredLevels=['Intermediate'];saved.payload=JSON.stringify(restricted);
  assert.equal((await post({action:'updateRegistration',pin:result.editPin,registrationId:result.registration.id,registration:{club:'Updated club'}})).status,200);
  assert.deepEqual(logic.registrationLevels({}),logic.REGISTRATION_LEVELS);
- assert.deepEqual(logic.registrationLevels({allowedDesiredLevels:['Open','Open','invalid']}),['Open']);
+ assert.deepEqual(logic.registrationLevels({allowedDesiredLevels:['Open','Open','Pro']}),['Open','Pro']);
+});
+
+
+test('custom levels persist and validate for registration and partner edits', async()=>{
+ const state=await reset();const division=state.divisions[0];
+ division.customDesiredLevels=['Beginners','Amateurs','Advance','Pro'];
+ division.allowedDesiredLevels=['Amateurs','Pro'];saved.payload=JSON.stringify(state);
+ assert.ok(logic.divisionLevelOptions(division).includes('Beginners'));
+ assert.deepEqual(logic.cleanLevelNames([' Pro ','pro','','Amateurs']),['Pro','Amateurs']);
+ const response=await post(create(division.id,{desiredLevel:'Pro',partnerDesiredLevel:'Amateurs'}));
+ assert.equal(response.status,200);const result=await response.json();
+ assert.equal(result.registration.desiredLevel,'Pro');assert.equal(result.registration.partnerDesiredLevel,'Amateurs');
+ assert.equal((await post(create(division.id,{desiredLevel:'Beginners',partnerDesiredLevel:'Pro'}))).status,400);
+ assert.equal((await post({action:'updateRegistration',pin:result.editPin,registrationId:result.registration.id,registration:{partnerDesiredLevel:'Pro'}})).status,200);
+ const hydrated=logic.hydrateTournament(JSON.parse(saved.payload));
+ assert.deepEqual(hydrated.divisions[0].customDesiredLevels,division.customDesiredLevels);
+ assert.deepEqual(logic.registrationLevels(hydrated.divisions[0]),['Amateurs','Pro']);
 });

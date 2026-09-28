@@ -44,13 +44,24 @@ export type PlayerRegistration = {
 
 export const REGISTRATION_LEVELS = ["Beginner", "Intermediate", "Advanced", "Open"];
 
+export function cleanLevelNames(values?: string[]): string[] {
+  const seen = new Set<string>();
+  return (Array.isArray(values) ? values : []).filter(value => typeof value === "string").map(value => value.trim().slice(0, 30)).filter(value => {
+    if (!value || seen.has(value.toLowerCase())) return false;
+    seen.add(value.toLowerCase()); return true;
+  });
+}
+export function divisionLevelOptions(division?: Division): string[] {
+  return cleanLevelNames([...REGISTRATION_LEVELS, ...(division?.customDesiredLevels || []), ...(division?.allowedDesiredLevels || [])]);
+}
 export function registrationLevels(division?: Division): string[] {
-  const selected = REGISTRATION_LEVELS.filter(level => division?.allowedDesiredLevels?.includes(level));
-  return selected.length ? selected : REGISTRATION_LEVELS;
+  const selected = cleanLevelNames(division?.allowedDesiredLevels);
+  return selected.length ? selected : divisionLevelOptions(division);
 }
 
 export type Division = {
   allowedDesiredLevels?: string[];
+  customDesiredLevels?: string[];
   id: string;
   name: string;
   mode: Mode;
