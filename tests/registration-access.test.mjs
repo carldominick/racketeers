@@ -147,3 +147,24 @@ test('registration reset requires organizer, confirmation and current revision; 
  next=JSON.parse(saved.payload);assert.equal(next.registrations.length,0);assert.equal(next.matches.length,0);assert.ok(next.divisions.every(d=>d.entries.length===0));assert.equal(next.organizerPinHash,current.organizerPinHash);assert.equal(next.status,current.status);
  assert.equal((await post({action:'lookupRegistration',pin:first.editPin})).status,401);
 });
+
+test('division level choices restrict both players and independently validate combined entries', async()=>{
+ let state=await reset();state=logic.addDivision(state,'Advanced bracket');
+ state.divisions[0].allowedDesiredLevels=['Beginner','Intermediate'];
+ state.divisions[1].allowedDesiredLevels=['Advanced','Open'];saved.payload=JSON.stringify(state);
+ const first=state.divisions[0].id, second=state.divisions[1].id;
+ assert.equal((await post(create(first,{desiredLevel:'Advanced'}))).status,400);
+ assert.equal((await post(create(first,{partnerDesiredLevel:'Open'}),org)).status,400);
+ const combined={desiredLevel:'Intermediate',partnerDesiredLevel:'Beginner',secondEntry:{divisionId:second,samePartner:true,secondShirt:'black',partnerSecondShirt:'tournament',desiredLevel:'Advanced',partnerDesiredLevel:'Open'}};
+ const response=await post(create(first,combined));assert.equal(response.status,200);
+ const result=await response.json();const current=JSON.parse(saved.payload);
+ assert.deepEqual(current.registrations.filter(r=>r.divisionId===second).map(r=>r.desiredLevel),['Advanced','Open']);
+ assert.equal((await post(create(first,{...combined,secondEntry:{...combined.secondEntry,partnerDesiredLevel:'Beginner'}}))).status,400);
+ assert.equal(JSON.parse(saved.payload).registrations.length,4);
+ assert.equal((await post({action:'updateRegistration',pin:result.editPin,registrationId:result.registration.id,registration:{desiredLevel:'Open'}})).status,400);
+ assert.equal((await post({action:'updateRegistration',pin:result.editPin,registrationId:result.registration.id,registration:{desiredLevel:'Beginner'}})).status,200);
+ const restricted=JSON.parse(saved.payload);restricted.divisions[0].allowedDesiredLevels=['Intermediate'];saved.payload=JSON.stringify(restricted);
+ assert.equal((await post({action:'updateRegistration',pin:result.editPin,registrationId:result.registration.id,registration:{club:'Updated club'}})).status,200);
+ assert.deepEqual(logic.registrationLevels({}),logic.REGISTRATION_LEVELS);
+ assert.deepEqual(logic.registrationLevels({allowedDesiredLevels:['Open','Open','invalid']}),['Open']);
+});

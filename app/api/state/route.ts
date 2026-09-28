@@ -1,4 +1,4 @@
-import { resetRegistrations, hydrateTournament, initialTournament, isSetWon, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
+import { registrationLevels, resetRegistrations, hydrateTournament, initialTournament, isSetWon, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
 
 const ROW_ID = "racketeers";
 type EntryForm = Partial<PlayerRegistration> & { partnerShirtSize?: string; partnerDesiredLevel?: string; partnerClub?: string; sourceRegistrationId?: string; samePartner?: boolean; partnerSecondShirt?: "black" | "tournament" };
@@ -204,14 +204,18 @@ export async function POST(request: Request) {
     let existingRegistrations = state.registrations;
     if (source && !source.paymentGroupId) existingRegistrations = state.registrations.map(r => r.id === source.id || r.id === sourceOwner?.id ? { ...r, paymentGroupId } : r);
     if (second && secondDivision) {
-      const linked: PlayerRegistration = { ...makeUniqueRegistration(secondDivision.id, state.registrations.length + newRegistrations.length, [...state.registrations, ...newRegistrations]), name: registration.name, club: registration.club, personId: registration.id, secondShirt: second.secondShirt, shirtSize: clean(second.shirtSize, 8) || registration.shirtSize, desiredLevel: registration.desiredLevel, playerLevel: registration.playerLevel, teamName: clean(second.teamName), registrationPinHash, registrationPinRecovery: editPin, paymentGroupId, selfRegistered: true };
+      const linked: PlayerRegistration = { ...makeUniqueRegistration(secondDivision.id, state.registrations.length + newRegistrations.length, [...state.registrations, ...newRegistrations]), name: registration.name, club: registration.club, personId: registration.id, secondShirt: second.secondShirt, shirtSize: clean(second.shirtSize, 8) || registration.shirtSize, desiredLevel: clean(second.desiredLevel, 30) || registration.desiredLevel, playerLevel: clean(second.desiredLevel, 30) || registration.playerLevel, teamName: clean(second.teamName), registrationPinHash, registrationPinRecovery: editPin, paymentGroupId, selfRegistered: true };
       newRegistrations.push(linked);
       const firstPartner = newRegistrations.find(r => r.id === registration.partnerId);
       const secondPartnerName = secondDivision.mode === "singles" ? "" : clean(second.samePartner ? firstPartner?.name : second.partnerName);
       if (secondPartnerName) {
-        const partner: PlayerRegistration = { ...makeUniqueRegistration(secondDivision.id, state.registrations.length + newRegistrations.length, [...state.registrations, ...newRegistrations]), name: secondPartnerName, club: second.samePartner ? firstPartner?.club : clean(second.partnerClub), personId: second.samePartner ? firstPartner?.id : undefined, secondShirt: second.samePartner ? second.partnerSecondShirt : undefined, shirtSize: clean(second.partnerShirtSize, 8) || firstPartner?.shirtSize || "M", desiredLevel: second.samePartner ? firstPartner?.desiredLevel || "Beginner" : clean(second.partnerDesiredLevel, 30) || "Beginner", playerLevel: second.samePartner ? firstPartner?.playerLevel || "Beginner" : clean(second.partnerDesiredLevel, 30) || "Beginner", teamName: linked.teamName, partnerId: linked.id, paymentGroupId, selfRegistered: true };
+        const partner: PlayerRegistration = { ...makeUniqueRegistration(secondDivision.id, state.registrations.length + newRegistrations.length, [...state.registrations, ...newRegistrations]), name: secondPartnerName, club: second.samePartner ? firstPartner?.club : clean(second.partnerClub), personId: second.samePartner ? firstPartner?.id : undefined, secondShirt: second.samePartner ? second.partnerSecondShirt : undefined, shirtSize: clean(second.partnerShirtSize, 8) || firstPartner?.shirtSize || "M", desiredLevel: clean(second.partnerDesiredLevel, 30) || (second.samePartner ? firstPartner?.desiredLevel : undefined) || "Beginner", playerLevel: clean(second.partnerDesiredLevel, 30) || (second.samePartner ? firstPartner?.playerLevel : undefined) || "Beginner", teamName: linked.teamName, partnerId: linked.id, paymentGroupId, selfRegistered: true };
         linked.partnerId = partner.id; newRegistrations.push(partner);
       }
+    }
+    for (const player of newRegistrations) {
+      const target = state.divisions.find(d => d.id === player.divisionId);
+      if (!registrationLevels(target).includes(player.desiredLevel)) return Response.json({ error: `Choose an allowed registered level for ${player.name} in ${target?.name}.` }, { status: 400 });
     }
     const divisionIds = new Set(newRegistrations.map(r => r.divisionId));
     const next = syncRegistrationsToEntries({ ...state, divisions: state.divisions.map(item => divisionIds.has(item.id) ? { ...item, registrationManaged: true } : item), registrations: [...existingRegistrations, ...newRegistrations] });
@@ -235,6 +239,11 @@ export async function POST(request: Request) {
     let updatedPartner: PlayerRegistration | null = existingPartner && partnerName ? { ...existingPartner, divisionId, name: partnerName, club: clean(form.partnerClub ?? existingPartner.club), secondShirt: existingPartner.secondShirt ? ((form.partnerSecondShirt ?? existingPartner.secondShirt) === "black" ? "black" as const : "tournament" as const) : undefined, shirtSize: clean(form.partnerShirtSize ?? existingPartner.shirtSize, 8) || "M", desiredLevel: partnerRegisteredLevel, teamName: clean(form.teamName ?? existingPartner.teamName) } : null;
     if (!updatedPartner && partnerName) updatedPartner = { ...makeRegistration(divisionId, state.registrations.length), name: partnerName, club: clean(form.partnerClub), shirtSize: clean(form.partnerShirtSize, 8) || "M", desiredLevel: partnerRegisteredLevel, playerLevel: partnerRegisteredLevel, teamName: clean(form.teamName), partnerId: existing.id, paymentGroupId: existing.paymentGroupId, selfRegistered: true };
     const updated: PlayerRegistration = { ...existing, divisionId, name: clean(form.name ?? existing.name), club: clean(form.club ?? existing.club), secondShirt: existing.secondShirt ? ((form.secondShirt ?? existing.secondShirt) === "black" ? "black" : "tournament") : undefined, partnerName: "", partnerId: updatedPartner?.id ?? null, shirtSize: clean(form.shirtSize ?? existing.shirtSize, 8), desiredLevel: registeredLevel, teamName: clean(form.teamName ?? existing.teamName) };
+    for (const player of [updated, ...(updatedPartner ? [updatedPartner] : [])]) {
+      const previous = state.registrations.find(r => r.id === player.id);
+      const unchanged = previous?.divisionId === player.divisionId && previous.desiredLevel === player.desiredLevel;
+      if (!unchanged && !registrationLevels(division).includes(player.desiredLevel)) return Response.json({ error: "Choose an allowed registered level for this division." }, { status: 400 });
+    }
     if (updatedPartner) updatedPartner.partnerId = updated.id;
     let registrations = state.registrations.map((registration) => registration.id === existing.id ? updated : updatedPartner && registration.id === updatedPartner.id ? updatedPartner : registration);
     if (updatedPartner && !registrations.some((registration) => registration.id === updatedPartner!.id)) registrations = [...registrations, updatedPartner];

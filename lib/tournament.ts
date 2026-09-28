@@ -42,7 +42,15 @@ export type PlayerRegistration = {
   secondShirt?: "black" | "tournament";
 };
 
+export const REGISTRATION_LEVELS = ["Beginner", "Intermediate", "Advanced", "Open"];
+
+export function registrationLevels(division?: Division): string[] {
+  const selected = REGISTRATION_LEVELS.filter(level => division?.allowedDesiredLevels?.includes(level));
+  return selected.length ? selected : REGISTRATION_LEVELS;
+}
+
 export type Division = {
+  allowedDesiredLevels?: string[];
   id: string;
   name: string;
   mode: Mode;

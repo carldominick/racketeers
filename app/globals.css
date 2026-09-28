@@ -161,3 +161,8 @@ main input:focus-visible, main select:focus-visible, main textarea:focus-visible
 .guided-summary-entry .summary-player strong { font-size:14px; overflow-wrap:anywhere; }
 .registration-reset { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; }
 .registration-reset h2 { font-weight:800; font-size:20px; }.registration-reset p { color:var(--muted); }.registration-reset [role="status"] { flex-basis:100%; }
+
+.division-level-options { margin: 16px 0; padding: 18px; border: 1px solid var(--line); border-radius: 12px; }
+.division-level-options legend { font-weight: 700; }
+.division-level-options p { color: var(--muted); margin-bottom: 12px; }
+.division-level-options .action-row { margin-top: 12px; flex-wrap: wrap; gap: 20px; }
