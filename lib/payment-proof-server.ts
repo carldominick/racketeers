@@ -31,24 +31,102 @@ async function boundedBody(request: Request) {
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
   return bytes;
 }
+
+
+function base64UrlEncode(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+function base64UrlDecode(value: string) {
+  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
+  const binary = atob(normalized + "=".repeat((4 - normalized.length % 4) % 4));
+  return new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)));
+}
+async function proofShareSignature(secret: string, payload: string) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload)));
+  let binary = "";
+  for (const byte of signature) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+async function makeProofShareToken(state: TournamentState, registrationId: string) {
+  const expires = Date.now() + 7 * 24 * 60 * 60 * 1000;
+  const payload = base64UrlEncode(JSON.stringify({ registrationId, expires }));
+  const signature = await proofShareSignature(state.organizerPinHash || "", payload);
+  return `${payload}.${signature}`;
+}
+async function verifyProofShareToken(state: TournamentState, token: string) {
+  if (!state.organizerPinHash || token.length > 1024) return "";
+  const [payload, signature, extra] = token.split(".");
+  if (!payload || !signature || extra) return "";
+  try {
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(state.organizerPinHash), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const binary = atob(signature.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - signature.length % 4) % 4));
+    const signatureBytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+    if (!await crypto.subtle.verify("HMAC", key, signatureBytes, new TextEncoder().encode(payload))) return "";
+    const decoded = JSON.parse(base64UrlDecode(payload));
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(decoded.registrationId) || !Number.isFinite(decoded.expires) || decoded.expires < Date.now() || decoded.expires > Date.now() + 7 * 24 * 60 * 60 * 1000 + 60_000) return "";
+    return decoded.registrationId as string;
+  } catch { return ""; }
+}
+
 export async function handlePaymentProof(request: Request, env: ProofEnvironment): Promise<Response> {
   try {
     const url = new URL(request.url);
     if (request.method === "GET" && url.searchParams.get("capabilities") === "1") return reply({ enabled: Boolean(env.PAYMENT_PROOFS), maxBytes: MAX_PROOF_BYTES });
     if (request.method !== "GET" && request.method !== "POST" && request.method !== "DELETE") return reply({ error: "Method not allowed." }, 405);
-    const registrationId = url.searchParams.get("registrationId") ?? "";
-    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(registrationId)) return reply({ error: "Invalid registration ID." }, 400);
+    const exportLinkRequest = request.method === "POST" && url.searchParams.get("export-links") === "1";
+    const shareToken = url.searchParams.get("share") || "";
+    let registrationId = url.searchParams.get("registrationId") ?? "";
+    if (!exportLinkRequest && !shareToken && !/^[a-zA-Z0-9_-]{1,100}$/.test(registrationId)) return reply({ error: "Invalid registration ID." }, 400);
     const row = await env.DB.prepare("SELECT payload FROM tournament_state WHERE id = ?").bind("racketeers").first<{ payload: string }>();
     if (!row) return reply({ error: "Registration not found." }, 404);
     const state: TournamentState = JSON.parse(row.payload);
     const organizerPin = request.headers.get("x-organizer-pin") ?? "";
     const registrationPin = request.headers.get("x-registration-pin") ?? "";
     const organizer = /^\d{4,10}$/.test(organizerPin) && await hash(organizerPin) === state.organizerPinHash;
+    if (exportLinkRequest) {
+      if (!organizer) return reply({ error: "Organizer access is required to export payment links." }, 401);
+      if (!env.PAYMENT_PROOFS) return reply({ error: "Payment screenshot storage is not available." }, 503);
+      let body: { registrationIds?: unknown };
+      try { body = await request.json() as { registrationIds?: unknown }; } catch { return reply({ error: "Provide the registration IDs to export." }, 400); }
+      if (!Array.isArray(body.registrationIds) || body.registrationIds.length > 1000 || body.registrationIds.some(id => typeof id !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(id))) return reply({ error: "The registration ID list is invalid." }, 400);
+      const links: Record<string, string> = {};
+      for (const id of [...new Set(body.registrationIds as string[])]) {
+        const registration = state.registrations.find(player => player.id === id);
+        if (!registration) continue;
+        const partner = state.registrations.find(r => r.id === registration.partnerId && r.partnerId === registration.id && r.divisionId === registration.divisionId);
+        const groupMembers = registration.paymentGroupId ? state.registrations.filter(r => r.paymentGroupId === registration.paymentGroupId) : [];
+        const linkedRegistrationIds = (groupMembers.length ? groupMembers.map(r => r.id) : [registration.id, ...(partner ? [partner.id] : [])]).sort();
+        const filename = `${registration.paymentGroupId || linkedRegistrationIds[0]}.png`;
+        const pairKey = (ids: string[]) => { const sorted = [...ids].sort(); return `payments/pairs/${sorted.join("/")}/${sorted[0]}.png`; };
+        const key = registration.paymentGroupId ? `payments/groups/${registration.paymentGroupId}/${filename}` : partner ? pairKey(linkedRegistrationIds) : `payments/${filename}`;
+        const legacyPairs = groupMembers.flatMap(member => {
+          const other = groupMembers.find(r => r.id === member.partnerId && r.partnerId === member.id && r.divisionId === member.divisionId);
+          return other ? [pairKey([member.id, other.id])] : [];
+        });
+        const keys = [...new Set([key, ...legacyPairs, ...linkedRegistrationIds.map(linkedId => `payments/${linkedId}.png`)])];
+        const uploaded = await Promise.all(keys.map(candidate => env.PAYMENT_PROOFS!.head(candidate)));
+        if (!uploaded.some(Boolean)) continue;
+        const token = await makeProofShareToken(state, id);
+        links[id] = new URL(`/api/payment-proof?share=${encodeURIComponent(token)}`, url.origin).toString();
+      }
+      return reply({ links, expiresInDays: 7 });
+    }
+    let sharedLink = false;
+    if (shareToken) {
+      if (request.method !== "GET") return reply({ error: "Shared payment links are view-only." }, 405);
+      registrationId = await verifyProofShareToken(state, shareToken);
+      if (!registrationId) return reply({ error: "This payment link has expired or is invalid. Export a new list to create a fresh link." }, 401);
+      sharedLink = true;
+    }
     const registration = state.registrations.find(r => r.id === registrationId);
     const partner = registration && state.registrations.find(r => r.id === registration.partnerId && r.partnerId === registration.id && r.divisionId === registration.divisionId);
     const groupMembers = registration?.paymentGroupId ? state.registrations.filter(r => r.paymentGroupId === registration.paymentGroupId) : [];
     const owner = registration && /^\d{8,10}$/.test(registrationPin) && [registration.registrationPinHash, partner?.registrationPinHash, ...groupMembers.map(r => r.registrationPinHash)].filter(Boolean).includes(await hash(registrationPin));
-    if (!organizer && !owner) return reply({ error: "A valid organizer or registration PIN is required." }, 401);
+    if (!organizer && !owner && !sharedLink) return reply({ error: "A valid organizer or registration PIN is required." }, 401);
     if (!registration) return reply({ error: "Registration not found." }, 404);
     if (!env.PAYMENT_PROOFS) return reply({ error: "Payment screenshot uploads are not available yet. Please contact the organizer." }, 503);
     const linkedRegistrationIds = (groupMembers.length ? groupMembers.map(r => r.id) : [registration.id, ...(partner ? [partner.id] : [])]).sort();

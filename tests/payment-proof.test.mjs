@@ -144,6 +144,20 @@ test('combined entries share one upload across all players while unrelated regis
  await handlePaymentProof(req({id:'combined-second',method:'POST'}),env);assert.equal(objects.size,1);
  state.registrations.splice(2);delete first.paymentGroupId;
 });
+test('organizer exports only existing proof links with seven-day view-only access',async()=>{
+ objects.clear();
+ const request=new Request('https://test/api/payment-proof?export-links=1',{method:'POST',headers:{'content-type':'application/json','x-organizer-pin':'876543'},body:JSON.stringify({registrationIds:['player-test','player-other','missing']})});
+ const uploadRequest=new Request('https://test/api/payment-proof?registrationId=player-test',{method:'POST',headers:{'x-organizer-pin':'876543','content-type':'image/png'},body:png});
+ const upload=await handlePaymentProof(uploadRequest,env);assert.equal(upload.status,200);
+ const response=await handlePaymentProof(request,env);assert.equal(response.status,200);
+ const exported=await response.json();assert.equal(exported.expiresInDays,7);assert.deepEqual(Object.keys(exported.links),['player-test']);
+ const shared=new Request(exported.links['player-test']);
+ const proof=await handlePaymentProof(shared,env);assert.equal(proof.status,200);assert.deepEqual(Buffer.from(await proof.arrayBuffer()),png);
+ assert.equal((await handlePaymentProof(new Request(exported.links['player-test'],{method:'DELETE'}),env)).status,405);
+ assert.equal((await handlePaymentProof(new Request('https://test/api/payment-proof?export-links=1',{method:'POST',headers:{'content-type':'application/json','x-organizer-pin':'12345678'},body:JSON.stringify({registrationIds:['player-test']})}),env)).status,401);
+ const tampered=new URL(exported.links['player-test']);tampered.searchParams.set('share',`${tampered.searchParams.get('share')}x`);
+ assert.equal((await handlePaymentProof(new Request(tampered),env)).status,401);
+});
 test('adding a later entry keeps a legacy pair receipt available to its payment group',async()=>{
  objects.clear();const [first,second]=state.registrations;
  Object.assign(first,{partnerId:second.id,divisionId:'d'});Object.assign(second,{partnerId:first.id,divisionId:'d'});
