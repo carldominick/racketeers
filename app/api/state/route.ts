@@ -300,8 +300,8 @@ export async function PATCH(request: Request) {
   const rule = scoringRule(match.format, match.scoring);
   for (const [index, set] of (body.sets ?? []).entries()) {
     const high = Math.max(set.a, set.b), low = Math.min(set.a, set.b);
-    const limit = rule.mode === "first_to_target" ? rule.target : rule.mode === "capped_win_by_two" ? Math.min(rule.cap, Math.max(rule.target, low + 2)) : Math.max(rule.target, low + 2);
-    if (![set.a, set.b].every(value => Number.isInteger(value) && value >= 0) || high > limit || high === low && rule.mode !== "win_by_two" && high >= (rule.mode === "first_to_target" ? rule.target : rule.cap)) return Response.json({ error: "Score exceeds this stage's tie-break limits." }, { status: 400 });
+    const limit = rule.mode === "first_to_target" ? rule.target : Math.min(rule.cap, Math.max(rule.target, low + 2));
+    if (![set.a, set.b].every(value => Number.isInteger(value) && value >= 0) || high > limit || high === low && high >= (rule.mode === "first_to_target" ? rule.target : rule.cap)) return Response.json({ error: "Score exceeds this stage's tie-break limits." }, { status: 400 });
     const previous = match.sets[index];
     if (previous && isSetWon(previous, match.stage, match.format, match.scoring) && (set.a > previous.a || set.b > previous.b)) return Response.json({ error: "This set has reached its winning score. Complete it or subtract points to correct it." }, { status: 400 });
   }

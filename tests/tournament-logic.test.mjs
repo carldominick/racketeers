@@ -463,10 +463,15 @@ test("stage tie-break rules stop additions at the winner, allow corrections, and
  match=logic.adjustMatchScore(match,0,'a',1);assert.equal(match.sets[0].a,21);
  assert.deepEqual(logic.adjustMatchScore(match,0,'b',1).sets,match.sets);
  match=logic.adjustMatchScore(match,0,'a',-1);assert.equal(match.sets[0].a,20);
- match.scoring={mode:'win_by_two',target:21,cap:30};match.sets=[{a:30,b:30,complete:false}];
- match=logic.adjustMatchScore(match,0,'a',1);assert.equal(logic.isSetWon(match.sets[0],match.stage,match.format,match.scoring),false);
+ match.scoring={mode:'win_by_two',target:31,cap:35};match.sets=[{a:31,b:30,complete:false}];
+ assert.equal(logic.isSetWon(match.sets[0],match.stage,match.format,match.scoring),false);
  match=logic.adjustMatchScore(match,0,'a',1);assert.equal(match.sets[0].a,32);
- assert.equal(logic.adjustMatchScore(match,0,'a',1).sets[0].a,32);
+ assert.equal(logic.isSetWon(match.sets[0],match.stage,match.format,match.scoring),true);
+ match.sets=[{a:34,b:34,complete:false}];match=logic.adjustMatchScore(match,0,'a',1);
+ assert.equal(match.sets[0].a,35);assert.equal(logic.isSetWon(match.sets[0],match.stage,match.format,match.scoring),true);
+ assert.equal(logic.adjustMatchScore(match,0,'b',1).sets[0].b,34);
+ assert.equal(logic.adjustMatchScore(match,0,'a',1).sets[0].a,35);
+ assert.equal(logic.scoringRule(match.format,match.scoring).mode,'capped_win_by_two');
  match.scoring={mode:'capped_win_by_two',target:21,cap:30};match.sets=[{a:29,b:29,complete:false}];
  match=logic.adjustMatchScore(match,0,'a',1);assert.equal(match.sets[0].a,30);
  assert.equal(logic.adjustMatchScore(match,0,'a',1).sets[0].a,30);

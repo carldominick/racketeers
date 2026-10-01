@@ -356,7 +356,8 @@ export function regenerateMatches(state: TournamentState): TournamentState {
 
 export function scoringRule(format?: MatchFormat, rule?: TieBreakRule): TieBreakRule {
   const target = Math.max(1, Math.min(99, Math.floor(Number(rule?.target) || (format === "single_31" ? 31 : 21))));
-  const mode = ["first_to_target", "win_by_two", "capped_win_by_two"].includes(rule?.mode ?? "") ? rule!.mode : "capped_win_by_two";
+  // Older win_by_two selections also use the capped slide system.
+  const mode = rule?.mode === "first_to_target" ? "first_to_target" : "capped_win_by_two";
   return { mode, target, cap: Math.max(target, Math.min(199, Math.floor(Number(rule?.cap) || (format === "single_31" ? 35 : 30)))) };
 }
 export function matchScoreLimit(match: Match, set: SetScore, side: "a" | "b") {
