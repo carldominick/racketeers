@@ -3,6 +3,8 @@ export type BracketFormat = "round_robin" | "single_elimination" | "double_round
 export type ChampionshipFormat = "semifinals_final" | "direct_medals" | "ladderized";
 export type MatchFormat = "single_31" | "single_21" | "best_of_3_21";
 export type MatchStage = "regular" | "round_64" | "round_32" | "round_16" | "quarterfinal" | "semifinal" | "gold" | "bronze";
+export type TieBreakRule = { mode: "first_to_target" | "win_by_two" | "capped_win_by_two"; target: number; cap: number };
+export const MATCH_STAGES: MatchStage[] = ["regular", "round_64", "round_32", "round_16", "quarterfinal", "semifinal", "gold", "bronze"];
 export type MatchStatus = "ready" | "live" | "finished";
 export type TournamentPhase = "setup" | "registration" | "live" | "completed";
 
@@ -74,6 +76,7 @@ export type Division = {
   pairCount: number;
   playersPerTeam: number;
   playersPerPair: number;
+  stageScoring?: Partial<Record<MatchStage, TieBreakRule>>;
   groupMatchFormat: MatchFormat;
   championshipMatchFormat: MatchFormat;
   customGroupGameCount: number;
@@ -102,6 +105,7 @@ export type Match = {
   validated: boolean;
   pin: string;
   format: MatchFormat;
+  scoring?: TieBreakRule;
   subBracket?: number;
 };
 
@@ -343,38 +347,49 @@ export function regenerateMatches(state: TournamentState): TournamentState {
   for (const match of matches) {
     let candidate = match.pin;
     for (let attempts = 0; usedPins.has(candidate) && attempts < 9000; attempts++) candidate = String(1000 + ((Number(candidate) - 999) % 9000));
+    match.scoring = scoringRule(match.format, state.divisions.find(d => d.id === match.divisionId)?.stageScoring?.[match.stage]);
     match.pin = candidate;
     usedPins.add(candidate);
   }
   return { ...state, divisions: state.divisions.map(regenerateEntries), matches, updatedAt: new Date().toISOString() };
 }
 
-export function isSetWon(set: SetScore, stage: MatchStage, format?: MatchFormat) {
+export function scoringRule(format?: MatchFormat, rule?: TieBreakRule): TieBreakRule {
+  const target = Math.max(1, Math.min(99, Math.floor(Number(rule?.target) || (format === "single_31" ? 31 : 21))));
+  const mode = ["first_to_target", "win_by_two", "capped_win_by_two"].includes(rule?.mode ?? "") ? rule!.mode : "capped_win_by_two";
+  return { mode, target, cap: Math.max(target, Math.min(199, Math.floor(Number(rule?.cap) || (format === "single_31" ? 35 : 30)))) };
+}
+export function matchScoreLimit(match: Match, set: SetScore, side: "a" | "b") {
+  const rule = scoringRule(match.format, match.scoring);
+  if (rule.mode === "first_to_target") return rule.target;
+  if (rule.mode === "capped_win_by_two") return Math.min(rule.cap, Math.max(rule.target, set[side === "a" ? "b" : "a"] + 2));
+  return Math.max(rule.target, set[side === "a" ? "b" : "a"] + 2);
+}
+export function isSetWon(set: SetScore, stage: MatchStage, format?: MatchFormat, rule?: TieBreakRule) {
   const resolved = format ?? (stage === "regular" ? "single_31" : "best_of_3_21");
-  const target = resolved === "single_31" ? 31 : 21;
-  const cap = resolved === "single_31" ? 35 : 30;
-  const high = Math.max(set.a, set.b);
-  const low = Math.min(set.a, set.b);
-  return high >= cap || (high >= target && high - low >= 2);
+  const scoring = scoringRule(resolved, rule);
+  const high = Math.max(set.a, set.b), low = Math.min(set.a, set.b);
+  if (high === low) return false;
+  return scoring.mode === "first_to_target" ? high >= scoring.target :
+    (scoring.mode === "capped_win_by_two" && high >= scoring.cap) || (high >= scoring.target && high - low >= 2);
 }
 
 export function adjustMatchScore(match: Match, setIndex: number, side: "a" | "b", delta: number): Match {
   const setCount = match.format === "best_of_3_21" ? 3 : 1;
   if (setIndex < 0 || setIndex >= setCount || !Number.isFinite(delta)) return match;
-  const cap = match.format === "single_31" ? 35 : 30;
   const sets = Array.from({ length: setCount }, (_, index) => match.sets[index] ?? { a: 0, b: 0, complete: false });
   const nextSets = sets.map((set, index) => {
     if (index !== setIndex) return set;
-    if (set.complete) return set;
-    const nextSet = { ...set, [side]: Math.max(0, Math.min(cap, set[side] + Math.trunc(delta))) };
-    return { ...nextSet, complete: nextSet.complete && isSetWon(nextSet, match.stage, match.format) };
+    if (set.complete || match.validated || delta > 0 && isSetWon(set, match.stage, match.format, match.scoring)) return set;
+    const nextSet = { ...set, [side]: Math.max(0, Math.min(matchScoreLimit(match, set, side), set[side] + Math.trunc(delta))) };
+    return { ...nextSet, complete: nextSet.complete && isSetWon(nextSet, match.stage, match.format, match.scoring) };
   });
   return { ...match, sets: nextSets, status: "live" };
 }
 
 export function completeMatchSet(match: Match, setIndex: number): Match {
   const set = match.sets[setIndex];
-  if (!set || !isSetWon(set, match.stage, match.format)) return match;
+  if (!set || !isSetWon(set, match.stage, match.format, match.scoring)) return match;
   return { ...match, sets: match.sets.map((item, index) => index === setIndex ? { ...item, complete: true } : item), status: "live" };
 }
 
@@ -386,7 +401,7 @@ export function uncompleteMatchSet(match: Match, setIndex: number): Match {
 export function validateTournamentMatch(state: TournamentState, matchId: string): TournamentState {
   const matches = state.matches.map((match) => match.id === matchId ? {
     ...match,
-    sets: match.sets.map((set) => ({ ...set, complete: isSetWon(set, match.stage, match.format) ? true : set.complete })),
+    sets: match.sets.map((set) => ({ ...set, complete: isSetWon(set, match.stage, match.format, match.scoring) ? true : set.complete })),
     validated: true,
     status: "finished" as const,
     court: null,
@@ -401,7 +416,7 @@ export function unvalidateTournamentMatch(state: TournamentState, matchId: strin
 
 export function matchWinner(match: Match): string | null {
   if (!match.entryAId || !match.entryBId) return null;
-  const completed = match.sets.filter((set) => set.complete && isSetWon(set, match.stage, match.format));
+  const completed = match.sets.filter((set) => set.complete && isSetWon(set, match.stage, match.format, match.scoring));
   const aWins = completed.filter((set) => set.a > set.b).length;
   const bWins = completed.filter((set) => set.b > set.a).length;
   const needed = match.format === "best_of_3_21" ? 2 : 1;
@@ -617,7 +632,7 @@ export function hydrateTournament(input: TournamentState): TournamentState {
       if (!usedPins.has(candidate)) matchPin = candidate;
     }
     if (matchPin) usedPins.add(matchPin);
-    return { ...match, pin: matchPin, format: match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21") };
+    return { ...match, scoring: scoringRule(match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21"), formatByDivision.get(match.divisionId)?.stageScoring?.[match.stage] ?? match.scoring), pin: matchPin, format: match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21") };
   });
   return { ...input, version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
 }

@@ -1,4 +1,4 @@
-import { tournamentEditingLocked, setupConfiguration, contactError, syncPlayerContacts, resetRegistrations, hydrateTournament, initialTournament, isSetWon, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
+import { tournamentEditingLocked, setupConfiguration, contactError, syncPlayerContacts, resetRegistrations, hydrateTournament, initialTournament, isSetWon, scoringRule, matchScoreLimit, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
 
 const ROW_ID = "racketeers";
 const comparable = (value: unknown) => JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
@@ -297,12 +297,19 @@ export async function PATCH(request: Request) {
   const match = current.matches.find((item) => item.id === body.matchId);
   if (!match || !body.pin || match.pin !== body.pin) return Response.json({ error: "Valid match PIN required" }, { status: 401 });
   if (match.validated) return Response.json({ error: "Organizer-validated games are locked" }, { status: 409 });
-  const cap = match.format === "single_31" ? 35 : 30;
+  const rule = scoringRule(match.format, match.scoring);
+  for (const [index, set] of (body.sets ?? []).entries()) {
+    const high = Math.max(set.a, set.b), low = Math.min(set.a, set.b);
+    const limit = rule.mode === "first_to_target" ? rule.target : rule.mode === "capped_win_by_two" ? Math.min(rule.cap, Math.max(rule.target, low + 2)) : Math.max(rule.target, low + 2);
+    if (![set.a, set.b].every(value => Number.isInteger(value) && value >= 0) || high > limit || high === low && rule.mode !== "win_by_two" && high >= (rule.mode === "first_to_target" ? rule.target : rule.cap)) return Response.json({ error: "Score exceeds this stage's tie-break limits." }, { status: 400 });
+    const previous = match.sets[index];
+    if (previous && isSetWon(previous, match.stage, match.format, match.scoring) && (set.a > previous.a || set.b > previous.b)) return Response.json({ error: "This set has reached its winning score. Complete it or subtract points to correct it." }, { status: 400 });
+  }
   const sets = (body.sets ?? match.sets).slice(0, match.format === "best_of_3_21" ? 3 : 1).map((set, index) => {
     const savedSet = match.sets[index];
     if (savedSet?.complete && set.complete) return savedSet;
-    const sanitized = { a: Math.max(0, Math.min(cap, Math.floor(Number(set.a) || 0))), b: Math.max(0, Math.min(cap, Math.floor(Number(set.b) || 0))), complete: false };
-    return { ...sanitized, complete: Boolean(set.complete) && isSetWon(sanitized, match.stage, match.format) };
+    const sanitized = { a: Math.max(0, Math.min(matchScoreLimit(match, set, "a"), Math.floor(Number(set.a) || 0))), b: Math.max(0, Math.min(matchScoreLimit(match, set, "b"), Math.floor(Number(set.b) || 0))), complete: false };
+    return { ...sanitized, complete: Boolean(set.complete) && isSetWon(sanitized, match.stage, match.format, match.scoring) };
   });
   const next = { ...current, matches: current.matches.map((item) => item.id === match.id ? { ...item, sets, status: body.status === "finished" ? "live" as const : body.status ?? "live" } : item), updatedAt: new Date().toISOString() };
   const revision = row.revision + 1;

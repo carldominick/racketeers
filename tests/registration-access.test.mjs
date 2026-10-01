@@ -235,3 +235,9 @@ test('public spectator data stays hidden before live while staff preview and liv
  assert.equal(logic.tournamentStartTime({startDate:'2026-10-01',dayStart:'08:30'}),Date.parse('2026-10-01T00:30:00Z'));
  assert.ok(Number.isNaN(logic.tournamentStartTime({startDate:'',dayStart:''})));
 });
+
+test('server rejects scores beyond stage rules and additions after a winning score',async()=>{
+ let state=await reset();const d=state.divisions[0];d.registrationManaged=false;d.entries=[logic.makeEntry(0,'doubles'),logic.makeEntry(1,'doubles')];d.stageScoring={regular:{mode:'first_to_target',target:21,cap:21}};state=logic.regenerateMatches(state);saved.payload=JSON.stringify(state);const m=state.matches[0];
+ const score=(a,b)=>api.PATCH(request({matchId:m.id,pin:m.pin,sets:[{a,b,complete:false}]},org,'PATCH'));
+ assert.equal((await score(22,20)).status,400);assert.equal((await score(21,21)).status,400);assert.equal((await score(21,20)).status,200);assert.equal((await score(21,21)).status,400);assert.equal((await score(20,20)).status,200);
+});

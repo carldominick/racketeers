@@ -42,7 +42,7 @@ test("rapid umpire point taps accumulate without reverting and respect score bou
   for (let tap = 0; tap < 20; tap++) match = logic.adjustMatchScore(match, 0, "a", -1);
   assert.equal(match.sets[0].a, 0);
   for (let tap = 0; tap < 40; tap++) match = logic.adjustMatchScore(match, 0, "b", 1);
-  assert.equal(match.sets[0].b, 35);
+  assert.equal(match.sets[0].b, 31);
 });
 
 test("set completion is available only after a valid winning score", () => {
@@ -455,4 +455,22 @@ test("new registration IDs are alphanumeric, random, and unique", () => {
   for (const registration of registrations) assert.match(registration.id, /^REG[A-F0-9]{32}$/);
   const next = logic.makeUniqueRegistration("division", 2000, registrations);
   assert.ok(!registrations.some(r => r.id === next.id));
+});
+
+test("stage tie-break rules stop additions at the winner, allow corrections, and enforce caps", () => {
+ let match=fixtureTournament().matches[0];
+ match={...match,scoring:{mode:'first_to_target',target:21,cap:30},sets:[{a:20,b:20,complete:false}]};
+ match=logic.adjustMatchScore(match,0,'a',1);assert.equal(match.sets[0].a,21);
+ assert.deepEqual(logic.adjustMatchScore(match,0,'b',1).sets,match.sets);
+ match=logic.adjustMatchScore(match,0,'a',-1);assert.equal(match.sets[0].a,20);
+ match.scoring={mode:'win_by_two',target:21,cap:30};match.sets=[{a:30,b:30,complete:false}];
+ match=logic.adjustMatchScore(match,0,'a',1);assert.equal(logic.isSetWon(match.sets[0],match.stage,match.format,match.scoring),false);
+ match=logic.adjustMatchScore(match,0,'a',1);assert.equal(match.sets[0].a,32);
+ assert.equal(logic.adjustMatchScore(match,0,'a',1).sets[0].a,32);
+ match.scoring={mode:'capped_win_by_two',target:21,cap:30};match.sets=[{a:29,b:29,complete:false}];
+ match=logic.adjustMatchScore(match,0,'a',1);assert.equal(match.sets[0].a,30);
+ assert.equal(logic.adjustMatchScore(match,0,'a',1).sets[0].a,30);
+ assert.equal(logic.isSetWon({a:30,b:30,complete:false},match.stage,match.format,match.scoring),false);
+ const state=fixtureTournament();state.divisions[0].stageScoring={regular:{mode:'first_to_target',target:15,cap:15},gold:{mode:'capped_win_by_two',target:21,cap:25}};
+ const hydrated=logic.hydrateTournament(state);assert.equal(hydrated.matches.find(m=>m.stage==='regular').scoring.target,15);assert.equal(hydrated.matches.find(m=>m.stage==='gold').scoring.cap,25);
 });
