@@ -63,15 +63,3 @@ export async function protectedRequest(request: Request, db: Database, next: (re
     return finish(response);
   } catch { return finish(reject("Request could not be processed. Please try again.", 503)); }
 }
-
-export function philippinesAccess(request: Request): Response | null {
-  const url = new URL(request.url);
-  const cf = (request as Request & { cf?: { country?: string } }).cf;
-  // Only local development bypasses geography; missing production location fails closed.
-  if (!cf && url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) return null;
-  if (cf?.country === "PH") return null;
-  const message = "Racketeers is available only to visitors connecting from the Philippines.";
-  const response = url.pathname.startsWith("/api/") ? reject(message, 403) : new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Access restricted · Racketeers</title><body><main><h1>Access restricted</h1><p>${message}</p><p>If you are in the Philippines, disable any overseas VPN or try your local mobile connection.</p></main></body></html>`, { status: 403, headers: { "Content-Type": "text/html; charset=utf-8" } });
-  response.headers.set("Cache-Control", "private, no-store");
-  return securityHeaders(response, url.pathname.startsWith("/api/"));
-}

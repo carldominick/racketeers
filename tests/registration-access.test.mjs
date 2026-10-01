@@ -64,7 +64,14 @@ test('umpire access is separate, required for match APIs, rotates immediately, a
  assert.equal((await (await post({action:'verifyAccess',pin:'87654321'})).json()).role,'umpire');
  assert.equal((await (await post({action:'verifyAccess',pin:'12345678'})).json()).role,'organizer');
  const ump={'x-umpire-pin':'87654321'};
- assert.equal((await post({action:'verifyMatch',pin:match.pin},ump)).status,200);
+ const beforeStaff = await (await api.GET(new Request('https://test/api/state'))).json();
+ assert.deepEqual(beforeStaff.state.matches, []);
+ const staffState = await (await api.GET(new Request('https://test/api/state',{headers:ump}))).json();
+ assert.ok(staffState.state.matches.some(item => item.id === match.id));
+ const opened = await (await post({action:'verifyMatch',pin:match.pin},ump)).json();
+ assert.equal(opened.match.id,match.id);
+ assert.equal(opened.match.pin,'');
+ assert.ok(Array.isArray(opened.match.sets));
  assert.equal((await api.PATCH(request({matchId:match.id,pin:match.pin,sets:[{a:1,b:0,complete:false}]},{},'PATCH'))).status,401);
  assert.equal((await api.PATCH(request({matchId:match.id,pin:match.pin,sets:[{a:1,b:0,complete:false}]},ump,'PATCH'))).status,200);
  assert.equal((await api.PUT(request({state,expectedRevision:saved.revision},ump,'PUT'))).status,401);

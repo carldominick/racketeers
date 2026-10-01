@@ -302,9 +302,9 @@ function MatchCard({ match, state, organizer = false, scoreEditable = false, onC
     onChange({ ...match, sets: nextSets, status: "live" });
   };
   const scoreControl = (side: "a" | "b", set: typeof sets[number], index: number, name: string) => scoreEditable ? <div className="score-stepper" key={`${side}-${index}`}>
-    <button type="button" disabled={set.complete} aria-label={`Subtract one point from ${name}, set ${index + 1}`} onClick={() => onScoreStep?.(index, side, -1)}>−</button>
-    <strong aria-label={`${name} set ${index + 1} score`}>{set[side]}</strong>
-    <button type="button" disabled={set.complete} aria-label={`Add one point to ${name}, set ${index + 1}`} onClick={() => onScoreStep?.(index, side, 1)}>+</button>
+    <button type="button" disabled={set.complete || match.validated || set[side] === 0} aria-label={`Subtract one point from ${name}, set ${index + 1}`} onClick={() => onScoreStep?.(index, side, -1)}>−</button>
+    <strong aria-label={`${name} set ${index + 1} score`}><small>Set {index + 1}</small>{set[side]}</strong>
+    <button type="button" disabled={set.complete || match.validated} aria-label={`Add one point to ${name}, set ${index + 1}`} onClick={() => onScoreStep?.(index, side, 1)}>+</button>
   </div> : organizer && !match.validated ? <DraftNumberInput key={`${side}-${index}`} ariaLabel={`${name} set ${index + 1}`} min={0} max={match.format === "single_31" ? 35 : 30} value={set[side]} onCommit={(value) => updateSet(index, side, value)} /> : <b key={`${side}-${index}`}>{set[side]}</b>;
   return <article className={`match-card ${match.status === "live" ? "live-card" : ""}`}>
     <div className="match-head"><div><span className="stage">{division?.name}</span><h3>{match.label}</h3></div><Status match={match} /></div>
@@ -360,6 +360,7 @@ export default function Home() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const umpireTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const umpirePending = useRef<Match | null>(null);
+  const umpireFailed = useRef<Match | null>(null);
   const umpireSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const umpireSaveVersion = useRef(0);
   const stateRef = useRef(state);
@@ -472,7 +473,7 @@ export default function Home() {
       const data = await response.json();
       if (!response.ok) { setAccessMessage(data.error || "PIN did not match."); return; }
       if (data.role === "organizer") { if (!await unlock(accessPin)) throw new Error("Unable to open organizer access."); setView("organizer"); }
-      else { setUmpireAccessPin(accessPin); setView("umpire"); }
+      else { setUmpireAccessPin(accessPin); await fetchState("", accessPin); setView("umpire"); }
       setAccessOpen(false); setAccessPin("");
     } catch { setAccessMessage("Unable to check access. Please try again."); }
     finally { setAccessBusy(false); }
@@ -628,7 +629,7 @@ export default function Home() {
         const response = await fetch("/api/state", { method: "PATCH", headers: { "content-type": "application/json", ...(unlocked ? { "x-organizer-pin": organizerPin } : { "x-umpire-pin": umpireAccessPin }) }, body: JSON.stringify({ matchId: snapshot.id, pin: umpirePin, sets: snapshot.sets, status: snapshot.status }) });
         const data = await response.json();
         if (!response.ok) {
-          if (response.status === 409) {
+          if (response.status === 409 && data.error === "Organizer-validated games are locked") {
             setUmpireUnlocked(false);
             await fetchState("");
             alert(data.error || "This game was locked by the organizer.");
@@ -638,9 +639,9 @@ export default function Home() {
         }
         revisionRef.current = data.revision;
         setRevision(data.revision);
-        if (umpireSaveVersion.current === saveVersion && !umpirePending.current) setSync("saved");
-      }).catch(() => setSync("offline"));
-    }, 1800);
+        if (umpireSaveVersion.current === saveVersion && !umpirePending.current) { umpireFailed.current = null; setSync("saved"); }
+      }).catch(() => { if (umpireSaveVersion.current === saveVersion) { umpireFailed.current = snapshot; setSync("offline"); } });
+    }, 500);
   };
   const changeUmpireScore = (setIndex: number, side: "a" | "b", delta: number) => {
     const currentMatch = umpirePending.current ?? state.matches.find((match) => match.id === selectedMatch);
@@ -652,6 +653,7 @@ export default function Home() {
   const finishUmpireSet = (setIndex: number) => {
     const currentMatch = umpirePending.current ?? state.matches.find((match) => match.id === selectedMatch);
     if (!currentMatch || currentMatch.validated) return;
+    if (!confirm(`Complete set ${setIndex + 1} at ${currentMatch.sets[setIndex]?.a}–${currentMatch.sets[setIndex]?.b}? Scoring will be locked for this set.`)) return;
     const nextMatch = completeMatchSet(currentMatch, setIndex);
     if (nextMatch === currentMatch) return;
     setState((current) => ({ ...current, matches: current.matches.map((match) => match.id === nextMatch.id ? nextMatch : match) }));
@@ -660,11 +662,19 @@ export default function Home() {
   const unlockUmpireSet = (setIndex: number) => {
     const currentMatch = umpirePending.current ?? state.matches.find((match) => match.id === selectedMatch);
     if (!currentMatch || currentMatch.validated) return;
+    if (!confirm(`Unlock set ${setIndex + 1} to correct its score?`)) return;
     const nextMatch = uncompleteMatchSet(currentMatch, setIndex);
     if (nextMatch === currentMatch) return;
     setState((current) => ({ ...current, matches: current.matches.map((match) => match.id === nextMatch.id ? nextMatch : match) }));
     queueUmpireSave(nextMatch);
   };
+
+  useEffect(() => {
+    if (!umpireUnlocked || sync === "saved") return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [umpireUnlocked, sync]);
 
   const entryMap = useMemo(() => new Map(state.divisions.flatMap((division) => division.entries).map((entry) => [entry.id, entry])), [state.divisions]);
   const publicMatches = state.matches.filter((match) => match.entryAId && match.entryBId);
@@ -706,13 +716,13 @@ export default function Home() {
   </>;
 
   const umpireMatch = state.matches.find((match) => match.id === selectedMatch);
-  const umpireContent = !umpireUnlocked ? <section className="gate card"><div className="gate-icon">🏸</div><p className="eyebrow">Umpire console</p><h2>Open a Match</h2><p>Enter the four-digit match PIN. The correct scorecard will open automatically.</p><form onSubmit={async (event) => { event.preventDefault(); const response = await fetch("/api/state", { method: "POST", headers: { "content-type": "application/json", ...(unlocked ? { "x-organizer-pin": organizerPin } : { "x-umpire-pin": umpireAccessPin }) }, body: JSON.stringify({ action: "verifyMatch", pin: umpirePin }) }); const data = await response.json(); if (!response.ok || !data.match) return alert(data.error || "Match PIN did not match an available game."); setSelectedMatch(data.match.id); setState((current) => ({ ...current, matches: current.matches.map((match) => match.id === data.match.id ? data.match : match) })); setUmpireUnlocked(true); }}><input aria-label="Match PIN" type="password" inputMode="numeric" autoComplete="off" placeholder="Match PIN" value={umpirePin} onChange={(event) => setUmpirePin(event.target.value.replace(/\D/g, "").slice(0, 4))} /><button className="primary" disabled={umpirePin.length !== 4}>Open Scorecard</button></form></section> : umpireMatch ? <section className="umpire-shell"><div className="section-head"><div><p className="eyebrow">Every tap is queued and synced in order</p><h2>{umpireMatch.label}</h2></div><div className="action-row"><button className="ghost" onClick={() => setPrintMode({ type: "scorecard", matchId: umpireMatch.id })}>Print Manual Card</button><button className="ghost" onClick={() => setUmpireUnlocked(false)}>Exit Match</button></div></div><MatchCard match={umpireMatch} state={state} scoreEditable onScoreStep={changeUmpireScore} onCompleteSet={finishUmpireSet} onUncompleteSet={unlockUmpireSet} /></section> : null;
+  const umpireContent = !umpireUnlocked ? <section className="gate card"><div className="gate-icon">🏸</div><p className="eyebrow">Umpire console</p><h2>Open a Match</h2><p>Enter the four-digit match PIN. The correct scorecard will open automatically.</p><form onSubmit={async (event) => { event.preventDefault(); const response = await fetch("/api/state", { method: "POST", headers: { "content-type": "application/json", ...(unlocked ? { "x-organizer-pin": organizerPin } : { "x-umpire-pin": umpireAccessPin }) }, body: JSON.stringify({ action: "verifyMatch", pin: umpirePin }) }); const data = await response.json(); if (!response.ok || !data.match) return alert(data.error || "Match PIN did not match an available game."); setSelectedMatch(data.match.id); setState((current) => ({ ...current, matches: [...current.matches.filter((match) => match.id !== data.match.id), data.match] })); setUmpireUnlocked(true); }}><input aria-label="Match PIN" type="password" inputMode="numeric" autoComplete="off" placeholder="Match PIN" value={umpirePin} onChange={(event) => setUmpirePin(event.target.value.replace(/\D/g, "").slice(0, 4))} /><button className="primary" disabled={umpirePin.length !== 4}>Open Scorecard</button></form></section> : umpireMatch ? <section className="umpire-shell"><div className="section-head"><div><p className="eyebrow">Every tap is queued and synced in order</p><h2>{umpireMatch.label}</h2></div><div className="action-row"><button className="ghost" onClick={() => setPrintMode({ type: "scorecard", matchId: umpireMatch.id })}>Print Manual Card</button><button className="ghost" disabled={sync !== "saved"} onClick={() => setUmpireUnlocked(false)}>Exit Match</button></div></div><div className={`umpire-sync ${sync}`} role="status">{sync === "saved" ? "All scores saved to server" : sync === "saving" ? "Saving score… Keep this page open." : "Score not saved. Check your connection and retry."}{sync === "offline" && <button className="primary" onClick={() => { const match = umpireFailed.current; if (match) queueUmpireSave(match); }}>Retry save</button>}</div><MatchCard match={umpireMatch} state={state} scoreEditable onScoreStep={changeUmpireScore} onCompleteSet={finishUmpireSet} onUncompleteSet={unlockUmpireSet} /></section> : null;
 
   const spectatorContent = <div className="stack"><section className="scoreboard-hero"><p className="eyebrow">Live tournament</p><h2>{state.tournamentName}</h2><p>{liveMatches.length} live · {finishedMatches.length} finished · {state.courts} courts</p></section><div className="live-grid">{(liveMatches.length ? liveMatches : publicMatches.filter((match) => match.status !== "finished").slice(0, 6)).map((match) => <MatchCard key={match.id} match={match} state={state} />)}</div>{renderStandings()}</div>;
   const projectorContent = <Projector state={state} />;
 
   return <main className={`${state.theme === "dark" ? "dark" : ""} ${view === "register" ? "registration-view" : ""}`}>
-    <header className="topbar" inert={accessOpen || Boolean(registrationDialog) || resetBusy}><div className="brand"><div className="mark">R</div><div><p>Racketeers</p><h1>Badminton Tournament Tracker</h1></div></div><nav className="view-switch" aria-label="View">{(unlocked ? ["organizer", "register", "umpire", "spectator", "projector"] : umpireAccessPin ? ["umpire", "spectator"] : ["register", "spectator"]).map(item => <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item as View)}>{item === "register" ? "Registration" : item[0].toUpperCase() + item.slice(1)}</button>)}<button disabled={dirty || sync === "saving"} onClick={() => { setOrganizerPin(""); setUnlocked(false); setUmpireAccessPin(""); setUmpireUnlocked(false); setUmpirePin(""); setView("register"); setAccessPin(""); setAccessMessage(""); setAccessOpen(true); void fetchState("", ""); }}>{unlocked || umpireAccessPin ? "Sign out / switch access" : "Staff access"}</button></nav><div className="header-tools"><span className={`sync ${sync}`}>● {sync === "saved" ? "Synced" : sync === "saving" ? "Saving" : "Offline"}</span><button aria-label="Toggle theme" className="theme" onClick={() => setState(current => ({ ...current, theme: current.theme === "light" ? "dark" : "light" }))}>{state.theme === "light" ? "☾" : "☀"}</button></div></header>
+    <header className="topbar" inert={accessOpen || Boolean(registrationDialog) || resetBusy}><div className="brand"><div className="mark">R</div><div><p>Racketeers</p><h1>Badminton Tournament Tracker</h1></div></div><nav className="view-switch" aria-label="View">{(unlocked ? ["organizer", "register", "umpire", "spectator", "projector"] : umpireAccessPin ? ["umpire", "spectator"] : ["register", "spectator"]).map(item => <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item as View)}>{item === "register" ? "Registration" : item[0].toUpperCase() + item.slice(1)}</button>)}<button disabled={dirty || sync === "saving" || (umpireUnlocked && sync === "offline")} onClick={() => { setOrganizerPin(""); setUnlocked(false); setUmpireAccessPin(""); setUmpireUnlocked(false); setUmpirePin(""); setView("register"); setAccessPin(""); setAccessMessage(""); setAccessOpen(true); void fetchState("", ""); }}>{unlocked || umpireAccessPin ? "Sign out / switch access" : "Staff access"}</button></nav><div className="header-tools"><span className={`sync ${sync}`}>● {sync === "saved" ? "Synced" : sync === "saving" ? "Saving" : "Offline"}</span><button aria-label="Toggle theme" className="theme" onClick={() => setState(current => ({ ...current, theme: current.theme === "light" ? "dark" : "light" }))}>{state.theme === "light" ? "☾" : "☀"}</button></div></header>
     {view === "organizer" && <nav className="tabs" inert={accessOpen || Boolean(registrationDialog) || resetBusy}>{organizerTabs.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}>{item.label}</button>)}</nav>}
     <div inert={accessOpen || Boolean(registrationDialog) || resetBusy} className={view === "projector" ? "projector-container" : "content"}>{view === "organizer" ? organizerContent : view === "register" ? <PublicRegistration state={state} onSaved={() => void fetchState(unlocked ? organizerPin : "")} /> : view === "umpire" ? umpireContent : view === "spectator" ? (!unlocked && !umpireAccessPin && !tournamentEditingLocked(state.status) ? <TournamentCountdown state={state} /> : spectatorContent) : projectorContent}</div>
     {resetBusy && <div className="modal-backdrop"><section className="card" role="dialog" aria-modal="true" aria-label="Resetting registration"><p role="status">Resetting registration…</p></section></div>}

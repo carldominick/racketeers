@@ -7,7 +7,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 const dir=await mkdtemp(path.join(tmpdir(),'security-'));
 await build({entryPoints:['lib/request-security.ts'],outfile:path.join(dir,'security.mjs'),bundle:true,platform:'node',format:'esm'});
-const {protectedRequest,philippinesAccess}=await import(pathToFileURL(path.join(dir,'security.mjs')));
+const {protectedRequest}=await import(pathToFileURL(path.join(dir,'security.mjs')));
 test.after(()=>rm(dir,{recursive:true,force:true}));
 function database() {
  const rows = new Map();
@@ -22,17 +22,6 @@ function database() {
   }};
  }};
 }
-test('geolock allows PH and blocks other or unknown locations and forged country headers',()=>{
- for(const country of ['PH','US','XX',undefined]){
-  for(const pathname of ['/','/api/state','/assets/app.js','/_vinext/image']){
-   const req=new Request('https://racketeers.example'+pathname,{headers:{'cf-ipcountry':'PH'}});
-   Object.defineProperty(req,'cf',{value:{country}});
-   assert.equal(philippinesAccess(req)?.status??200,country==='PH'?200:403);
-  }
- }
- assert.equal(philippinesAccess(new Request('https://racketeers.example')).status,403);
- assert.equal(philippinesAccess(new Request('http://localhost/')),null);
-});
 test('cross-site, malformed JSON and streamed oversized requests are rejected before app execution',async()=>{
  const next=async()=>{throw new Error('must not execute');};const db=database();
  assert.equal((await protectedRequest(new Request('https://test/api/state',{headers:{origin:'https://evil.test'}}),db,next)).status,403);

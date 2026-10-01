@@ -1,6 +1,6 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
-import { protectedRequest, philippinesAccess, securityHeaders } from "../lib/request-security";
+import { protectedRequest, securityHeaders } from "../lib/request-security";
 import handler from "vinext/server/app-router-entry";
 
 interface Env {
@@ -28,8 +28,6 @@ interface ExecutionContext {
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const denied = philippinesAccess(request);
-    if (denied) return denied;
     const url = new URL(request.url);
 
     if ((request.method === "GET" || request.method === "HEAD") && (url.pathname.startsWith("/assets/") || ["/favicon.svg", "/file.svg", "/globe.svg", "/window.svg"].includes(url.pathname))) {
