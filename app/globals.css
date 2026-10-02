@@ -350,7 +350,7 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
  .clubhouse-site h2,.clubhouse-site h3 {font-weight:800}
  .clubhouse-site .section-head h2 {font-size:clamp(24px,3vw,34px);line-height:1.2}
  .clubhouse-site .section-head,.clubhouse-site .subhead {flex-wrap:wrap}
- .clubhouse-site .eyebrow {color:#617812}.clubhouse-site.dark .eyebrow {color:var(--lime)}
+ .clubhouse-site .eyebrow {color:#617812}.clubhouse-site .clubhouse-sidebar .eyebrow {color:#c6d1da}.clubhouse-site.dark .eyebrow {color:var(--lime)}
  .clubhouse-site label {color:var(--ink)}
  .clubhouse-site input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(.title-input),.clubhouse-site select,.clubhouse-site textarea {border:1px solid #9eafbc;border-radius:6px;background:var(--card);color:var(--ink);min-height:46px;padding:11px 12px;max-width:100%}
  .clubhouse-site.dark input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),.clubhouse-site.dark select {border-color:#718797}
