@@ -743,3 +743,24 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
  .desk-game-stage {text-transform:capitalize}
  @media(max-width:760px) {.desk-queue tr.desk-group>th {width:100%}}
 }
+
+/* Approved compact court layout: keep match details and all game actions visible. */
+@media screen {
+ .desk-court {padding:14px;gap:6px}
+ .desk-court-scores {margin:0}
+ .desk-court-scores>div {padding:3px 0}
+ .desk-court-scores b {font-size:16px;padding:3px 8px}
+ .desk-court .desk-pin code {font-size:16px;padding:3px 8px}
+ .desk-court .desk-result-pending {min-height:28px;padding:2px 8px}
+ .desk-court .desk-help-clear {min-height:24px;padding:0}
+ .desk-court-primary {padding-top:0}
+ .desk-court .desk-court-primary .primary {flex:1;min-height:36px;padding:7px 12px}
+ .desk-court-primary:last-child {margin-bottom:40px}
+ .desk-empty-court {padding:8px;gap:6px}
+ .desk-empty-court>svg {width:28px;height:28px}
+ @media(max-width:760px) {
+  .desk-court {padding:14px}
+  .desk-court .desk-court-primary .primary {min-height:44px}
+  .desk-court-primary:last-child {margin-bottom:46px}
+ }
+}
