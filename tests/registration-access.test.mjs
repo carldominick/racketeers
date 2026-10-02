@@ -212,12 +212,15 @@ test('setup stays editable during registration and setup/registration lock durin
  let state=await reset();const id=state.divisions[0].id;
  await post(create(id));state=JSON.parse(saved.payload);
  const save=async next=>api.PUT(request({state:next,expectedRevision:saved.revision},org,'PUT'));
- state.tournamentName='Updated while registration open';assert.equal((await save(state)).status,200);
+ state.tournamentName='Updated while registration open';state.venue='  Cebu Sports Center  ';assert.equal((await save(state)).status,200);
+ assert.equal(JSON.parse(saved.payload).venue,'Cebu Sports Center');
+ const publicVenue=await (await api.GET(new Request('https://test/api/state'))).json();assert.equal(publicVenue.state.venue,'Cebu Sports Center');
  state=JSON.parse(saved.payload);state.status='live';assert.equal((await save(state)).status,200);
  assert.equal((await post(create(id),org)).status,423);
  assert.equal((await post({action:'resetRegistrations',confirmation:'RESET',expectedRevision:saved.revision},org)).status,423);
  state=JSON.parse(saved.payload);
  assert.equal((await save({...state,tournamentName:'Blocked'})).status,423);
+ assert.equal((await save({...state,venue:'Different venue'})).status,423);
  assert.equal((await save({...state,registrations:[]})).status,423);
  // Organizer responses omit PIN recovery, and a phase-only save must still succeed.
  const safe=await (await api.GET(new Request('https://test/api/state',{headers:org}))).json();

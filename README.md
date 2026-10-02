@@ -82,3 +82,14 @@ New registration IDs use REG followed by a cryptographically generated UUID with
 - Club/group is optional for each player. After saving an entry, or reopening it using its private PIN, choose Add second entry for the appropriate player. Select the same or another division, keep or change the partner, and choose a black or second tournament shirt. Each entry has its own registration ID and edit PIN; the records retain a shared player identity. Linked players can have at most two entries.
 - Organizer Add Player opens the same registration form. New or duplicated divisions do not create player records. Legacy placeholder entries without registration IDs are not recovered as registrations.
 - Registration, access, and UI tests use isolated in-memory fixtures and never modify the production database.
+
+
+## Clubhouse Clarity design preview
+
+`npm run dev` opens an isolated frontend preview using the production UI components and demo tournament data. Demo submissions stay in memory; payment storage and staff access are not connected. `npm run dev:worker` starts the actual Cloudflare/Vinext development runtime using local bindings. `npm run build` and `npm run deploy` still build and deploy the production Worker and its real APIs.
+
+Preview-only viewport checks: append `?viewport=390`, `?viewport=834`, or `?viewport=1440` to the preview address. The desktop fixture scales a 1440 × 1024 frame uniformly for visual comparison. These fixtures are not production routes.
+
+### Clubhouse theme and venue
+
+The shared navy/lime theme covers Registration, Organizer, Umpire, Spectator and Projector views. Setup includes an optional Location / venue field (200 characters), which is shown on registration and spectator pages when populated. Venue edits follow the existing setup phase lock. The isolated preview supports `?role=organizer`, `?role=umpire`, and `?role=projector` with demo-only data; these query parameters have no effect on the production Worker.

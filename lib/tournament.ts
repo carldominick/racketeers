@@ -115,6 +115,7 @@ export type TournamentState = {
   version: number;
   status: TournamentPhase;
   tournamentName: string;
+  venue?: string;
   organizerPinHash?: string;
   umpirePinHash?: string;
   theme: "light" | "dark";
@@ -191,6 +192,7 @@ export function initialTournament(): TournamentState {
     version: 5,
     status: "setup",
     tournamentName: "Racketeers Badminton Cup",
+    venue: "",
     theme: "light",
     startDate: new Date().toISOString().slice(0, 10),
     endDate: new Date().toISOString().slice(0, 10),
@@ -635,7 +637,7 @@ export function hydrateTournament(input: TournamentState): TournamentState {
     if (matchPin) usedPins.add(matchPin);
     return { ...match, scoring: scoringRule(match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21"), formatByDivision.get(match.divisionId)?.stageScoring?.[match.stage] ?? match.scoring), pin: matchPin, format: match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21") };
   });
-  return { ...input, version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
+  return { ...input, venue: typeof input.venue === "string" ? input.venue.trim().slice(0, 200) : "", version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
 }
 
 export function addDivision(state: TournamentState, name = `Division ${state.divisions.length + 1}`): TournamentState {
@@ -741,7 +743,7 @@ export function tournamentStartTime(state: Pick<TournamentState, "startDate" | "
 /** Fields edited in Setup, excluding roster overrides used in the Players tab. */
 export function setupConfiguration(state: TournamentState) {
   return {
-    tournamentName: state.tournamentName, startDate: state.startDate, endDate: state.endDate,
+    tournamentName: state.tournamentName, venue: state.venue || "", startDate: state.startDate, endDate: state.endDate,
     dayStart: state.dayStart, dayEnd: state.dayEnd, gameDuration: state.gameDuration, courts: state.courts,
     divisions: state.divisions.map(({ entries, ...configuration }) => { void entries; return configuration; }),
   };
