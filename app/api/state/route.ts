@@ -1,3 +1,4 @@
+import { appendStaffNotification, recordCourtCompletions } from "../../../lib/staff-events";
 import { matchWinner, isMatchUsingCourt, courtInUseAfterScore, tournamentEditingLocked, setupConfiguration, contactError, syncPlayerContacts, resetRegistrations, hydrateTournament, initialTournament, isSetWon, scoringRule, matchScoreLimit, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
 
 const ROW_ID = "racketeers";
@@ -50,6 +51,8 @@ function publicState(state: TournamentState, staff = false) {
   delete safe.organizerPinHash;
   delete safe.umpirePinHash;
   safe.registrations = [];
+  delete safe.staffNotifications;
+  delete safe.courtHelp;
   if (!staff && !tournamentEditingLocked(state.status)) {
     safe.matches = [];
     safe.divisions = safe.divisions.map(division => ({ ...division, entries: [] }));
@@ -97,13 +100,33 @@ export async function GET(request: Request) {
   const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
   const isOrganizer = await authorized(request.headers.get("x-organizer-pin"), state);
   if (request.headers.has("x-organizer-pin") && !isOrganizer) return Response.json({ error: "Organizer PIN did not match." }, { status: 401 });
+  if (new URL(request.url).searchParams.has("staffUpdates")) {
+    if (!isOrganizer && !(await umpireAuthorized(request, state))) return Response.json({ error: "Staff access required." }, { status: 401 });
+    return Response.json({ courtHelp: state.courtHelp ?? {}, notifications: isOrganizer ? state.staffNotifications ?? [] : [], revision: row.revision }, { headers: { "Cache-Control": "no-store" } });
+  }
   return Response.json({ state: isOrganizer ? organizerState(state) : publicState(state, await umpireAuthorized(request, state)), revision: row.revision, organizer: isOrganizer, updatedAt: row.updated_at });
 }
 
 export async function POST(request: Request) {
   const row = await ensureRow();
   const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
-  const body = (await request.json()) as { action?: string; divisionId?: string; expectedRevision?: number; confirmation?: string; pin?: string; newPin?: string; matchId?: string; registrationId?: string; registration?: RegistrationForm };
+  const body = (await request.json()) as { action?: string; court?: number; help?: boolean; divisionId?: string; expectedRevision?: number; confirmation?: string; pin?: string; newPin?: string; matchId?: string; registrationId?: string; registration?: RegistrationForm };
+  if (body.action === "courtHelp") {
+    const organizer = await authorized(request.headers.get("x-organizer-pin"), state);
+    if (!organizer && !(await umpireAuthorized(request, state))) return Response.json({ error: "Staff access required." }, { status: 401 });
+    const match = organizer ? state.matches.find(item => item.court === body.court && (item.id === body.matchId || isMatchUsingCourt(item))) : state.matches.find(item => item.id === body.matchId);
+    if (!organizer && (!match || !body.pin || match.pin !== body.pin)) return Response.json({ error: "Valid match PIN required." }, { status: 401 });
+    const court = organizer ? body.court : match?.court;
+    if (!Number.isInteger(court) || !court || court < 1 || court > state.courts || typeof body.help !== "boolean") return Response.json({ error: "Assign a valid court before requesting help." }, { status: 400 });
+    const help = { ...(state.courtHelp ?? {}) };
+    if (Boolean(help[court]) === body.help) return Response.json({ courtHelp: help, revision: row.revision });
+    if (body.help) help[court] = { id: crypto.randomUUID(), court, requestedAt: new Date().toISOString(), ...(match ? { matchId: match.id } : {}) };
+    else delete help[court];
+    const next = appendStaffNotification({ ...state, courtHelp: help }, { kind: body.help ? "help_requested" : "help_cleared", court, ...(match ? { matchId: match.id, matchLabel: match.label } : {}) });
+    const saved = await saveStateAtRevision(next, row.revision);
+    if (!saved) return Response.json({ error: "Court status changed. Please try again." }, { status: 409 });
+    return Response.json({ courtHelp: help, revision: saved.revision });
+  }
   if (body.action === "resetRegistrations") {
     if (!(await authorized(request.headers.get("x-organizer-pin"), state))) return Response.json({ error: "Organizer access is required." }, { status: 401 });
     if (tournamentEditingLocked(state.status)) return Response.json({ error: "Return to Setup or Registration before resetting registrations." }, { status: 423 });
@@ -285,7 +308,7 @@ export async function PUT(request: Request) {
     const setupChanged = comparable(setupConfiguration(proposed)) !== comparable(setupConfiguration(current));
     if (registrationsChanged || setupChanged) return Response.json({ error: "Setup and registration are read-only. Change the phase to Setup or Registration and save it before editing." }, { status: 423 });
   }
-  const next = { ...proposed, organizerPinHash: current.organizerPinHash, umpirePinHash: current.umpirePinHash, updatedAt: new Date().toISOString() };
+  const next = recordCourtCompletions(current, { ...proposed, courtHelp: current.courtHelp, staffNotifications: current.staffNotifications, organizerPinHash: current.organizerPinHash, umpirePinHash: current.umpirePinHash, updatedAt: new Date().toISOString() });
   const revision = row.revision + 1;
   const db = await database();
   const saved = await db.prepare("UPDATE tournament_state SET revision = ?, payload = ?, updated_at = ? WHERE id = ? AND revision = ?").bind(revision, JSON.stringify(next), next.updatedAt, ROW_ID, row.revision).run();
@@ -320,7 +343,7 @@ export async function PATCH(request: Request) {
   });
   const courtInUse = courtInUseAfterScore(match, sets);
   if (courtInUse && match.court && current.matches.some(other => other.id !== match.id && other.court === match.court && isMatchUsingCourt(other))) return Response.json({ error: `Court ${match.court} is already in use. Ask the organizer to reassign this game before resuming.` }, { status: 409 });
-  const next = { ...current, matches: current.matches.map((item) => item.id === match.id ? { ...item, sets, courtInUse, status: body.status === "finished" ? "live" as const : body.status ?? "live" } : item), updatedAt: new Date().toISOString() };
+  const next = recordCourtCompletions(current, { ...current, matches: current.matches.map((item) => item.id === match.id ? { ...item, sets, courtInUse, status: body.status === "finished" ? "live" as const : body.status ?? "live" } : item), updatedAt: new Date().toISOString() });
   const revision = row.revision + 1;
   const db = await database();
   const saved = await db.prepare("UPDATE tournament_state SET revision = ?, payload = ?, updated_at = ? WHERE id = ? AND revision = ?").bind(revision, JSON.stringify(next), next.updatedAt, ROW_ID, row.revision).run();

@@ -405,3 +405,25 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
   .clubhouse-site.umpire-focused .content {padding:12px}
  }
 }
+
+/* Court assistance and organizer alerts stay separate from score controls. */
+.court-help-button {display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;font-size:14px;font-weight:800;touch-action:manipulation}
+.court-tile .court-help-button {width:100%;margin-top:12px}
+.court-help-button[aria-pressed="true"] {background:#fff0d5;border-color:#c5871d;color:#704800}
+.court-help-button:disabled {opacity:.55;cursor:not-allowed}
+.court-help-button:focus-visible,.notification-dismiss:focus-visible {outline:3px solid var(--lime-dark);outline-offset:3px}
+.court-needs-help {border-color:#c5871d!important;background:color-mix(in srgb,#ffb72e 12%,var(--card))}
+.court-help-status {display:flex;align-items:center;gap:6px;color:#875500!important;font-weight:800}
+.umpire-court-status {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--card);margin:0 0 10px}
+.umpire-court-status>div {display:grid;gap:4px}.umpire-court-status strong {font-size:20px}.umpire-court-status span {color:var(--muted);font-size:13px;font-weight:700}.umpire-court-status .court-help-button {min-height:52px}
+.court-help-error {color:var(--red);font-weight:700;margin:0;flex-basis:100%}
+.staff-notifications {position:fixed;z-index:45;right:20px;bottom:20px;width:min(390px,calc(100vw - 32px));border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 40px #10202c33;background:var(--card);color:var(--ink)}
+.staff-notifications>header {display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line)}
+.staff-notifications>header>span {display:flex;gap:8px;align-items:center;font-weight:850}.staff-notifications>header button {min-height:44px;padding:8px;font-size:12px}
+.staff-notification-list {max-height:min(440px,50dvh);overflow-y:auto;overscroll-behavior:contain}
+.staff-notification {display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:14px;border-bottom:1px solid var(--line)}.staff-notification:last-child {border-bottom:0}.staff-notification.needs-help {border-left:5px solid #c5871d}.staff-notification strong {display:block;font-size:15px;line-height:1.5}.staff-notification p {margin:4px 0;color:var(--muted);font-size:13px}.staff-notification small {display:block;color:var(--muted);margin-top:5px}.staff-notification .secondary {display:block;min-height:44px;margin-top:10px;font-size:13px}
+.notification-dismiss {display:grid;place-items:center;flex-shrink:0;width:44px;height:44px;border:0;border-radius:8px;background:var(--paper);color:var(--ink);cursor:pointer}
+.staff-updates-warning {position:fixed;z-index:46;left:16px;bottom:16px;margin:0;padding:12px 16px;border:1px solid #c5871d;border-radius:10px;background:var(--card);color:var(--ink);font-size:13px;max-width:calc(100vw - 32px)}
+.dark .court-help-button[aria-pressed="true"] {background:#4d3818;color:#ffe1a5}.dark .court-help-status {color:#ffe1a5!important}
+@media(max-width:500px) {.staff-notifications {right:16px;bottom:16px}.umpire-court-status {gap:10px;padding:12px}.umpire-court-status .court-help-button {font-size:13px;padding:10px}.umpire-court-status span {max-width:150px}}
+@media print {.staff-notifications,.staff-updates-warning,.umpire-court-status {display:none!important}}

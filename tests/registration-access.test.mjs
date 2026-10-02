@@ -263,3 +263,46 @@ test('court occupancy starts on match access, releases per set and rejects simul
  sets[1]={a:21,b:5,complete:true};assert.equal((await score('first','1001',sets)).status,200);assert.equal(current('first').courtInUse,false);
  assert.equal((await open('1001')).status,200);assert.equal(current('first').courtInUse,false);
 });
+
+test('court help is restricted to staff and an umpire can toggle only the court assigned to their match',async()=>{
+ let state=await reset();state.umpirePinHash=await hash('87654321');const d=state.divisions[0];d.registrationManaged=false;d.entries=[logic.makeEntry(0,'doubles'),logic.makeEntry(1,'doubles')];state=logic.regenerateMatches(state);state.matches[0].court=1;saved.payload=JSON.stringify(state);const match=state.matches[0],ump={'x-umpire-pin':'87654321'};
+ const body={action:'courtHelp',matchId:match.id,pin:match.pin,court:3,help:true};
+ assert.equal((await post(body)).status,401);assert.equal((await post({...body,pin:'bad'},ump)).status,401);
+ assert.equal((await post({...body,help:'yes'},ump)).status,400);
+ assert.equal((await post(body,ump)).status,200);let current=JSON.parse(saved.payload);
+ assert.ok(current.courtHelp[1]);assert.equal(current.courtHelp[3],undefined);assert.equal(current.staffNotifications.length,1);assert.equal(current.staffNotifications[0].kind,'help_requested');
+ assert.equal((await post(body,ump)).status,200);assert.equal(JSON.parse(saved.payload).staffNotifications.length,1);
+ assert.equal((await api.GET(new Request('https://test/api/state?staffUpdates=1'))).status,401);
+ const publicData=await (await api.GET(new Request('https://test/api/state'))).json();assert.equal(publicData.state.courtHelp,undefined);assert.equal(publicData.state.staffNotifications,undefined);
+ const staff=await (await api.GET(new Request('https://test/api/state?staffUpdates=1',{headers:ump}))).json();assert.ok(staff.courtHelp[1]);assert.deepEqual(staff.notifications,[]);
+ const organizer=await (await api.GET(new Request('https://test/api/state?staffUpdates=1',{headers:org}))).json();assert.equal(organizer.notifications.length,1);
+ assert.equal((await post({action:'courtHelp',court:1,help:false},org)).status,200);current=JSON.parse(saved.payload);assert.equal(current.courtHelp[1],undefined);assert.equal(current.staffNotifications.at(-1).kind,'help_cleared');
+ assert.equal((await post(body,ump)).status,200);assert.equal((await post({...body,help:false},ump)).status,200);assert.equal(JSON.parse(saved.payload).courtHelp[1],undefined);
+ assert.equal((await post({action:'courtHelp',court:state.courts+1,help:true},org)).status,400);
+});
+
+test('completion alerts are durable, distinguish sets from games, and cannot be forged or removed by an organizer state save',async()=>{
+ let state=await reset();state.status='live';const d=state.divisions[0];d.registrationManaged=false;d.entries=[logic.makeEntry(0,'doubles'),logic.makeEntry(1,'doubles')];state=logic.regenerateMatches(state);const match=state.matches[0];Object.assign(match,{court:1,courtInUse:true,status:'live',format:'best_of_3_21',scoring:{mode:'first_to_target',target:21,cap:21},sets:[{a:21,b:10,complete:false},{a:0,b:0,complete:false},{a:0,b:0,complete:false}]});saved.payload=JSON.stringify(state);
+ const patch=sets=>api.PATCH(request({matchId:match.id,pin:match.pin,sets},org,'PATCH'));
+ const set1=[{a:21,b:10,complete:true},{a:0,b:0,complete:false},{a:0,b:0,complete:false}];assert.equal((await patch(set1)).status,200);
+ let current=JSON.parse(saved.payload);assert.equal(current.staffNotifications.length,1);assert.equal(current.staffNotifications[0].gameComplete,false);assert.equal(current.staffNotifications[0].available,true);assert.equal(current.staffNotifications[0].setNumber,1);
+ assert.equal((await patch(set1)).status,200);assert.equal(JSON.parse(saved.payload).staffNotifications.length,1);
+ assert.equal((await patch([{...set1[0]},{a:21,b:8,complete:false},{a:0,b:0,complete:false}])).status,200);
+ assert.equal((await patch([{...set1[0]},{a:21,b:8,complete:true},{a:0,b:0,complete:false}])).status,200);
+ current=JSON.parse(saved.payload);assert.equal(current.staffNotifications.length,2);assert.equal(current.staffNotifications[1].gameComplete,true);
+ assert.equal((await post({action:'courtHelp',court:1,help:true},org)).status,200);current=JSON.parse(saved.payload);
+ const forged={...current,courtHelp:{},staffNotifications:[{id:'fake',kind:'help_requested',court:4}]};
+ const put=await api.PUT(request({state:forged,expectedRevision:saved.revision},org,'PUT'));assert.equal(put.status,200);
+ const after=JSON.parse(saved.payload);assert.deepEqual(after.courtHelp,current.courtHelp);assert.deepEqual(after.staffNotifications,current.staffNotifications);
+ const updates=await (await api.GET(new Request('https://test/api/state?staffUpdates=1',{headers:org}))).json();assert.deepEqual(updates.notifications,current.staffNotifications);
+});
+
+test('organizer set completion generates the same alert and refresh, reset, and court assignment do not duplicate it',async()=>{
+ let state=await reset();const d=state.divisions[0];d.registrationManaged=false;d.entries=[logic.makeEntry(0,'doubles'),logic.makeEntry(1,'doubles')];state=logic.regenerateMatches(state);const match=state.matches[0];Object.assign(match,{court:1,courtInUse:true,status:'live',format:'single_21',scoring:{mode:'first_to_target',target:21,cap:21},sets:[{a:21,b:9,complete:false}]});saved.payload=JSON.stringify(state);
+ const put=state=>api.PUT(request({state,expectedRevision:saved.revision},org,'PUT'));
+ assert.equal((await put({...state,matches:state.matches.map(m=>m.id===match.id?logic.completeMatchSet(m,0):m)})).status,200);
+ let current=JSON.parse(saved.payload);assert.equal(current.staffNotifications.length,1);assert.equal(current.staffNotifications[0].gameComplete,true);
+ assert.equal((await put(current)).status,200);assert.equal(JSON.parse(saved.payload).staffNotifications.length,1);
+ current=JSON.parse(saved.payload);current.matches[0]={...current.matches[0],court:2,courtInUse:false,status:'ready',sets:[{a:0,b:0,complete:false}]};
+ assert.equal((await put(current)).status,200);assert.equal(JSON.parse(saved.payload).staffNotifications.length,1);
+});

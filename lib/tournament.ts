@@ -113,6 +113,9 @@ export type Match = {
 
 export type MedalPoints = { gold: number; silver: number; bronze: number; runnerUp: number };
 
+export type CourtHelpRequest = { id: string; court: number; requestedAt: string; matchId?: string };
+export type StaffNotification = { id: string; kind: "court_released" | "help_requested" | "help_cleared"; court: number; createdAt: string; matchId?: string; matchLabel?: string; setNumber?: number; gameComplete?: boolean; available?: boolean };
+
 export type TournamentState = {
   version: number;
   status: TournamentPhase;
@@ -127,6 +130,8 @@ export type TournamentState = {
   dayEnd: string;
   gameDuration: number;
   courts: number;
+  courtHelp?: Record<string, CourtHelpRequest>;
+  staffNotifications?: StaffNotification[];
   medalPoints: MedalPoints;
   divisions: Division[];
   registrations: PlayerRegistration[];
