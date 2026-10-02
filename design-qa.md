@@ -1,27 +1,49 @@
-# Compact umpire console — design QA
+# Clubhouse Clarity — completed site design QA
 
 final result: passed
 
-Selected direction: the first displayed Product Design option, Compact Court Console.
-Reference: generated_images/exec-3b8986fb-11da-4557-9113-e982aa4d4869.png (853 × 1844, normalized to the 390 × 844 phone frame).
-Implementation: app/components/umpire-scorecard.tsx, app/page.tsx and app/globals.css.
+Approved direction: Clubhouse Clarity, with the existing navy, lime, Manrope typography, Racketeers mark and shuttle photograph. This pass completes the shared design across registration, organizer tools, spectator views, umpire scoring and the projector. The existing Cloudflare Workers deployment remains the publication target.
 
-## Visual comparison
+## Reference fidelity
 
-Reference and rendered implementation were inspected together in the same image comparison input, both at Alex / Sam 18 versus Chris / Pat 16, Court 1, single set, help off, More closed. The browser proof contains the centered 390 × 844 app iframe inside the larger browser canvas; comparisons use the iframe bounds.
+The approved `Racketeers-Clubhouse-Clarity-Preview.jpg` reference (1224 × 870) and the final rendered registration page were inspected together in one side-by-side image. The implementation uses a 1440 × 1024 CSS viewport, displayed at 0.85 scale (1224 × 870.4). A second comparison isolates the player fields and main action.
 
-The first comparison found a P2 vertical-spacing mismatch: the header and court area pushed scoring below the reference. Reduced header, saved-status, court-badge and first-pair spacing, then captured and compared the implementation again. Final headings, score blocks, divider and rule footer closely follow the reference. Navy header, pale page, lime point buttons, subdued correction buttons and existing Manrope typography preserve the site's brand. Standard Phosphor vector icons replace the conceptual mockup symbols; no raster assets are required.
+| Surface | Final inspection |
+| --- | --- |
+| Layout and hierarchy | Navy header, one-third sidebar, white registration workspace and two player columns follow the reference. The main continuation action remains visible in the initial desktop viewport. |
+| Typography and spacing | Existing Manrope and heading hierarchy retained. Shared labels and body text are readable at 14px, with secondary text at 12px. Registration labels use a compact line height; club guidance is concise. |
+| Color and surfaces | Existing navy/lime palette retained. Cards, phase controls, dark-theme state colors and the registration confirmation use consistent contrast and borders. |
+| Assets and iconography | Existing brand mark and supplied shuttle photograph retained. Phosphor key, moon and sun icons match the established vector icon set. |
+| Controls and states | Active view and organizer section states are announced. Disabled phase controls remain readable, while unavailable inputs have a distinct appearance. Keyboard focus indicators remain visible. |
+| Content and responsive behavior | Venue, rules and waiver links remain visible in registration. These newer requirements intentionally add content beyond the original reference. Phone fields stack; tablet registration keeps two player columns; wide registration follows the reference. |
 
-Final proof: Racketeers-Compact-Umpire-Mobile.jpg and Racketeers-Compact-Umpire-Landscape.jpg. Landscape at 844 × 390 shows both pairs side by side; footer ends at 381.5px, within the viewport. Phone scroll width equals viewport width (390px): no horizontal overflow. Phone score targets measure 96 × 96px; help is 52px high. Tablet uses the bounded 650px console with the same stacked controls. Final tablet screenshot verification was unavailable because the existing tablet preview tab was an internal browser error page; responsive CSS and build were reviewed. Physical devices and screen readers were not tested.
+## Findings and repairs
 
-## Behavior and accessibility
+- P2: Phone Schedule exceeded its 375px content width (418px) and compressed the court selector. Explicit responsive grid placement now stacks the date, court, game and status at phone width. The final content width and scroll width both measure 375px; tablet measures 819px for both.
+- P2: Readable shared line heights and the longer club explanation pushed the desktop main action below the first viewport. Concise club guidance and compact registration-label line height place the action at 960–1014px in a 1024px-high viewport.
+- P2: Projector pages aligned short slides to the upper left. Centered layout and transform origin now center each measured slide, while retaining row pagination and the fixed progress footer. The tablet footer ends at 884px in a 900px viewport.
+- P2: Setup placed umpire access before tournament configuration. Tournament phase and settings now appear first; PIN controls remain available below configuration and outside the disabled phase fieldset.
+- P2: Some shared labels, status text and disabled phase descriptions were too small or faint. Shared minimum text sizes, line heights and state colors improve legibility across organizer and public surfaces.
 
-Verified in the isolated fixture: More disclosure, Escape dismissal, focus/full-site toggle, help request/cancel, repeated point entry, winning-score cap, set-completion confirmation, score locking, court release and game-complete message. Best-of-three defaults to the current unfinished set and allows viewing completed sets and returning to the current set. A P2 accessible-label issue in the set selector was fixed by separating its label from the current-set action.
+No unresolved P0, P1 or P2 findings in the inspected layouts.
 
-Scores, help and notifications continue through the existing API callbacks. Saved/saving/offline states and retry remain visible. Exit is unavailable while a score is unsaved. Completion and validation states retain their lock/unlock rules. Player names wrap rather than overflow. Keyboard focus indicators and explicit point-button labels are retained. No WCAG certification is claimed.
+## Browser validation
 
-## Validation
+Checks use isolated in-memory preview data; production tournament records, phases and credentials are not changed.
 
-ESLint passed. Production build passed. All 87 automated tests and both rendered Worker checks passed (89 checks total). Git whitespace check passed. Browser logs include historical Vite hot-reload and browser-extension metadata errors during iteration; final layout rendered correctly after recovery, with successful production compilation.
+| Viewport | Verified surfaces |
+| --- | --- |
+| 1440 × 1024 | Final registration reference comparison, complete player form, visible primary action, no page-level horizontal overflow. |
+| 834 × 900 | All eight organizer sections: Setup, Registration, Players, Matchups, Bracket Draw, Group Scores & PINs, Schedule and Tournament Progress. Registration, dark spectator scores, umpire console and projector also inspected. |
+| 390 × 844 | All eight organizer sections; repaired Schedule; registration, combined-entry confirmation and compact umpire console. No page-level horizontal overflow in these checks. |
+| 320 × 1194 | Registration and public countdown fit without horizontal overflow. Navigation wraps within the available width. |
 
-No unresolved P0, P1 or P2 findings in the inspected layouts. The final tablet browser check and physical-device checks remain validation limitations, not observed defects.
+The registration workflow was exercised with disposable demo players: required contact details, shirt guide open/close, an optional second entry in another division, payment review and saved confirmation. Both entries share one confirmation and demo PIN. The umpire console was checked for point increment/decrement, saved status, help request/cancel and More/Escape behavior at tablet width; its phone layout remains compact. The projector automatically advanced through measured slides, including upcoming-game rows and empty demo divisions. Application-origin console errors were absent in the final inspected preview; unrelated browser-extension metadata errors were excluded.
+
+Evidence includes `registration-comparison.jpg`, `registration-fields-comparison.jpg`, `schedule-phone-before-canvas.jpg`, `schedule-phone-after-canvas.jpg`, `schedule-tablet-canvas.jpg`, `organizer-setup-tablet-canvas.jpg`, `registration-success-phone-canvas.jpg`, `umpire-phone-canvas.jpg`, `umpire-tablet-canvas.jpg` and `projector-tablet-centered-canvas.jpg`. User-facing proof is saved as `Racketeers-Completed-Design.jpg`.
+
+## Automated validation and limits
+
+All 87 automated tests and both rendered Worker checks pass (89 total). ESLint, the production build and the Git whitespace check pass. Existing tests cover registration access, payment proof, tournament logic, score synchronization and projector row coverage. This change does not alter those APIs or scoring rules.
+
+Printed scorecard styles are unaffected because shared refinements are scoped to screen media. Physical devices, screen readers and a formal accessibility certification were not tested. Browser checks validate the named viewport sizes and fixture states, rather than every possible roster length or device.

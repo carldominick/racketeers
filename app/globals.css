@@ -456,3 +456,105 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
  .umpire-console-footer {padding:8px 0;font-size:12px}.umpire-set-selector {margin-bottom:4px}
 }
 .umpire-set-selector label {display:flex;align-items:center;gap:8px;flex:1;min-width:0}.umpire-set-selector select {min-width:0}
+
+/* Complete the shared Clubhouse surfaces without changing printed scorecards. */
+@media screen {
+ .clubhouse-site {line-height:1.5}
+ .clubhouse-site :is(.stack,.card,.section-head>div,.registration-summary>div,.roster,.registration-fields>*,.score-game-cell) {min-width:0}
+ .clubhouse-site :is(h2,h3,.entry-name,.registration-reference,.player-meta,.event-venue) {overflow-wrap:anywhere}
+ .clubhouse-site .card>h2,.clubhouse-site .organizer-security h2 {font-size:1.5rem;line-height:1.25;margin:0 0 12px}
+ .clubhouse-site :is(.form-grid label,.roster label,.point-grid label,.pin-change-form label,.registration-fields>label,.division-name-field,.manual-toggle) {font-size:.875rem;line-height:1.4}
+ .clubhouse-site .eyebrow {font-size:.75rem;line-height:1.5}
+ .clubhouse-site :is(.info-strip,.phase-lock-note,.lock-note,.set-checks label,.summary-metrics span,.progress-entry-strip span) {font-size:.875rem}
+ .clubhouse-site :is(.stage,.match-meta,.mini-match span,.subhead span) {font-size:.75rem;line-height:1.5}
+ .clubhouse-site .status {font-size:.75rem;min-height:30px;letter-spacing:.04em;white-space:nowrap}
+ .clubhouse-site .pin-ribbon {font-size:.875rem}
+ .clubhouse-site .renew-pin {min-height:44px;font-size:.875rem}
+ .clubhouse-site .score-game-grid .entry-name {font-size:.875rem}
+ .clubhouse-site .score-game-grid .entry-name small {font-size:.75rem}
+ .clubhouse-site .score-game-grid .card-actions :is(button,select) {font-size:.875rem}
+ .clubhouse-site th {font-size:.75rem;line-height:1.5}
+ .clubhouse-site td {font-size:.875rem;line-height:1.5}
+ .clubhouse-site .theme {display:grid;place-items:center}
+ .clubhouse-site .tabs {scrollbar-width:thin;scrollbar-color:#9eafbc var(--card);overscroll-behavior-inline:contain}
+ .clubhouse-site .view-switch button {font-size:.875rem}
+ .clubhouse-site .clubhouse-registration label {line-height:1.25}
+ .clubhouse-site .division-toolbar {border-style:solid}
+ .clubhouse-site .editable-schedule .schedule-row {grid-template-columns:minmax(230px,1fr) minmax(120px,.5fr) minmax(110px,.5fr) minmax(180px,2fr) auto;font-size:.875rem}
+ .clubhouse-site .editable-schedule .schedule-row>:is(input,select) {min-width:0;width:100%}
+ .clubhouse-site .phase-tracker {border-radius:12px;grid-template-columns:repeat(4,minmax(0,1fr))}
+ .clubhouse-site .phase-tracker button {min-width:0;gap:10px;min-height:72px;border-radius:8px}
+ .clubhouse-site .phase-tracker button span {min-width:0}
+ .clubhouse-site .phase-tracker button strong {font-size:.875rem;line-height:1.4}
+ .clubhouse-site .phase-tracker button small {font-size:.75rem;line-height:1.45}
+ .clubhouse-site .phase-tracker button:disabled {opacity:1;cursor:default}
+ .clubhouse-site .phase-tracker button.active {border-color:#829e12;background:color-mix(in srgb,var(--lime) 12%,var(--card))}
+ .clubhouse-site .phase-fieldset:disabled {opacity:1}
+ .clubhouse-site .phase-fieldset:disabled :is(input,select,textarea) {background:var(--paper);color:var(--muted);cursor:not-allowed}
+ .clubhouse-site .stage-scoring summary {min-height:44px;padding-block:12px;font-size:.875rem}
+ .clubhouse-site .registration-portal {max-width:1440px;margin:0 auto;padding:28px clamp(18px,3vw,40px) 64px}
+ .clubhouse-site .portal-hero {border-radius:12px;background:#14212d;color:#fff;padding:28px 32px}
+ .clubhouse-site .portal-hero .eyebrow {color:var(--lime)}
+ .clubhouse-site .portal-hero h2 {font-size:clamp(1.75rem,3vw,2.5rem);line-height:1.2;max-width:900px}
+ .clubhouse-site .portal-hero p:last-child {color:#d0d9e1;margin:14px 0 0}
+ .clubhouse-site .scoreboard-hero h2 {line-height:1.2}
+ .clubhouse-site .locked-registration {padding:24px;line-height:1.65}
+ .clubhouse-site .registration-receipt :is(p,code,.receipt-pin) {max-width:100%;overflow-wrap:anywhere}
+ .clubhouse-site .receipt-pin {letter-spacing:.1em}
+ .clubhouse-site .registration-receipt .payment-proof {width:100%;text-align:left}
+ .clubhouse-site .registration-save-warning {text-align:left}
+ .clubhouse-site .tournament-countdown {margin:0 auto;border-top:4px solid var(--lime)}
+ .clubhouse-site .countdown-clock span {font-size:.75rem}
+ .clubhouse-site .countdown-clock strong {line-height:1.15}
+ .clubhouse-site .umpire-console {line-height:normal}
+ .clubhouse-site .auto-projector :is(th,td) {font-size:clamp(.875rem,1.4vw,1.5rem)}
+ .clubhouse-site .auto-projector th {font-size:clamp(.75rem,1vw,1rem)}
+ .clubhouse-site .auto-projector td small {font-size:clamp(.75rem,1vw,1.125rem)}
+ .clubhouse-site .auto-projector footer {font-size:.875rem;line-height:1.4}
+ .clubhouse-site .projector-page {display:flex;align-items:center;justify-content:center}
+ .clubhouse-site .projector-page>div {width:100%;flex:0 0 auto}
+ .clubhouse-site .auto-projector header,.clubhouse-site .projector-empty {text-align:center}
+ .clubhouse-site :is(.bracket-column>h3,.sub-bracket-rosters p b) {background:#14212d;color:#fff}
+ .clubhouse-site :is(.pool-progress p,.stage-match-list article>p,.possible-entrants>span,.draw-match p,.mini-match b) {font-size:.875rem;line-height:1.5}
+ .clubhouse-site :is(.pool-progress>div small,.pool-progress p>em,.stage-panel>header span,.possible-entrants>b,.stage-match-list article>em,.draw-match small,.draw-match p b,.advancement-list small,.advancement-list b) {font-size:.75rem;line-height:1.4}
+ .clubhouse-site .advancement-list strong {font-size:.875rem}
+ .clubhouse-site.dark :is(.draw-match p.winner,.stage-match-list article>p.winner,.positive,.pool-progress p>em,.stage-panel>header span) {color:var(--lime)}
+ .clubhouse-site.dark .phase-lock-note {background:#332b16;color:#ffe2a1}
+ .clubhouse-site.dark .danger {background:#3b2428;color:#ffb4ac;border-color:#906269!important}
+ .clubhouse-site .access-dialog {width:min(480px,100%);max-height:calc(100dvh - 40px);overflow-y:auto}
+ @media(max-width:1100px) {
+  .clubhouse-site .phase-tracker {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .clubhouse-site .editable-schedule .schedule-row {grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+  .clubhouse-site .editable-schedule .schedule-row>input {grid-column:1}
+  .clubhouse-site .editable-schedule .schedule-row>select {grid-column:2}
+  .clubhouse-site .editable-schedule .schedule-row>span:not(.status) {grid-column:1;grid-row:2}
+  .clubhouse-site .editable-schedule .schedule-row>strong {grid-column:1/-1}
+  .clubhouse-site .editable-schedule .schedule-row>.status {grid-column:2;grid-row:2;justify-self:end}
+ }
+ @media(max-width:760px) {
+  .clubhouse-site .view-switch {gap:4px}
+  .clubhouse-site .registration-portal {padding:20px 16px 40px;gap:18px}
+  .clubhouse-site .portal-hero {padding:24px 20px}
+  .clubhouse-site .phase-tracker {padding:10px;gap:8px}
+  .clubhouse-site .phase-tracker button {align-items:flex-start;padding:12px 10px;gap:8px}
+  .clubhouse-site .phase-tracker button b {flex-basis:26px;width:26px;height:26px;font-size:.875rem}
+  .clubhouse-site .division-name-field {width:100%;min-width:0}
+  .clubhouse-site :is(.derived-roster-note,.progress-hero) {align-items:flex-start;flex-direction:column}
+  .clubhouse-site .progress-hero .ghost {white-space:normal}
+  .clubhouse-site .registration-receipt {padding:24px 18px}
+  .clubhouse-site .receipt-actions {width:100%}
+  .clubhouse-site .receipt-actions button {flex:1 1 160px}
+  .clubhouse-site .summary-metrics {gap:8px}
+  .clubhouse-site .summary-metrics div {padding:12px 8px}
+  .clubhouse-site .auto-projector footer {font-size:.75rem}
+  .clubhouse-site .editable-schedule .schedule-row {grid-template-columns:minmax(0,1fr);gap:10px;padding:18px 0}
+  .clubhouse-site .editable-schedule .schedule-row>:is(input,select,span,strong) {grid-column:1;grid-row:auto}
+  .clubhouse-site .editable-schedule .schedule-row>.status {grid-column:1;grid-row:auto;justify-self:start}
+ }
+ @media(max-width:360px) {
+  .clubhouse-site .phase-tracker {grid-template-columns:1fr}
+ }
+}
+@media(prefers-reduced-motion:reduce) {
+ .clubhouse-site .slide-progress i:after {animation:none}
+}
