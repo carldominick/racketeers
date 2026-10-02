@@ -1,0 +1,96 @@
+"use client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Copy } from "@phosphor-icons/react/dist/csr/Copy";
+import { Printer } from "@phosphor-icons/react/dist/csr/Printer";
+import { ArrowClockwise } from "@phosphor-icons/react/dist/csr/ArrowClockwise";
+import { ArrowRight } from "@phosphor-icons/react/dist/csr/ArrowRight";
+import { CheckCircle } from "@phosphor-icons/react/dist/csr/CheckCircle";
+import { Clock } from "@phosphor-icons/react/dist/csr/Clock";
+import { HandWaving } from "@phosphor-icons/react/dist/csr/HandWaving";
+import { Info } from "@phosphor-icons/react/dist/csr/Info";
+import { MapPin } from "@phosphor-icons/react/dist/csr/MapPin";
+import { CalendarBlank } from "@phosphor-icons/react/dist/csr/CalendarBlank";
+import { ListChecks } from "@phosphor-icons/react/dist/csr/ListChecks";
+import { gameDaySettings, displayName, matchWinner, type CourtHelpRequest, type GameDaySettings, type Match, type TournamentState } from "../../lib/tournament";
+import { bracketLabel, courtOccupant, gameEligibility, gameNumber, gameQueue, isDispatched, isFinished, matchupText } from "../../lib/game-day";
+import { NextGameNotice } from "./next-game-notice";
+
+type Props = {
+  state: TournamentState; busy: boolean; help: Record<string, CourtHelpRequest>;
+  onAssign: (id: string, court: number) => Promise<void>; onRelease: (id: string) => Promise<void>;
+  onSettings: (patch: Partial<GameDaySettings>) => void; onSettingsPage: () => void;
+  onPin: (id: string) => void; onReset: (id: string) => void; onPrint: (id?: string, includePin?: boolean) => void;
+  onValidate: (id: string) => void; onUnvalidate: (id: string) => void; onUpdate: (match: Match) => void;
+  onHelp: (court: number, help: boolean) => void;
+  renderScoreEditor: (match: Match) => React.ReactNode;
+};
+function Pin({ match }: { match: Match }) {
+  const [message, setMessage] = useState("");
+  return <span className="desk-pin"><span>Umpire PIN</span><code>{match.pin || "Unavailable"}</code><button type="button" aria-label={`Copy PIN for ${match.label}`} title="Copy PIN" onClick={async () => { try { await navigator.clipboard.writeText(match.pin); setMessage("Copied"); } catch { setMessage("Select the PIN to copy it"); } }}><Copy size={16} aria-hidden="true" /></button>{message && <small role="status">{message}</small>}</span>;
+}
+function PrintButton({ onPrint }: { onPrint: (includePin: boolean) => void }) {
+  return <details className="desk-print-menu"><summary><Printer size={16} aria-hidden="true" />Print game card</summary><div><button onClick={() => onPrint(false)}>Standard scorecard</button><button onClick={() => onPrint(true)}>Umpire handoff with PIN</button></div></details>;
+}
+export function GameDayDesk(props: Props) {
+  const { state, busy, help } = props;
+  const [now, setNow] = useState(() => Date.now());
+  const [search, setSearch] = useState("");
+  const [divisionFilter, setDivisionFilter] = useState("all");
+  const [selectedId, setSelectedId] = useState("");
+  const [selectedCourt, setSelectedCourt] = useState(0);
+  const [reviewId, setReviewId] = useState("");
+  const [editorId, setEditorId] = useState("");
+  const assignment = useRef<HTMLElement>(null);
+  const editor = useRef<HTMLElement>(null);
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 10000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    if (!editorId) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const panel = editor.current;
+    const controls = () => Array.from(panel?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]') ?? []).filter(element => element.getClientRects().length);
+    controls()[0]?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEditorId("");
+      if (event.key !== "Tab") return;
+      const items = controls(), first = items[0], last = items.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => { document.removeEventListener("keydown", handleKey); previous?.focus(); };
+  }, [editorId]);
+  const queue = useMemo(() => gameQueue(state, now), [state, now]);
+  const settings = gameDaySettings(state);
+  const selected = queue.ready.find(m => m.id === selectedId) ?? queue.ready[0];
+  const available = Array.from({ length: state.courts }, (_, i) => i + 1).filter(c => !courtOccupant(state, c));
+  const court = available.includes(selectedCourt) ? selectedCourt : available[0] ?? 0;
+  const pendingResults = state.matches.filter(m => isFinished(m) && !m.validated);
+  const result = pendingResults.find(m => m.id === reviewId) ?? pendingResults[0];
+  const matchesFilter = (m: Match) => (divisionFilter === "all" || m.divisionId === divisionFilter) && `${gameNumber(state, m)} ${m.label} ${bracketLabel(state, m)} ${matchupText(state, m)}`.toLowerCase().includes(search.toLowerCase());
+  const score = (m: Match) => { const active = m.sets.find(s => !s.complete) ?? m.sets.at(-1); return active ? `${active.a} – ${active.b}` : "0 – 0"; };
+  const select = (m?: Match, c?: number) => { if (m) setSelectedId(m.id); if (c) setSelectedCourt(c); assignment.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); };
+  const tools = (m: Match, selection?: boolean) => <div className="desk-tools">{selection !== undefined && <button className="desk-select primary" disabled={busy || !selection} onClick={() => select(m)}>Select</button>}<PrintButton onPrint={includePin => props.onPrint(m.id, includePin)} /><button className="desk-small" disabled={busy} onClick={() => props.onPin(m.id)}><ArrowClockwise size={14} aria-hidden="true" />Reset PIN</button><button className="desk-small desk-danger" disabled={busy || m.validated} onClick={() => props.onReset(m.id)}>Reset game</button>{m.validated && <button className="desk-small" disabled={busy} onClick={() => props.onUnvalidate(m.id)}>Unvalidate</button>}</div>;
+  const rows = (matches: Match[], ready: boolean) => matches.filter(matchesFilter).map(m => { const eligibility = gameEligibility(state, m, now); return <tr key={m.id} className={m.id === selected?.id ? "desk-selected-row" : ""}><td data-label="Game / bracket"><strong>Game {gameNumber(state, m)}</strong><small>{bracketLabel(state, m)}</small>{m.stage !== "regular" && <small className="desk-game-stage">{m.stage.replaceAll("_", " ")}</small>}</td><td data-label="Matchup">{matchupText(state, m)}</td><td data-label="Umpire PIN"><Pin match={m} /></td><td data-label="Status"><span className={`desk-dot ${ready ? "ready" : "waiting"}`} />{eligibility.reason}{m.id === queue.ready[0]?.id && <small>Recommended next</small>}{eligibility.eligibleAt && <small>Eligible at {new Date(eligibility.eligibleAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}</small>}</td><td data-label="Controls">{tools(m, ready)}</td></tr>; });
+  const reserved = state.matches.filter(m => m.status === "ready" && isDispatched(m));
+  const looseLive = state.matches.filter(m => m.status === "live" && !isFinished(m) && !m.court);
+  return <div className="game-day-desk">
+    <header className="desk-event"><div><strong>{state.tournamentName}</strong><span>{state.venue && <><MapPin size={18} aria-hidden="true" />{state.venue}</>}<CalendarBlank size={18} aria-hidden="true" />{new Date(`${state.startDate}T12:00:00+08:00`).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short", day: "numeric", month: "short", year: "numeric" })}</span></div><div className="desk-event-actions"><details className="desk-print-menu desk-bulk-print"><summary><Printer size={18} aria-hidden="true" />Print all games</summary><div><button onClick={() => props.onPrint(undefined, false)}>All standard scorecards</button><button onClick={() => props.onPrint(undefined, true)}>All umpire handoff cards with PINs</button></div></details><label>Division<select value={divisionFilter} onChange={e => setDivisionFilter(e.target.value)}><option value="all">All divisions</option>{state.divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label><span className="desk-phase">{state.status}</span></div></header>
+    <div className="desk-heading"><h2>Game day desk</h2><p>{available.length} courts available · {state.courts - available.length} in use / reserved</p></div>
+    <NextGameNotice state={state} />
+    <section className="desk-courts" aria-label="Court availability">{Array.from({ length: state.courts }, (_, i) => {
+      const c = i + 1, occupied = courtOccupant(state, c);
+      const previous = [...state.matches].reverse().find(m => m.court === c && isFinished(m));
+      const match = occupied ?? previous;
+      const division = state.divisions.find(d => d.id === match?.divisionId);
+      const entries = division?.entries ?? [];
+      return <article key={c} className={`desk-court ${occupied ? "occupied" : "available"} ${court === c ? "selected-court" : ""}`}><header><h3>Court {c}</h3><span className={`desk-state ${occupied ? "busy" : "free"}`}>{occupied ? occupied.status === "ready" ? "Reserved" : "In use" : "Available"}</span></header>{match ? <><small>{bracketLabel(state, match)} · Game {gameNumber(state, match)}{!occupied && " completed"}</small><div className="desk-court-scores"><div><strong>{displayName(entries.find(e => e.id === match.entryAId))}</strong><b>{(match.sets.find(s => !s.complete) ?? match.sets.at(-1))?.a ?? 0}</b></div><div><strong>{displayName(entries.find(e => e.id === match.entryBId))}</strong><b>{(match.sets.find(s => !s.complete) ?? match.sets.at(-1))?.b ?? 0}</b></div></div><Pin match={match} />{!occupied && !match.validated && <span className="desk-result-pending"><Clock size={16} aria-hidden="true" />Awaiting validation</span>}</> : <div className="desk-empty-court"><ListChecks size={42} aria-hidden="true" /><strong>Ready for next game</strong><p>Assign a ready game from the queue.</p></div>}{help[c] && <span className="desk-result-pending"><HandWaving size={16} aria-hidden="true" />Help requested<button className="desk-help-clear" aria-label={`Clear help request for Court ${c}`} disabled={busy} onClick={() => props.onHelp(c, false)}>Clear</button></span>}<div className="desk-court-primary">{occupied ? <button className="primary" onClick={() => setEditorId(occupied.id)}>Track game</button> : <button className="primary" disabled={busy || !queue.ready.length} onClick={() => select(selected, c)}>Assign game</button>}{occupied?.status === "ready" && <button className="desk-small" disabled={busy} onClick={() => props.onRelease(occupied.id)}>Unassign</button>}</div>{match && tools(match)}</article>;
+    })}</section>
+    <section className="desk-rotation" aria-label="Bracket rotation"><header><h3>Bracket rotation</h3><div><label className="desk-toggle"><input type="checkbox" checked={settings.evenRotation} onChange={e => props.onSettings({ evenRotation: e.target.checked })} disabled={busy} />Even rotation</label><button className="desk-small" onClick={props.onSettingsPage}>Rest rule: {settings.restMinutes} min · Edit</button></div></header><div className="desk-rotation-list">{queue.rotation.map(item => <div key={item.key} className={Boolean(item.next && item.next.id === queue.ready[0]?.id) ? "next" : ""}><strong>{bracketLabel(state, item.match)}</strong><small>{item.next ? `Game ${gameNumber(state, item.next)}` : "No eligible game"}{Boolean(item.next && item.next.id === queue.ready[0]?.id) && <b>Next</b>}</small><ArrowRight size={18} aria-hidden="true" /></div>)}</div><p>One eligible game per bracket per turn. Blocked games are revisited. A turn advances after assignment.</p></section>
+    <div className="desk-workspace"><section className="desk-queue"><header><div><h3>Upcoming & waiting games</h3><p>{queue.ready.length + queue.waiting.length} unassigned · {queue.ready.length} ready · {queue.waiting.length} waiting</p></div><input type="search" placeholder="Search games or players…" aria-label="Search games or players" value={search} onChange={e => setSearch(e.target.value)} /></header><table><thead><tr><th>Game / bracket</th><th>Matchup</th><th>Umpire PIN</th><th>Status / reason</th><th>Controls</th></tr></thead><tbody><tr className="desk-group"><th colSpan={5}><CheckCircle size={18} aria-hidden="true" />Ready to assign ({queue.ready.length})</th></tr>{rows(queue.ready, true)}{!queue.ready.filter(matchesFilter).length && <tr><td colSpan={5}>No ready games match this view.</td></tr>}<tr className="desk-group"><th colSpan={5}><Clock size={18} aria-hidden="true" />Waiting for eligibility ({queue.waiting.length})</th></tr>{rows(queue.waiting, false)}{!queue.waiting.filter(matchesFilter).length && <tr><td colSpan={5}>No waiting games match this view.</td></tr>}</tbody></table>{reserved.length > 0 && <details className="desk-assigned"><summary>{reserved.length} games assigned, awaiting umpire</summary>{reserved.map(m => <div key={m.id}><strong>Game {gameNumber(state, m)} · Court {m.court}</strong><p>{matchupText(state, m)}</p><Pin match={m} /><button className="desk-small" disabled={busy} onClick={() => props.onRelease(m.id)}>Unassign court</button>{tools(m)}</div>)}</details>}{looseLive.map(m => <div className="desk-unassigned-live" key={m.id}><strong>Game {gameNumber(state, m)} is live without a court</strong><p>{matchupText(state, m)}</p><select aria-label={`Assign court to live Game ${gameNumber(state, m)}`} value="" onChange={e => props.onUpdate({ ...m, court: Number(e.target.value), courtInUse: true })}><option value="">Choose available court</option>{available.map(c => <option key={c} value={c}>Court {c}</option>)}</select><button className="desk-small" onClick={() => setEditorId(m.id)}>Track game</button></div>)}<p className="desk-queue-note"><Info size={18} aria-hidden="true" />Eligibility updates with court, score, and player changes.</p></section>
+    <aside className="desk-side"><section className="desk-assignment" ref={assignment}><h3>Assign next game</h3><p>Select a ready game and an available court.</p>{selected ? <><div className="desk-next-game"><strong>Game {gameNumber(state, selected)} · {bracketLabel(state, selected)}</strong><b>{matchupText(state, selected)}</b><small>{selected.id === queue.ready[0]?.id ? "Next in the bracket rotation" : "Manual selection from the ready queue"}</small><div className="desk-next-pin"><Pin match={selected} /><button className="desk-small" disabled={busy} onClick={() => props.onPin(selected.id)}>Reset PIN</button></div></div><label>Select court<select value={court} disabled={busy || !court} onChange={e => setSelectedCourt(Number(e.target.value))}>{!court && <option value={0}>No available court</option>}{Array.from({ length: state.courts }, (_, i) => i + 1).map(c => <option key={c} value={c} disabled={!available.includes(c)}>Court {c} · {available.includes(c) ? "Available" : "In use / reserved"}</option>)}</select></label><button className="primary desk-assign-button" disabled={busy || !court} onClick={() => void props.onAssign(selected.id, court)}>Assign Game {gameNumber(state, selected)} to Court {court || "—"}</button><small>Assignment reserves this court; it does not start play.</small></> : <p className="desk-empty">No eligible game is ready. Check the waiting reasons.</p>}</section>
+    <section className="desk-review"><h3>Review result</h3><p>{pendingResults.length} results awaiting validation</p>{result ? <>{pendingResults.length > 1 && <select aria-label="Result to validate" value={result.id} onChange={e => setReviewId(e.target.value)}>{pendingResults.map(m => <option key={m.id} value={m.id}>Game {gameNumber(state, m)} · {bracketLabel(state, m)}</option>)}</select>}<div className="desk-result-info"><strong>Game {gameNumber(state, result)} · {bracketLabel(state, result)}</strong><small>Court {result.court ?? "TBD"} · Awaiting validation</small><p>{matchupText(state, result)}</p><div>Final score <b className="desk-final-score">{result.sets.map(s => `${s.a} – ${s.b}`).join(" / ")}</b></div><p>Winner <strong>{displayName(state.divisions.find(d => d.id === result.divisionId)?.entries.find(e => e.id === matchWinner(result)))}</strong></p><Pin match={result} /></div><button className="primary" disabled={busy || !matchWinner(result)} onClick={() => props.onValidate(result.id)}><CheckCircle size={18} aria-hidden="true" />Validate result</button><button className="desk-small" onClick={() => setEditorId(result.id)}>Review / correct score</button>{tools(result)}</> : <p className="desk-empty">No results need validation.</p>}</section>
+    <details className="desk-completed"><summary>{state.matches.filter(m => m.validated).length} validated results</summary>{state.matches.filter(m => m.validated && matchesFilter(m)).map(m => <div key={m.id}><strong>Game {gameNumber(state, m)} · {matchupText(state, m)}</strong><p>{score(m)}</p><Pin match={m} />{tools(m)}</div>)}</details></aside></div>
+    <div className="desk-rules"><Info size={22} aria-hidden="true" /><p><strong>Reset PIN</strong> replaces the access code only. <strong>Reset game</strong> clears scores after confirmation. Validated results must be unvalidated first.</p></div>
+    {editorId && <div className="modal-backdrop desk-editor-backdrop"><section ref={editor} className="desk-editor" role="dialog" aria-modal="true" aria-label="Track and correct game score"><button className="desk-editor-close ghost" onClick={() => setEditorId("")}>Close scorecard</button>{state.matches.find(m => m.id === editorId) && props.renderScoreEditor(state.matches.find(m => m.id === editorId)!)}</section></div>}
+  </div>;
+}

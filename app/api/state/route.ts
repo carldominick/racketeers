@@ -1,4 +1,5 @@
 import { appendStaffNotification, recordCourtCompletions } from "../../../lib/staff-events";
+import { courtOccupant, dispatchGame } from "../../../lib/game-day";
 import { matchWinner, isMatchUsingCourt, courtInUseAfterScore, tournamentEditingLocked, setupConfiguration, contactError, syncPlayerContacts, resetRegistrations, hydrateTournament, initialTournament, isSetWon, scoringRule, matchScoreLimit, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
 
 const ROW_ID = "racketeers";
@@ -111,6 +112,22 @@ export async function POST(request: Request) {
   const row = await ensureRow();
   const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
   const body = (await request.json()) as { action?: string; court?: number; help?: boolean; divisionId?: string; expectedRevision?: number; confirmation?: string; pin?: string; newPin?: string; matchId?: string; registrationId?: string; registration?: RegistrationForm };
+  if (body.action === "dispatchGame" || body.action === "releaseGameCourt") {
+    if (!(await authorized(request.headers.get("x-organizer-pin"), state))) return Response.json({ error: "Organizer access is required." }, { status: 401 });
+    if (body.expectedRevision !== row.revision) return Response.json({ error: "Court or game data changed. Refresh and assign again.", state: organizerState(state), revision: row.revision }, { status: 409 });
+    let next: TournamentState;
+    if (body.action === "dispatchGame") {
+      const result = dispatchGame(state, body.matchId ?? "", body.court ?? 0);
+      if (!result.state) return Response.json({ error: result.error }, { status: 409 });
+      next = result.state;
+    } else {
+      const match = state.matches.find(m => m.id === body.matchId);
+      if (!match || match.status !== "ready" || match.validated) return Response.json({ error: "Only an assigned game that has not started can be unassigned." }, { status: 409 });
+      next = { ...state, matches: state.matches.map(m => m.id === match.id ? { ...m, court: null, dispatchedAt: undefined, courtInUse: false } : m) };
+    }
+    const saved = await saveStateAtRevision(next, row.revision);
+    return saved ? Response.json({ state: organizerState(saved.state), revision: saved.revision }) : Response.json({ error: "Court data changed. Refresh and assign again." }, { status: 409 });
+  }
   if (body.action === "courtHelp") {
     const organizer = await authorized(request.headers.get("x-organizer-pin"), state);
     if (!organizer && !(await umpireAuthorized(request, state))) return Response.json({ error: "Staff access required." }, { status: 401 });
@@ -184,7 +201,7 @@ export async function POST(request: Request) {
     if (!match) return Response.json({ error: "Match PIN did not match an available game." }, { status: 401 });
     const finished = Boolean(matchWinner(match)) || match.status === "finished";
     if (finished) return Response.json({ ok: true, match: { ...match, pin: "" } });
-    if (match.court && state.matches.some(other => other.id !== match.id && other.court === match.court && isMatchUsingCourt(other))) return Response.json({ error: `Court ${match.court} is already in use. Ask the organizer to assign an available court.` }, { status: 409 });
+    if (match.court && courtOccupant({ ...state, matches: state.matches.filter(other => other.id !== match.id) }, match.court)) return Response.json({ error: `Court ${match.court} is already in use. Ask the organizer to assign an available court.` }, { status: 409 });
     const opened = { ...match, status: "live" as const, courtInUse: true };
     const saved = await saveStateAtRevision({ ...state, matches: state.matches.map(item => item.id === match.id ? opened : item) }, row.revision);
     if (!saved) return Response.json({ error: "Tournament changed. Please open the scorecard again." }, { status: 409 });
@@ -308,6 +325,10 @@ export async function PUT(request: Request) {
     const setupChanged = comparable(setupConfiguration(proposed)) !== comparable(setupConfiguration(current));
     if (registrationsChanged || setupChanged) return Response.json({ error: "Setup and registration are read-only. Change the phase to Setup or Registration and save it before editing." }, { status: 423 });
   }
+  for (const match of proposed.matches) {
+    const before = current.matches.find(m => m.id === match.id);
+    if (match.court && isMatchUsingCourt(match) && (!before || !isMatchUsingCourt(before) || before.court !== match.court) && courtOccupant({ ...proposed, matches: proposed.matches.filter(m => m.id !== match.id) }, match.court)) return Response.json({ error: `Court ${match.court} is already in use or reserved. Choose an available court.`, conflictMatchId: match.id, state: organizerState(current), revision: row.revision }, { status: 409 });
+  }
   const next = recordCourtCompletions(current, { ...proposed, courtHelp: current.courtHelp, staffNotifications: current.staffNotifications, organizerPinHash: current.organizerPinHash, umpirePinHash: current.umpirePinHash, updatedAt: new Date().toISOString() });
   const revision = row.revision + 1;
   const db = await database();
@@ -342,7 +363,7 @@ export async function PATCH(request: Request) {
     return { ...sanitized, complete: Boolean(set.complete) && isSetWon(sanitized, match.stage, match.format, match.scoring) };
   });
   const courtInUse = courtInUseAfterScore(match, sets);
-  if (courtInUse && match.court && current.matches.some(other => other.id !== match.id && other.court === match.court && isMatchUsingCourt(other))) return Response.json({ error: `Court ${match.court} is already in use. Ask the organizer to reassign this game before resuming.` }, { status: 409 });
+  if (courtInUse && match.court && courtOccupant({ ...current, matches: current.matches.filter(other => other.id !== match.id) }, match.court)) return Response.json({ error: `Court ${match.court} is already in use. Ask the organizer to reassign this game before resuming.` }, { status: 409 });
   const next = recordCourtCompletions(current, { ...current, matches: current.matches.map((item) => item.id === match.id ? { ...item, sets, courtInUse, status: body.status === "finished" ? "live" as const : body.status ?? "live" } : item), updatedAt: new Date().toISOString() });
   const revision = row.revision + 1;
   const db = await database();

@@ -281,6 +281,44 @@ test('court help is restricted to staff and an umpire can toggle only the court 
  assert.equal((await post({action:'courtHelp',court:state.courts+1,help:true},org)).status,400);
 });
 
+async function gameDayApiFixture(){
+ let state=await reset();state.status='live';state.umpirePinHash=await hash('87654321');const d=state.divisions[0];d.registrationManaged=false;
+ d.entries=Array.from({length:6},(_,i)=>({...logic.makeEntry(i,'doubles'),players:[`Player ${i}a`,`Player ${i}b`]}));state=logic.regenerateMatches(state);
+ const base=state.matches.find(m=>m.stage==='regular');state.matches=[0,1,2].map(i=>({...base,id:`desk-${i}`,entryAId:d.entries[i*2].id,entryBId:d.entries[i*2+1].id,court:null,pin:`100${i}`,status:'ready',sets:[{a:0,b:0,complete:false}],scoring:{mode:'first_to_target',target:31,cap:31}}));
+ state.gameDay={evenRotation:true,restMinutes:0,nearCapEnabled:true,nearCapPoints:5};saved.payload=JSON.stringify(state);return state;
+}
+test('game-day dispatch is organizer-only and atomically reserves courts without changing scores or PINs',async()=>{
+ const state=await gameDayApiFixture();const body={action:'dispatchGame',matchId:state.matches[0].id,court:1,expectedRevision:1};
+ assert.equal((await post(body)).status,401);assert.equal((await post(body,{'x-umpire-pin':'87654321'})).status,401);
+ assert.equal((await post({...body,expectedRevision:0},org)).status,409);
+ const assigned=await post(body,org);assert.equal(assigned.status,200);let current=(await assigned.json()).state;
+ assert.equal(current.matches[0].court,1);assert.ok(current.matches[0].dispatchedAt);assert.equal(current.matches[0].courtInUse,false);assert.equal(current.matches[0].status,'ready');assert.equal(current.matches[0].pin,'1000');assert.deepEqual(current.matches[0].sets,state.matches[0].sets);
+ assert.equal((await post({...body,matchId:state.matches[1].id,expectedRevision:saved.revision},org)).status,409);
+ // A scheduled game cannot take a court reserved through the new dispatch action.
+ current.matches[1].court=1;saved.payload=JSON.stringify(current);
+ assert.equal((await post({action:'verifyMatch',pin:current.matches[1].pin},org)).status,409);
+ assert.equal((await api.PATCH(request({matchId:current.matches[1].id,pin:current.matches[1].pin,sets:[{a:1,b:0,complete:false}]},org,'PATCH'))).status,409);
+ const conflict=await api.PUT(request({state:{...current,matches:current.matches.map((m,i)=>i===1?{...m,status:'live',courtInUse:true}:m)},expectedRevision:saved.revision},org,'PUT'));assert.equal(conflict.status,409);const conflictData=await conflict.json();assert.equal(conflictData.conflictMatchId,current.matches[1].id);assert.equal(conflictData.revision,saved.revision);assert.deepEqual(conflictData.state.matches,current.matches);
+ assert.equal((await post({action:'releaseGameCourt',matchId:current.matches[0].id,expectedRevision:saved.revision},org)).status,200);
+ const released=JSON.parse(saved.payload).matches[0];assert.equal(released.court,null);assert.equal(released.dispatchedAt,undefined);assert.equal(released.pin,'1000');
+});
+test('two organizers assigning from the same revision cannot both reserve the same court',async()=>{
+ const state=await gameDayApiFixture();const replies=await Promise.all(state.matches.slice(0,2).map(m=>post({action:'dispatchGame',matchId:m.id,court:1,expectedRevision:1},org)));
+ assert.deepEqual(replies.map(r=>r.status).sort(),[200,409]);assert.equal(JSON.parse(saved.payload).matches.filter(m=>m.dispatchedAt&&m.court===1).length,1);
+});
+test('near-cap operations settings remain editable live and alerts persist once without leaking PINs publicly',async()=>{
+ let state=await gameDayApiFixture();state.matches[0]={...state.matches[0],status:'live',court:1,courtInUse:true};saved.payload=JSON.stringify(state);
+ const put=next=>api.PUT(request({state:next,expectedRevision:saved.revision},org,'PUT'));
+ assert.equal((await put({...state,gameDay:{...state.gameDay,nearCapPoints:3}})).status,200);
+ state=JSON.parse(saved.payload);assert.equal(state.gameDay.nearCapPoints,3);
+ assert.equal((await put({...state,courts:state.courts+1})).status,423);
+ const score=a=>api.PATCH(request({matchId:state.matches[0].id,pin:state.matches[0].pin,sets:[{a,b:20,complete:false}]},org,'PATCH'));
+ assert.equal((await score(27)).status,200);assert.equal((JSON.parse(saved.payload).staffNotifications??[]).length,0);
+ assert.equal((await score(28)).status,200);let current=JSON.parse(saved.payload);assert.equal(current.staffNotifications.length,1);assert.equal(current.staffNotifications[0].kind,'near_cap');assert.equal(current.staffNotifications[0].pointsRemaining,3);assert.ok(current.staffNotifications[0].nextMatchLabel.includes('Game 2'));
+ assert.equal((await score(29)).status,200);assert.equal(JSON.parse(saved.payload).staffNotifications.length,1);
+ const publicState=(await (await api.GET(new Request('https://test/api/state'))).json()).state;assert.equal(publicState.gameDay.nearCapPoints,3);assert.equal(publicState.staffNotifications,undefined);assert.ok(publicState.matches.every(m=>!m.pin));
+});
+
 test('completion alerts are durable, distinguish sets from games, and cannot be forged or removed by an organizer state save',async()=>{
  let state=await reset();state.status='live';const d=state.divisions[0];d.registrationManaged=false;d.entries=[logic.makeEntry(0,'doubles'),logic.makeEntry(1,'doubles')];state=logic.regenerateMatches(state);const match=state.matches[0];Object.assign(match,{court:1,courtInUse:true,status:'live',format:'best_of_3_21',scoring:{mode:'first_to_target',target:21,cap:21},sets:[{a:21,b:10,complete:false},{a:0,b:0,complete:false},{a:0,b:0,complete:false}]});saved.payload=JSON.stringify(state);
  const patch=sets=>api.PATCH(request({matchId:match.id,pin:match.pin,sets},org,'PATCH'));
@@ -289,7 +327,7 @@ test('completion alerts are durable, distinguish sets from games, and cannot be 
  assert.equal((await patch(set1)).status,200);assert.equal(JSON.parse(saved.payload).staffNotifications.length,1);
  assert.equal((await patch([{...set1[0]},{a:21,b:8,complete:false},{a:0,b:0,complete:false}])).status,200);
  assert.equal((await patch([{...set1[0]},{a:21,b:8,complete:true},{a:0,b:0,complete:false}])).status,200);
- current=JSON.parse(saved.payload);assert.equal(current.staffNotifications.length,2);assert.equal(current.staffNotifications[1].gameComplete,true);
+ current=JSON.parse(saved.payload);const completions=current.staffNotifications.filter(n=>n.kind==='court_released');assert.equal(completions.length,2);assert.equal(completions[1].gameComplete,true);assert.equal(current.staffNotifications.filter(n=>n.kind==='near_cap').length,1);
  assert.equal((await post({action:'courtHelp',court:1,help:true},org)).status,200);current=JSON.parse(saved.payload);
  const forged={...current,courtHelp:{},staffNotifications:[{id:'fake',kind:'help_requested',court:4}]};
  const put=await api.PUT(request({state:forged,expectedRevision:saved.revision},org,'PUT'));assert.equal(put.status,200);

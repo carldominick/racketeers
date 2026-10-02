@@ -109,12 +109,17 @@ export type Match = {
   format: MatchFormat;
   scoring?: TieBreakRule;
   subBracket?: number;
+  dispatchedAt?: string;
+  completedAt?: string;
+  nearCapNotified?: boolean;
 };
 
 export type MedalPoints = { gold: number; silver: number; bronze: number; runnerUp: number };
 
 export type CourtHelpRequest = { id: string; court: number; requestedAt: string; matchId?: string };
-export type StaffNotification = { id: string; kind: "court_released" | "help_requested" | "help_cleared"; court: number; createdAt: string; matchId?: string; matchLabel?: string; setNumber?: number; gameComplete?: boolean; available?: boolean };
+export type StaffNotification = { id: string; kind: "court_released" | "help_requested" | "help_cleared" | "near_cap"; court: number; createdAt: string; matchId?: string; matchLabel?: string; setNumber?: number; gameComplete?: boolean; available?: boolean; pointsRemaining?: number; nextMatchLabel?: string };
+
+export type GameDaySettings = { evenRotation: boolean; restMinutes: number; nearCapEnabled: boolean; nearCapPoints: number; nextBracketKey?: string };
 
 export type TournamentState = {
   version: number;
@@ -132,6 +137,7 @@ export type TournamentState = {
   courts: number;
   courtHelp?: Record<string, CourtHelpRequest>;
   staffNotifications?: StaffNotification[];
+  gameDay?: GameDaySettings;
   medalPoints: MedalPoints;
   divisions: Division[];
   registrations: PlayerRegistration[];
@@ -207,6 +213,7 @@ export function initialTournament(): TournamentState {
     dayEnd: "18:00",
     gameDuration: 25,
     courts: 4,
+    gameDay: { evenRotation: true, restMinutes: 15, nearCapEnabled: true, nearCapPoints: 5 },
     medalPoints: { gold: 10, silver: 7, bronze: 5, runnerUp: 1 },
     divisions,
     registrations: [],
@@ -644,7 +651,13 @@ export function hydrateTournament(input: TournamentState): TournamentState {
     if (matchPin) usedPins.add(matchPin);
     return { ...match, scoring: scoringRule(match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21"), formatByDivision.get(match.divisionId)?.stageScoring?.[match.stage] ?? match.scoring), pin: matchPin, format: match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21") };
   });
-  return { ...input, venue: typeof input.venue === "string" ? input.venue.trim().slice(0, 200) : "", version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
+  return { ...input, gameDay: gameDaySettings(input), venue: typeof input.venue === "string" ? input.venue.trim().slice(0, 200) : "", version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
+}
+
+/** Operational settings remain editable while structural tournament setup is locked. */
+export function gameDaySettings(state: Pick<TournamentState, "gameDay">): GameDaySettings {
+  const bounded = (value: unknown, fallback: number, max: number) => typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(max, Math.trunc(value))) : fallback;
+  return { evenRotation: state.gameDay?.evenRotation !== false, restMinutes: bounded(state.gameDay?.restMinutes, 15, 120), nearCapEnabled: state.gameDay?.nearCapEnabled !== false, nearCapPoints: Math.max(1, bounded(state.gameDay?.nearCapPoints, 5, 99)), nextBracketKey: typeof state.gameDay?.nextBracketKey === "string" ? state.gameDay.nextBracketKey : undefined };
 }
 
 export function addDivision(state: TournamentState, name = `Division ${state.divisions.length + 1}`): TournamentState {
