@@ -101,6 +101,8 @@ export type Match = {
   sets: SetScore[];
   status: MatchStatus;
   court: number | null;
+  /** Physical occupancy, separate from a planned court assignment. */
+  courtInUse?: boolean;
   scheduledAt: string | null;
   validated: boolean;
   pin: string;
@@ -387,18 +389,18 @@ export function adjustMatchScore(match: Match, setIndex: number, side: "a" | "b"
     const nextSet = { ...set, [side]: Math.max(0, Math.min(matchScoreLimit(match, set, side), set[side] + Math.trunc(delta))) };
     return { ...nextSet, complete: nextSet.complete && isSetWon(nextSet, match.stage, match.format, match.scoring) };
   });
-  return { ...match, sets: nextSets, status: "live" };
+  return { ...match, sets: nextSets, status: "live", courtInUse: true };
 }
 
 export function completeMatchSet(match: Match, setIndex: number): Match {
   const set = match.sets[setIndex];
   if (!set || !isSetWon(set, match.stage, match.format, match.scoring)) return match;
-  return { ...match, sets: match.sets.map((item, index) => index === setIndex ? { ...item, complete: true } : item), status: "live" };
+  return { ...match, sets: match.sets.map((item, index) => index === setIndex ? { ...item, complete: true } : item), status: "live", courtInUse: false };
 }
 
 export function uncompleteMatchSet(match: Match, setIndex: number): Match {
   if (match.validated || !match.sets[setIndex]?.complete) return match;
-  return { ...match, sets: match.sets.map((set, index) => index === setIndex ? { ...set, complete: false } : set), status: "live" };
+  return { ...match, sets: match.sets.map((set, index) => index === setIndex ? { ...set, complete: false } : set), status: "live", courtInUse: true };
 }
 
 export function validateTournamentMatch(state: TournamentState, matchId: string): TournamentState {
@@ -691,10 +693,23 @@ export function medalResults(state: TournamentState, divisionId: string) {
   ];
 }
 
+export function isMatchUsingCourt(match: Match): boolean {
+  if (!match.court || match.validated || match.status === "finished" || matchWinner(match)) return false;
+  if (typeof match.courtInUse === "boolean") return match.courtInUse;
+  return match.status === "live" && (!match.sets.some(set => set.complete) || match.sets.some(set => !set.complete && (set.a > 0 || set.b > 0)));
+}
+
+/** Compute occupancy from server-validated score changes, never a client flag. */
+export function courtInUseAfterScore(match: Match, sets: SetScore[]): boolean {
+  if (sets.some((set, index) => set.complete && !match.sets[index]?.complete)) return false;
+  if (sets.some((set, index) => !set.complete && (set.a !== (match.sets[index]?.a ?? 0) || set.b !== (match.sets[index]?.b ?? 0) || match.sets[index]?.complete))) return true;
+  return isMatchUsingCourt(match);
+}
+
 export function isCourtAvailable(state: TournamentState, court: number, matchId: string) {
   const target = state.matches.find((match) => match.id === matchId);
   return !state.matches.some((match) => {
-    if (match.id === matchId || match.court !== court || match.status === "finished") return false;
+    if (match.id === matchId || match.court !== court || match.status === "finished" || match.courtInUse === false) return false;
     if (!match.scheduledAt || !target?.scheduledAt) return true;
     const gap = Math.abs(new Date(match.scheduledAt).getTime() - new Date(target.scheduledAt).getTime());
     return gap < Math.max(5, state.gameDuration) * 60_000;

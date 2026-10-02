@@ -1,4 +1,4 @@
-import { tournamentEditingLocked, setupConfiguration, contactError, syncPlayerContacts, resetRegistrations, hydrateTournament, initialTournament, isSetWon, scoringRule, matchScoreLimit, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
+import { matchWinner, isMatchUsingCourt, courtInUseAfterScore, tournamentEditingLocked, setupConfiguration, contactError, syncPlayerContacts, resetRegistrations, hydrateTournament, initialTournament, isSetWon, scoringRule, matchScoreLimit, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
 
 const ROW_ID = "racketeers";
 const comparable = (value: unknown) => JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
@@ -158,7 +158,14 @@ export async function POST(request: Request) {
     const matches = state.matches.filter((item) => item.pin === body.pin && !item.validated);
     if (matches.length > 1) return Response.json({ error: "This PIN matches more than one game. Ask the organizer to regenerate the match PINs." }, { status: 409 });
     const match = matches[0];
-    return Response.json({ ok: Boolean(match), match: match ? { ...match, pin: "" } : null }, { status: match ? 200 : 401 });
+    if (!match) return Response.json({ error: "Match PIN did not match an available game." }, { status: 401 });
+    const finished = Boolean(matchWinner(match)) || match.status === "finished";
+    if (finished) return Response.json({ ok: true, match: { ...match, pin: "" } });
+    if (match.court && state.matches.some(other => other.id !== match.id && other.court === match.court && isMatchUsingCourt(other))) return Response.json({ error: `Court ${match.court} is already in use. Ask the organizer to assign an available court.` }, { status: 409 });
+    const opened = { ...match, status: "live" as const, courtInUse: true };
+    const saved = await saveStateAtRevision({ ...state, matches: state.matches.map(item => item.id === match.id ? opened : item) }, row.revision);
+    if (!saved) return Response.json({ error: "Tournament changed. Please open the scorecard again." }, { status: 409 });
+    return Response.json({ ok: true, match: { ...opened, pin: "" }, revision: saved.revision });
   }
   if (body.action === "lookupRegistration") {
     const registration = body.pin ? await registrationForPin(state, body.pin, body.registrationId) : null;
@@ -311,7 +318,9 @@ export async function PATCH(request: Request) {
     const sanitized = { a: Math.max(0, Math.min(matchScoreLimit(match, set, "a"), Math.floor(Number(set.a) || 0))), b: Math.max(0, Math.min(matchScoreLimit(match, set, "b"), Math.floor(Number(set.b) || 0))), complete: false };
     return { ...sanitized, complete: Boolean(set.complete) && isSetWon(sanitized, match.stage, match.format, match.scoring) };
   });
-  const next = { ...current, matches: current.matches.map((item) => item.id === match.id ? { ...item, sets, status: body.status === "finished" ? "live" as const : body.status ?? "live" } : item), updatedAt: new Date().toISOString() };
+  const courtInUse = courtInUseAfterScore(match, sets);
+  if (courtInUse && match.court && current.matches.some(other => other.id !== match.id && other.court === match.court && isMatchUsingCourt(other))) return Response.json({ error: `Court ${match.court} is already in use. Ask the organizer to reassign this game before resuming.` }, { status: 409 });
+  const next = { ...current, matches: current.matches.map((item) => item.id === match.id ? { ...item, sets, courtInUse, status: body.status === "finished" ? "live" as const : body.status ?? "live" } : item), updatedAt: new Date().toISOString() };
   const revision = row.revision + 1;
   const db = await database();
   const saved = await db.prepare("UPDATE tournament_state SET revision = ?, payload = ?, updated_at = ? WHERE id = ? AND revision = ?").bind(revision, JSON.stringify(next), next.updatedAt, ROW_ID, row.revision).run();

@@ -21,7 +21,7 @@ test('opening page shows registration without a PIN dialog and offers staff acce
 });
 test('organizer registration dialog uses full player form and required club fields',()=>{
  const html=renderToStaticMarkup(React.createElement(PublicRegistration,{state,organizerPin:'test-only',onSaved(){}}));
- assert.equal((html.match(/Club \/ group/g)||[]).length,2);
+ assert.equal((html.match(/<label>Club \/ group/g)||[]).length,2);
  assert.equal((html.match(/Facebook profile link/g)||[]).length,2);assert.equal((html.match(/Phone \/ mobile number/g)||[]).length,2);assert.doesNotMatch(html,/Registered level|Allowed registration levels/);assert.match(html,/Player 1/);assert.match(html,/Player 2 \/ Partner/);assert.match(html,/Submit Registration/);assert.match(html,/Upload payment photo/);
 });
 test('second-entry form preserves both players and exposes black or tournament shirt choices',()=>{

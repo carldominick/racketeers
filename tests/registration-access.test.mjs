@@ -244,3 +244,22 @@ test('server rejects scores beyond stage rules and additions after a winning sco
  const score=(a,b)=>api.PATCH(request({matchId:m.id,pin:m.pin,sets:[{a,b,complete:false}]},org,'PATCH'));
  assert.equal((await score(22,20)).status,400);assert.equal((await score(21,21)).status,400);assert.equal((await score(21,20)).status,200);assert.equal((await score(21,21)).status,400);assert.equal((await score(20,20)).status,200);
 });
+
+test('court occupancy starts on match access, releases per set and rejects simultaneous use',async()=>{
+ const state=await reset();state.status='live';
+ const match=(id,pin,format)=>({id,pin,divisionId:state.divisions[0].id,stage:'regular',round:1,label:id,entryAId:'a',entryBId:'b',sets:Array.from({length:format==='best_of_3_21'?3:1},()=>({a:0,b:0,complete:false})),status:'ready',court:1,scheduledAt:null,validated:false,format});
+ state.matches=[match('first','1001','best_of_3_21'),match('second','1002','single_21')];saved.payload=JSON.stringify(state);
+ const open=pin=>post({action:'verifyMatch',pin},org);
+ const score=(id,pin,sets)=>api.PATCH(request({matchId:id,pin,sets},org,'PATCH'));
+ const current=id=>JSON.parse(saved.payload).matches.find(m=>m.id===id);
+ assert.equal((await open('1001')).status,200);assert.equal(current('first').status,'live');assert.equal(current('first').courtInUse,true);
+ assert.equal((await open('1002')).status,409);
+ let sets=current('first').sets;sets[0]={a:21,b:10,complete:false};assert.equal((await score('first','1001',sets)).status,200);assert.equal(current('first').courtInUse,true);
+ sets[0].complete=true;assert.equal((await score('first','1001',sets)).status,200);assert.equal(current('first').courtInUse,false);
+ assert.equal((await open('1002')).status,200);
+ sets[1]={a:1,b:0,complete:false};assert.equal((await score('first','1001',sets)).status,409);
+ assert.equal((await score('second','1002',[{a:21,b:8,complete:true}])).status,200);assert.equal(current('second').courtInUse,false);
+ assert.equal((await score('first','1001',sets)).status,200);assert.equal(current('first').courtInUse,true);
+ sets[1]={a:21,b:5,complete:true};assert.equal((await score('first','1001',sets)).status,200);assert.equal(current('first').courtInUse,false);
+ assert.equal((await open('1001')).status,200);assert.equal(current('first').courtInUse,false);
+});
