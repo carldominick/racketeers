@@ -8,11 +8,11 @@ const previewPin = '00000000';
 let revision=1;
 let state: ReturnType<typeof initialTournament>={...initialTournament(),status:'registration',tournamentName:'Racketeers X Fruitas Badminton Tournament',startDate:'2026-11-29',endDate:'2026-11-29',dayStart:'09:00',divisions:['Level D/E','Level F','Level G','Invitational'].map(n=>makeDivision(n,'doubles')),registrations:[],matches:[]};
 const demoDivision=state.divisions[0];
-state.registrations=Array.from({length:4},(_,i)=>({...makeRegistration(demoDivision.id,i),name:['Demo Alex','Demo Sam','Demo Chris','Demo Pat'][i],club:'Demo badminton club',shirtSize:'M',facebookProfile:'https://www.facebook.com/demo.player',phone:'09123456789',partnerId:null}));
+state.registrations=Array.from({length:4},(_,i)=>({...makeRegistration(demoDivision.id,i),name:['Alex','Sam','Chris','Pat'][i],club:'Demo badminton club',shirtSize:'M',facebookProfile:'https://www.facebook.com/demo.player',phone:'09123456789',partnerId:null}));
 state.registrations[0].partnerId=state.registrations[1].id;state.registrations[1].partnerId=state.registrations[0].id;
 state.registrations[2].partnerId=state.registrations[3].id;state.registrations[3].partnerId=state.registrations[2].id;
 state=regenerateMatches(syncRegistrationsToEntries(state)) as typeof state;
-state.matches[0].id='demo-match';state.matches[0].pin='0000';state.matches[0].status='live';state.matches[0].court=1;state.matches[0].courtInUse=true;
+state.matches[0].id='demo-match';state.matches[0].pin='0000';state.matches[0].status='live';state.matches[0].court=1;state.matches[0].courtInUse=true;state.matches[0].sets=[{a:18,b:16,complete:false}];
 export default defineConfig({root:'preview',publicDir:'../public',server:{host:'0.0.0.0',allowedHosts:['terminal.local'],fs:{allow:['..']}},plugins:[react(),{name:'isolated-design-data',enforce:'pre',transform(code,id){
  if(!id.split('?')[0].endsWith('/app/page.tsx'))return;
  const role="new URLSearchParams(location.search).get('role')";
