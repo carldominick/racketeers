@@ -1,3 +1,53 @@
+# Compact court layout — design QA (2026-10-03)
+
+final result: passed
+
+## Scope and visual evidence
+
+Implement the user's approved latest court layout only. The print sheet remains a separate mockup awaiting review. Source visual: `/workspace/scratch/302884b9ef26/generated_images/exec-3541001c-3103-4006-ae12-f348745c6064.png` (1065 × 1476). Browser implementation: `/workspace/scratch/302884b9ef26/Racketeers-Compact-Court-Preview.jpg` (1348 × 1955), with a 1440 × 2300 CSS iframe at 0.85 scale. The longer frame exposes the unchanged queue and all footer content without an inner scrollbar.
+
+State: light theme, organizer Game day desk, isolated sample tournament. Court 1 is live at 18–16; Court 2 is available with a 31–28 result awaiting validation; Court 3 is empty; Court 4 is live at 14–16 with help requested. No production records were used or modified.
+
+Full-view comparison: `/workspace/scratch/302884b9ef26/compact-courts-comparison.jpg`. The mock's app region (958px wide) is normalized to the implementation's 1224px-wide app region. Focused comparison: `/workspace/scratch/302884b9ef26/compact-courts-detail.jpg`, with both court rows normalized to 1170px wide. Both combined inputs were opened and inspected.
+
+## Findings and comparison history
+
+- Initial spacing inspection: the existing cards were 415.625 CSS px tall. Reduce card padding, gaps, score-row padding, PIN padding and the help badge height. Preserve every action and allow long names and extra actions to wrap rather than clipping them.
+- Cascade correction: the shared primary-button selector initially retained its 46px minimum. A scoped court selector now gives desktop actions a 36px minimum and phone actions a 44px minimum. The revised desktop capture and focused comparison confirm aligned primary buttons in all four cards, including the empty card.
+- Final cards are 314.359 CSS px tall in the desktop sample, a 24.4% reduction. Their natural height can grow for long names, large PINs or additional state. The empty card reserves the secondary-action row space without showing print/reset controls for a nonexistent game.
+- No actionable P0/P1/P2 differences remain. The existing typography, queue spacing and operational alert panel are retained; the user approved compact courts rather than a redesign of those regions. The sample rest expiry differs from the illustration because it is calculated from real elapsed time.
+
+## Required fidelity surfaces
+
+| Surface | Result |
+| --- | --- |
+| Fonts and typography | Existing font system retained. Player names remain 16px, court controls 12px desktop / 13px phone, and metadata remains readable. Score and PIN numerals use compact 16px styling. No truncation or hidden information. |
+| Spacing and layout | Four columns desktop, two tablet, one phone. Less internal whitespace, equal desktop card heights, full-width Track/Assign actions and a single secondary-action row where space permits. Natural wrapping is retained. |
+| Colors and tokens | Existing navy, lime, paper, border and semantic court-state colors are preserved. Awaiting validation and help status remain visible in amber. |
+| Assets and image quality | Existing Racketeers brand treatment and Phosphor icons remain. No new raster assets or approximations were introduced. The empty-court icon is reduced to 28px. |
+| Copy and content | Match identifiers, brackets, pairs, scores, PIN/copy, availability, pending-validation/help messages and all existing controls remain. No print-sheet or match-data changes. |
+
+## Browser and automated validation
+
+Desktop: 1440 CSS px client and scroll width; card actions align and stay within their containers. Track game opens the existing score dialog; Escape closes it and restores focus. Both Standard scorecard and Umpire handoff with PIN remain accessible through the print menu.
+
+Tablet: 834 × 1194 CSS frame, 819px client and scroll width after the scrollbar; four 314.359px cards in two columns. Controls have no horizontal overflow. Evidence: `/workspace/scratch/302884b9ef26/compact-courts-tablet.jpg` (outer browser viewport capture).
+
+Phone: 390 × 844 CSS frame, 375px client and scroll width; card widths are 343px and Track/Assign actions are 44px high. Scores, PIN/copy and all three game actions remain readable. The sample help request was cleared and its notification dismissed to inspect unobstructed cards. Evidence: `/workspace/scratch/302884b9ef26/compact-courts-phone.jpg` (outer browser viewport capture).
+
+Console logs were checked. No current application errors were found; older Vite errors from before this request and browser-extension metadata errors are not application regressions. A tablet full-page screenshot timed out once; the documented viewport screenshot API recovered successfully.
+
+102 existing automated tests and 2 built-Worker rendering tests pass. Lint, production build and whitespace checks pass. No new tests were added for this CSS-only refinement. Physical devices and printing are not part of this court-layout validation.
+
+## Implementation checklist
+
+- Compact court spacing and score/PIN styling: complete.
+- Preserve statuses and all existing game actions: complete.
+- Desktop/tablet/phone browser check and visual comparison: complete.
+- Publish the approved court CSS only; print redesign awaits review.
+
+## Previous Game Day Desk validation
+
 # Game Day Desk — design QA
 
 final result: passed
@@ -48,4 +98,3 @@ Evidence: `Racketeers-Game-Day-Desk.jpg`, `game-day-comparison-final.jpg`, `game
 All 102 automated tests and both built-Worker rendering checks pass (104 total). ESLint, the production build, and Git whitespace checks pass. The production bundle contains no preview fixture, demo staff credential, or sample player marker. New API checks cover organizer-only dispatch, stale revisions, simultaneous assignment, reserved-court conflicts in match access and scoring, editable operational settings during Live, durable warnings, and public PIN privacy. Queue tests cover even rotation, independent pools, busy players across divisions, rest expiry, qualification dependencies, multi-set warnings, disabled warnings, and notification deduplication.
 
 The standalone TypeScript command still encounters existing repository errors in Cloudflare ambient types, export-link unions and the Blob typing used for workbook downloads; it is not claimed as passing. Native/fullscreen behavior was verified in Chrome; unsupported native fullscreen uses a navigation-free viewport fallback. Physical printing, real devices, SMS/email delivery and a formal accessibility certification were not tested. Notifications are in-app callouts and organizer alerts. Historical games without completion timestamps do not acquire an invented rest start time.
-
