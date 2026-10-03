@@ -1,0 +1,45 @@
+/* The logical stage fills the actual display, including non-16:9 projectors. */
+.auto-projector > .projector-stage {
+  position: absolute;
+  inset: 0 auto auto 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  transform-origin: top left;
+  --projector-padding-x: 0px;
+}
+.clubhouse-site .auto-projector.projection-mode { padding: 0; }
+.projection-mode > .projector-stage {
+  --projector-padding-x: 30px;
+  padding: 20px var(--projector-padding-x);
+}
+.projector-stage > .projector-measure {
+  left: var(--projector-padding-x);
+  width: calc(100% - var(--projector-padding-x) - var(--projector-padding-x));
+}
+
+/* Resolve viewport-based typography once at the 1920 × 1080 reference size.
+   The outer transform then scales text, spacing, court lines and scores together. */
+.clubhouse-site .auto-projector .projector-scaled h2 { font-size: 38px; }
+.projector-scaled header p { font-size: 14px; }
+.clubhouse-site .auto-projector .projector-scaled :is(th, td) { font-size: 24px; }
+.clubhouse-site .auto-projector .projector-scaled th { font-size: 16px; }
+.clubhouse-site .auto-projector .projector-scaled td small { font-size: 18px; }
+.clubhouse-site .auto-projector .projector-scaled footer { font-size: 14px; }
+.projector-scaled .projector-court-summary { font-size: 22px; gap: 24px; }
+.projector-scaled .projector-court-grid {
+  grid-template-columns: repeat(var(--court-columns, 6), minmax(0, 1fr));
+  gap: 16px;
+}
+.projector-scaled .projector-court-heading h3 { font-size: 58px; }
+.projector-scaled .projector-court-state { font-size: 18px; }
+.projector-scaled .projector-court-match { font-size: 28px; }
+.projector-scaled .projector-court-pair b { font-size: 42px; }
+.projector-scaled .projector-court-meta { font-size: 18px; }
+.projector-scaled .projector-court-empty { font-size: 24px; }
+.clubhouse-site .auto-projector .projector-scaled .projector-court-overview > header {
+  grid-template-columns: 1fr auto;
+  gap: 8px 24px;
+}
+.projector-scaled .projector-court-overview .projector-court-summary { justify-content: flex-end; }

@@ -100,6 +100,8 @@ Organizer → Run tournament → Projector settings controls which slides appear
 
 The court overview uses the configured number of courts; 12 courts fit in two rows of six on a large fullscreen display. Smaller displays paginate whole court rows. In play means physical occupancy, Reserved means a dispatched game awaiting players, and Available means neither; a planned schedule assignment alone does not occupy a court. Completed sets release their court independently of organizer result validation. The slide follows the shared light/dark theme and never displays PINs, contacts, receipts or staff alerts.
 
+Projector-sized displays scale the complete presentation proportionally from a 1920 × 1080 reference using both available dimensions. This supports 720p, HD/1080p, 2K, 3K and 4K without capping text or score size. Other aspect ratios use their available logical space; narrow organizer previews keep their responsive layout and pagination.
+
 Existing v5 tournament data receives default display preferences during hydration without a schema migration. Preference saves require organizer access and the current revision, and update only preferences. A conflict retains the draft for review and retry. The optional `RACKETEERS_PREVIEW_COURTS=1` environment flag selects a fictional 12-court fixture for `npm run dev` only.
 
 Feature branches and pull requests run the Linux verification workflow (tests, lint, build and built-Worker rendering) before release. Production still deploys through the existing main-branch Cloudflare workflow and its existing Worker, D1 and R2 bindings. This display change requires no data migration; recovery is a source revert/redeployment or rollback to the previous Worker version with the same storage bindings.

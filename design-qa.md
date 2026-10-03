@@ -25,7 +25,15 @@ All mutations used disposable in-memory preview data. Slide order moved up/down 
 
 Settings and projector checked at 1440, 834, 390 and 360 CSS pixel widths with no page-level horizontal overflow. Tablet preview displayed six courts per page; phones preserved a whole court card per page. Existing umpire at 360 and short 844 × 390 landscape, registration and spectator at 390 retained zero page overflow; registration correctly showed its Live-phase lock. No browser application errors/warnings were observed. These are emulated browser widths, not physical-device tests; native fullscreen fallback remains supported but requestFullscreen rejection was not forced.
 
-Automated regression coverage verifies grid row pagination, canonical preferences, physical court occupancy/current sets, public-safe rendering, organizer-only saves, stale revision rejection and preservation of matches/entries/registrations/hashes. Windows `npm test` reports 98 passed and two known pre-assertion React ESM loader failures (`registration-ui` and `print-match-card` importing C: paths); these unrelated tests were not weakened. Lint, production build, two built-Worker render tests and whitespace checks pass. Linux CI is required before release.
+Automated regression coverage verifies grid row pagination, canonical preferences, physical court occupancy/current sets, public-safe rendering, organizer-only saves, stale revision rejection and preservation of matches/entries/registrations/hashes. Windows `npm test` initially reported 98 passed and two known pre-assertion React ESM loader failures (`registration-ui` and `print-match-card` importing C: paths); these unrelated tests were not weakened. The initial Linux CI passed all 113 tests plus two built-Worker render tests, lint, build and whitespace checks. With the resolution follow-up included, Windows reports 101 passed and the same two loader failures; all three added viewport regression tests pass. Combined Linux CI is required before release.
+
+## Resolution follow-up
+
+The user also requested proportional projector scaling in the coordinated resolution chat. A logical 1920 × 1080 presentation scales text, spacing, scores and artwork together using both available dimensions; larger resolutions no longer hit the prior font-size caps. Actual footer, notice and control heights are reserved before pagination in logical pixels. Narrow previews retain responsive layout. Resolution checks cover 1280 × 720, 1920 × 1080, 2560 × 1440, 3072 × 1728, 3840 × 2160, DCI 2K/4K and XGA/WXGA. Each shows all 12 courts in six columns with no clipped cards or horizontally overflowing names. A primary in-app-browser integration check confirmed 720p scale 2/3 with footer bottom 706.67, dynamic resize to 4K scale 2 with footer bottom 2120, and zero page overflow. Rechecked narrow 360 × 800 preview: one whole court, footer bottom 772, zero overflow.
+
+Resolution evidence is `projector-resolution-checks.json`, `projector-720p.png`, `projector-hd.png` and `projector-4k.png` in the coordinated chat's outputs folder. The final HD capture is copied to `outputs/projector-final-hd.png` for this task. The complete final source comparison is `outputs/projector-comparison-resolution.png`.
+
+The coordinated final checks also verify Live, Upcoming, Results and Standings table pages with long names at 720p/4K, preview widths 360/390/834/1440, fullscreen fallback at device-pixel ratio 2, resizing from 720p to 4K and Escape recovery. Measurement sections use the visible stage width after horizontal padding so long-name wrapping is measured accurately. The final full-view comparison was opened and inspected; the shared font, existing controls and actual game numbering are intentional differences from the illustrative source.
 
 README's existing mandatory opening PIN and local-preview D1 statements disagreed with code/context. Corrected those descriptions; this update does not change either existing access behavior or development runtime.
 
@@ -41,7 +49,7 @@ Release uses upstream `carldominick/racketeers`, the existing `racketeers` Worke
 - [x] Explicit revision-checked save and unsaved preview with keyboard focus handling.
 - [x] Full and focused source comparisons, responsive checks and phone repair recapture.
 - [x] Local automated checks completed with documented Windows baseline limitation.
-- [ ] Linux CI and authorized production release verification (recorded in the pull request).
+- [x] Linux release gate and existing deployment/recovery path documented; final CI and release results are recorded in the pull request.
 
 ---
 
