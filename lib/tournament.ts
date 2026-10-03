@@ -1,3 +1,5 @@
+import { normalizeProjectorSettings, type ProjectorSettings } from "./projector-settings";
+
 export type Mode = "singles" | "doubles" | "team";
 export type BracketFormat = "round_robin" | "single_elimination" | "double_round_robin" | "custom";
 export type ChampionshipFormat = "semifinals_final" | "direct_medals" | "ladderized";
@@ -138,6 +140,7 @@ export type TournamentState = {
   courtHelp?: Record<string, CourtHelpRequest>;
   staffNotifications?: StaffNotification[];
   gameDay?: GameDaySettings;
+  projector?: ProjectorSettings;
   medalPoints: MedalPoints;
   divisions: Division[];
   registrations: PlayerRegistration[];
@@ -214,6 +217,7 @@ export function initialTournament(): TournamentState {
     gameDuration: 25,
     courts: 4,
     gameDay: { evenRotation: true, restMinutes: 15, nearCapEnabled: true, nearCapPoints: 5 },
+    projector: normalizeProjectorSettings(),
     medalPoints: { gold: 10, silver: 7, bronze: 5, runnerUp: 1 },
     divisions,
     registrations: [],
@@ -651,7 +655,7 @@ export function hydrateTournament(input: TournamentState): TournamentState {
     if (matchPin) usedPins.add(matchPin);
     return { ...match, scoring: scoringRule(match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21"), formatByDivision.get(match.divisionId)?.stageScoring?.[match.stage] ?? match.scoring), pin: matchPin, format: match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21") };
   });
-  return { ...input, gameDay: gameDaySettings(input), venue: typeof input.venue === "string" ? input.venue.trim().slice(0, 200) : "", version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
+  return { ...input, gameDay: gameDaySettings(input), projector: normalizeProjectorSettings(input.projector), venue: typeof input.venue === "string" ? input.venue.trim().slice(0, 200) : "", version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
 }
 
 /** Operational settings remain editable while structural tournament setup is locked. */

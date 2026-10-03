@@ -2,18 +2,27 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { displayName, distributeEntriesToPools, standingsFor, subBracketName, type TournamentState } from "../../lib/tournament";
-import { paginateRows } from "../../lib/projector";
+import { paginateCourts, paginateRows, projectorCourts } from "../../lib/projector";
+import { normalizeProjectorSettings, type ProjectorSlideId } from "../../lib/projector-settings";
+import { ProjectorCourts } from "./projector-courts";
 import { CornersOut } from "@phosphor-icons/react/dist/csr/CornersOut";
 import { CornersIn } from "@phosphor-icons/react/dist/csr/CornersIn";
 import { NextGameNotice } from "./next-game-notice";
+import { projectorViewport } from "../../lib/projector-viewport";
+import "./projector-resolution.css";
 
-type Section = { id: string; title: string; headers: string[]; rows: { id: string; cells: ReactNode[] }[] };
+type Section = { id: string; kind: ProjectorSlideId; title: string; headers: string[]; rows: { id: string; cells: ReactNode[] }[] };
 export function Projector({ state, onFullscreenChange }: { state: TournamentState; onFullscreenChange?: (value: boolean) => void }) {
   const root = useRef<HTMLElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(600);
+  const [viewport, setViewport] = useState(() => projectorViewport(1920, 600));
   const [pages, setPages] = useState<{ section: number; start: number; end: number; scale: number }[]>([]);
   const [slide, setSlide] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
+  const settings = useMemo(() => normalizeProjectorSettings(state.projector), [state.projector]);
+  const allCourts = useMemo(() => projectorCourts(state), [state]);
+  const courts = useMemo(() => allCourts.filter(court => settings.showAvailableCourts || court.status !== "available"), [allCourts, settings.showAvailableCourts]);
   const toggleFullscreen = async () => {
     if (fullscreen) { if (document.fullscreenElement === root.current) await document.exitFullscreen(); setFullscreen(false); onFullscreenChange?.(false); return; }
     setFullscreen(true); onFullscreenChange?.(true);
@@ -26,55 +35,103 @@ export function Projector({ state, onFullscreenChange }: { state: TournamentStat
     return () => { document.removeEventListener("fullscreenchange", changed); document.removeEventListener("keydown", escape); onFullscreenChange?.(false); };
   }, [onFullscreenChange]);
   const sections = useMemo(() => {
-    const result: Section[] = [];
+    const result: Section[] = [{ id: "courts", kind: "courts", title: "Courts right now", headers: [], rows: courts.map(court => ({ id: String(court.court), cells: [] })) }];
     const entries = new Map(state.divisions.flatMap(d => d.entries.map(e => [e.id, e] as const)));
-    for (const [id, title] of [["live", "Live matchups"], ["upcoming", "Upcoming matchups"], ["finished", "Results"]]) {
+    for (const [id, title] of [["live", "Live matchups"], ["upcoming", "Upcoming matchups"], ["finished", "Results"]] as const) {
       const matches = state.matches.filter(m => id === "live" ? m.status === "live" : id === "finished" ? m.status === "finished" || m.validated : m.status !== "live" && m.status !== "finished" && !m.validated);
-      if (matches.length) result.push({ id, title, headers: ["Game / court", "Matchup", "Score"], rows: matches.map(m => ({ id: m.id, cells: [<><strong>{m.label}</strong><small>{state.divisions.find(d => d.id === m.divisionId)?.name} · {m.court ? `Court ${m.court}` : "Court TBD"}</small></>, <><strong>{displayName(entries.get(m.entryAId || ""))}</strong><small>vs</small><strong>{displayName(entries.get(m.entryBId || ""))}</strong></>, m.sets.map(s => `${s.a} – ${s.b}`).join(" / ") || "–"] })) });
+      if (matches.length) result.push({ id, kind: id, title, headers: ["Game / court", "Matchup", "Score"], rows: matches.map(m => ({ id: m.id, cells: [<><strong>{m.label}</strong><small>{state.divisions.find(d => d.id === m.divisionId)?.name} · {m.court ? `Court ${m.court}` : "Court TBD"}</small></>, <><strong>{displayName(entries.get(m.entryAId || ""))}</strong><small>vs</small><strong>{displayName(entries.get(m.entryBId || ""))}</strong></>, m.sets.map(s => `${s.a} – ${s.b}`).join(" / ") || "–"] })) });
     }
     for (const division of state.divisions) {
       const pools = distributeEntriesToPools(division);
       for (let pool = 0; pool < Math.max(1, pools.length); pool++) {
         const rows = standingsFor(state, division.id, pools.length > 1 ? pool : undefined);
-        result.push({ id: `${division.id}:${pool}`, title: `${division.name}${pools.length > 1 ? ` · ${subBracketName(pool)}` : ""} — Standings`, headers: ["#", "Entry", "P", "W", "L", "PF", "PA", "Diff"], rows: rows.map((r, i) => ({ id: r.entryId, cells: [i + 1, <strong key="name">{r.name}</strong>, r.played, r.wins, r.losses, r.pointsFor, r.pointsAgainst, r.difference > 0 ? `+${r.difference}` : r.difference] })) });
+        result.push({ id: `${division.id}:${pool}`, kind: "standings", title: `${division.name}${pools.length > 1 ? ` · ${subBracketName(pool)}` : ""} — Standings`, headers: ["#", "Entry", "P", "W", "L", "PF", "PA", "Diff"], rows: rows.map((r, i) => ({ id: r.entryId, cells: [i + 1, <strong key="name">{r.name}</strong>, r.played, r.wins, r.losses, r.pointsFor, r.pointsAgainst, r.difference > 0 ? `+${r.difference}` : r.difference] })) });
       }
     }
-    return result;
-  }, [state]);
+    return settings.slides.filter(slide => slide.enabled).flatMap(slide => result.filter(section => section.kind === slide.id));
+  }, [state, courts, settings.slides]);
   useLayoutEffect(() => {
     const el = root.current;
     if (!el) return;
     const measure = () => {
-      const available = Math.max(100, window.innerHeight - el.getBoundingClientRect().top - 16);
+      const preview = !fullscreen && el.closest<HTMLElement>(".projector-preview-dialog");
+      const bottom = preview ? preview.getBoundingClientRect().bottom - parseFloat(getComputedStyle(preview).paddingBottom) : window.innerHeight;
+      const available = fullscreen ? el.clientHeight : Math.max(100, bottom - el.getBoundingClientRect().top - 16);
       setHeight(available);
-      const next = sections.flatMap((_, section) => {
-        const sample = el.querySelectorAll<HTMLElement>(".projector-measure-section")[section];
-        if (!sample) return [];
-        const reserved = (sample.querySelector("header")?.getBoundingClientRect().height || 80) + (sample.querySelector("thead")?.getBoundingClientRect().height || 44) + 64 + (el.querySelector(".projector-controls")?.getBoundingClientRect().height || 44) + (el.querySelector(".next-game-notice")?.getBoundingClientRect().height || 0);
-        const heights = Array.from(sample.querySelectorAll("tbody tr"), row => row.getBoundingClientRect().height);
-        return paginateRows(heights, Math.max(1, available - reserved)).map(page => ({ section, ...page, scale: Math.min(1, Math.max(1, available - 64) / (reserved - 64 + heights.slice(page.start, page.end).reduce((sum, h) => sum + h, 0) + 2)) }));
-      });
-      setPages(current => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+      const next = projectorViewport(el.clientWidth, available);
+      setViewport(current => current.width === next.width && current.height === next.height && current.scale === next.scale ? current : next);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     const topbar = document.querySelector(".topbar");
     if (topbar) observer.observe(topbar);
+    const preview = el.closest(".projector-preview-dialog");
+    if (preview) observer.observe(preview);
     window.addEventListener("resize", measure);
-    document.fonts.ready.then(measure);
     return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
-  }, [sections, fullscreen]);
-  useEffect(() => { const timer = setInterval(() => setSlide(current => current + 1), 15000); return () => clearInterval(timer); }, []);
+  }, [fullscreen]);
+  useLayoutEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    let active = true;
+    const measure = () => {
+      if (!active) return;
+      // Pagination uses logical CSS pixels; the stage transform applies only once.
+      const measuredHeight = (element: Element | null) => (element?.getBoundingClientRect().height ?? 0) / viewport.scale;
+      const outerHeight = (element: Element | null) => element ? measuredHeight(element) + parseFloat(getComputedStyle(element).marginTop) + parseFloat(getComputedStyle(element).marginBottom) : 0;
+      const style = getComputedStyle(el);
+      const available = Math.max(1, viewport.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom));
+      const controls = outerHeight(el.querySelector(".projector-controls")) + outerHeight(el.querySelector(".next-game-notice"));
+      const footer = outerHeight(el.querySelector("footer"));
+      const bodyHeight = Math.max(1, available - controls - footer);
+      const next = sections.flatMap((content, section) => {
+        const sample = el.querySelectorAll<HTMLElement>(".projector-measure-section")[section];
+        if (!sample) return [];
+        const header = measuredHeight(sample.querySelector("header"));
+        if (content.kind === "courts") {
+          const grid = sample.querySelector<HTMLElement>(".projector-court-grid");
+          if (!grid) return [{ section, start: 0, end: 0, scale: 1 }];
+          const columns = getComputedStyle(grid).gridTemplateColumns.split(" ").length;
+          const gap = parseFloat(getComputedStyle(grid).rowGap) || 0;
+          const heights = Array.from(grid.querySelectorAll(".projector-court"), measuredHeight);
+          return paginateCourts(heights, columns, Math.max(1, bodyHeight - header - 4), gap).map(page => {
+            const rows = Array.from({ length: Math.ceil((page.end - page.start) / columns) }, (_, row) => Math.max(...heights.slice(page.start + row * columns, Math.min(page.end, page.start + (row + 1) * columns))));
+            const used = header + rows.reduce((sum, value) => sum + value, 0) + Math.max(0, rows.length - 1) * gap;
+            return { section, ...page, scale: Math.min(1, bodyHeight / Math.max(1, used + 4)) };
+          });
+        }
+        const reserved = header + measuredHeight(sample.querySelector("thead")) + 2;
+        const heights = Array.from(sample.querySelectorAll("tbody tr"), measuredHeight);
+        return paginateRows(heights, Math.max(1, bodyHeight - reserved)).map(page => ({ section, ...page, scale: Math.min(1, bodyHeight / Math.max(1, reserved + heights.slice(page.start, page.end).reduce((sum, h) => sum + h, 0))) }));
+      });
+      setPages(current => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    document.fonts.ready.then(measure);
+    return () => { active = false; observer.disconnect(); };
+  }, [sections, viewport]);
   const index = slide % Math.max(1, pages.length);
   const page = pages[index];
   const section = page && sections[page.section];
+  const seconds = settings.slides.find(item => item.id === section?.kind)?.seconds ?? 15;
+  const pageKey = section ? `${section.id}:${page.start}` : "empty";
+  useEffect(() => {
+    if (!settings.autoAdvance || !section) return;
+    const timer = setTimeout(() => setSlide(current => current + 1), seconds * 1000);
+    return () => clearTimeout(timer);
+  }, [slide, pageKey, seconds, settings.autoAdvance, Boolean(section)]); // eslint-disable-line react-hooks/exhaustive-deps
   const table = (s: Section, start = 0, end = s.rows.length) => <table className={s.headers.length === 3 ? "projector-match-table" : "projector-standings-table"}><thead><tr>{s.headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{s.rows.slice(start, end).map(row => <tr key={row.id}>{row.cells.map((cell, i) => <td key={i}>{cell}</td>)}</tr>)}</tbody></table>;
+  const content = (s: Section, start = 0, end = s.rows.length) => s.kind === "courts" ? <ProjectorCourts courts={courts.slice(start, end)} allCourts={allCourts} settings={settings} tournamentName={state.tournamentName} /> : <><header><p>{state.tournamentName}</p><h2>{s.title}</h2></header>{s.rows.length ? table(s, start, end) : <p className="projector-empty">No entries yet.</p>}</>;
   return <section ref={root} className={`auto-projector ${fullscreen ? "projection-mode" : ""}`} style={{ height }} aria-label="Automatic tournament slideshow">
+    <div ref={stage} className={`projector-stage ${viewport.scaled ? "projector-scaled" : ""}`} style={{ width: viewport.width, height: viewport.height, transform: `scale(${viewport.scale})` }}>
     <div className="projector-controls"><button type="button" className="ghost" aria-pressed={fullscreen} onClick={() => void toggleFullscreen()}>{fullscreen ? <CornersIn size={20} aria-hidden="true" /> : <CornersOut size={20} aria-hidden="true" />}{fullscreen ? "Exit fullscreen" : "Enter fullscreen"}</button>{fullscreen && <small>Press Escape to exit</small>}</div>
     <NextGameNotice state={state} />
-    <div className="projector-measure" aria-hidden="true">{sections.map(s => <section className="projector-measure-section" key={s.id}><header><p>{state.tournamentName}</p><h2>{s.title}</h2></header>{table(s)}</section>)}</div>
-    {section ? <section className="projector-page"><div style={{ transform: `scale(${page.scale})`, transformOrigin: "center" }}><header><p>{state.tournamentName}</p><h2>{section.title}</h2></header>{section.rows.length ? table(section, page.start, page.end) : <p className="projector-empty">No entries yet.</p>}</div></section> : <p className="projector-empty">No tournament data yet.</p>}
-    <footer><span>{section?.rows.length ? `${page.start + 1}–${page.end} of ${section.rows.length} · ` : ""}Slide {index + 1} / {Math.max(1, pages.length)}</span><span>Automatically advances every 15 seconds</span><div className="slide-progress"><i key={slide} /></div></footer>
+    <div className="projector-measure" aria-hidden="true">{sections.map(s => <section className="projector-measure-section" key={s.id}>{content(s)}</section>)}</div>
+    {section ? <section className={`projector-page ${section.kind === "courts" ? "projector-courts-page" : ""}`}><div style={{ transform: `scale(${page.scale})`, transformOrigin: "center" }}>{content(section, page.start, page.end)}</div></section> : <p className="projector-empty">No slides to display.</p>}
+    <footer><span>{section?.rows.length ? `${page.start + 1}–${page.end} of ${section.rows.length} · ` : ""}Slide {index + 1} / {Math.max(1, pages.length)}</span><span>{settings.autoAdvance ? `Automatically advances every ${seconds} seconds` : "Auto-advance paused"}</span><div className="slide-progress"><i key={`${slide}:${pageKey}:${seconds}`} style={{ animationDuration: `${seconds}s`, animationPlayState: settings.autoAdvance ? "running" : "paused" }} /></div></footer>
+    </div>
   </section>;
 }

@@ -1,6 +1,7 @@
 /** Isolated design preview. Mock data is never part of the production Worker. */
 import {defineConfig} from 'vite';
 import {gameDayFixture} from './preview/game-day-fixture';
+import {projectorFixture} from './preview/projector-fixture';
 import {dispatchGame} from './lib/game-day';
 import react from '@vitejs/plugin-react';
 import {appendStaffNotification,recordCourtCompletions} from './lib/staff-events';
@@ -8,10 +9,11 @@ import {courtInUseAfterScore,initialTournament,contactError,hydrateTournament} f
 let savedEntries: Record<string, unknown>[] = [];
 const previewPin = '00000000';
 let revision=1;
-let state: ReturnType<typeof initialTournament>=gameDayFixture();
+let state: ReturnType<typeof initialTournament>=process.env.RACKETEERS_PREVIEW_COURTS === '1' ? projectorFixture() : gameDayFixture();
 export default defineConfig({root:'preview',publicDir:'../public',server:{host:'0.0.0.0',allowedHosts:['terminal.local'],fs:{allow:['..']}},plugins:[react(),{name:'isolated-design-data',enforce:'pre',transform(code,id){
  if(!id.split('?')[0].endsWith('/app/page.tsx'))return;
  const role="new URLSearchParams(location.search).get('role')";
+ code=code.replace('const [unlocked, setUnlocked] = useState(false)',`const [unlocked, setUnlocked] = useState(${role} === 'organizer' || ${role} === 'projector')`);
  return code.replace('useState<Tab>("setup")',`useState<Tab>(${role} === 'organizer' ? 'scores' : 'setup')`).replace('const [umpirePin, setUmpirePin] = useState("")',`const [umpirePin, setUmpirePin] = useState(${role} === 'umpire' ? '4317' : '')`).replace('const [selectedMatch, setSelectedMatch] = useState("")',`const [selectedMatch, setSelectedMatch] = useState(${role} === 'umpire' ? 'demo-match' : '')`).replace('const [umpireUnlocked, setUmpireUnlocked] = useState(false)',`const [umpireUnlocked, setUmpireUnlocked] = useState(${role} === 'umpire')`).replace('const [organizerPin, setOrganizerPin] = useState("")',`const [organizerPin, setOrganizerPin] = useState(${role} === 'organizer' || ${role} === 'projector' ? 'demo-only' : '')`).replace('useState<View>("register")',`useState<View>(${role} === 'organizer' ? 'organizer' : ${role} === 'umpire' ? 'umpire' : ${role} === 'projector' ? 'projector' : ${role} === 'spectator' ? 'spectator' : 'register')`).replace('useState(false);\n  const [sync',`useState(${role} === 'organizer' || ${role} === 'projector');\n  const [sync`).replace('const [umpireAccessPin, setUmpireAccessPin] = useState("")',`const [umpireAccessPin, setUmpireAccessPin] = useState(${role} === 'umpire' ? 'demo-only' : '')`);
  },configureServer(server){server.middlewares.use('/api/',async(req,res)=>{
  res.setHeader('content-type','application/json');
@@ -21,6 +23,7 @@ export default defineConfig({root:'preview',publicDir:'../public',server:{host:'
  let data; try { data = JSON.parse(body); } catch { res.statusCode=400;res.end(JSON.stringify({error:'Invalid request.'}));return; }
  if(req.method==='PUT'){state=recordCourtCompletions(state,hydrateTournament({...data.state,courtHelp:state.courtHelp,staffNotifications:state.staffNotifications})) as typeof state;revision++;res.end(JSON.stringify({state,revision}));return;}
  if(req.method==='PATCH'){const match=state.matches.find(m=>m.id===data.matchId);if(!match){res.statusCode=404;res.end('{}');return;}state=recordCourtCompletions(state,{...state,matches:state.matches.map(m=>m.id===match.id?{...m,sets:data.sets,status:'live',courtInUse:courtInUseAfterScore(match,data.sets)}:m)}) as typeof state;revision++;res.end(JSON.stringify({state,revision}));return;}
+ if(data.action==='updateProjectorSettings'){if(data.expectedRevision!==revision){res.statusCode=409;res.end(JSON.stringify({error:'Tournament changed. Review your settings and save again.'}));return;}state=hydrateTournament({...state,projector:data.projector});revision++;res.end(JSON.stringify({state,revision}));return;}
  if(data.action==='courtHelp'){const court=req.headers['x-organizer-pin']?data.court:state.matches.find(m=>m.id===data.matchId)?.court;if(!court){res.statusCode=400;res.end(JSON.stringify({error:'Assign a court first.'}));return;}const help={...(state.courtHelp??{})};if(data.help)help[court]={id:crypto.randomUUID(),court,requestedAt:new Date().toISOString()};else delete help[court];state=appendStaffNotification({...state,courtHelp:help},{kind:data.help?'help_requested':'help_cleared',court}) as typeof state;revision++;res.end(JSON.stringify({courtHelp:help,revision}));return;}
  if(data.action==='dispatchGame' || data.action==='releaseGameCourt'){if(data.expectedRevision!==revision){res.statusCode=409;res.end(JSON.stringify({error:'Court or game data changed.',state,revision}));return;}if(data.action==='dispatchGame'){const next=dispatchGame(state,data.matchId,data.court);if(!next.state){res.statusCode=409;res.end(JSON.stringify({error:next.error}));return;}state=next.state as typeof state;}else state={...state,matches:state.matches.map(m=>m.id===data.matchId?{...m,court:null,dispatchedAt:undefined,courtInUse:false}:m)};revision++;res.end(JSON.stringify({state,revision}));return;}
  if(data.action==='verifyMatch' && data.pin==='4317'){res.end(JSON.stringify({match:state.matches[0]}));return;}
