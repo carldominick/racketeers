@@ -114,6 +114,8 @@ export type Match = {
   dispatchedAt?: string;
   completedAt?: string;
   nearCapNotified?: boolean;
+  hold?: { reason: string; heldAt: string };
+  forfeit?: { winnerId: string; reason: "no_show"; recordedAt: string };
 };
 
 export type MedalPoints = { gold: number; silver: number; bronze: number; runnerUp: number };
@@ -396,6 +398,7 @@ export function isSetWon(set: SetScore, stage: MatchStage, format?: MatchFormat,
 }
 
 export function adjustMatchScore(match: Match, setIndex: number, side: "a" | "b", delta: number): Match {
+  if (match.hold || match.forfeit || match.validated) return match;
   const setCount = match.format === "best_of_3_21" ? 3 : 1;
   if (setIndex < 0 || setIndex >= setCount || !Number.isFinite(delta)) return match;
   const sets = Array.from({ length: setCount }, (_, index) => match.sets[index] ?? { a: 0, b: 0, complete: false });
@@ -409,34 +412,39 @@ export function adjustMatchScore(match: Match, setIndex: number, side: "a" | "b"
 }
 
 export function completeMatchSet(match: Match, setIndex: number): Match {
+  if (match.hold || match.forfeit || match.validated) return match;
   const set = match.sets[setIndex];
   if (!set || !isSetWon(set, match.stage, match.format, match.scoring)) return match;
   return { ...match, sets: match.sets.map((item, index) => index === setIndex ? { ...item, complete: true } : item), status: "live", courtInUse: false };
 }
 
 export function uncompleteMatchSet(match: Match, setIndex: number): Match {
-  if (match.validated || !match.sets[setIndex]?.complete) return match;
+  if (match.validated || match.hold || match.forfeit || !match.sets[setIndex]?.complete) return match;
   return { ...match, sets: match.sets.map((set, index) => index === setIndex ? { ...set, complete: false } : set), status: "live", courtInUse: true };
 }
 
 export function validateTournamentMatch(state: TournamentState, matchId: string): TournamentState {
+  const selected = state.matches.find(match => match.id === matchId);
+  if (!selected || selected.hold || !matchWinner({ ...selected, sets: selected.sets.map(set => ({ ...set, complete: set.complete || isSetWon(set, selected.stage, selected.format, selected.scoring) })) })) return state;
   const matches = state.matches.map((match) => match.id === matchId ? {
     ...match,
-    sets: match.sets.map((set) => ({ ...set, complete: isSetWon(set, match.stage, match.format, match.scoring) ? true : set.complete })),
+    sets: match.forfeit ? match.sets : match.sets.map((set) => ({ ...set, complete: isSetWon(set, match.stage, match.format, match.scoring) ? true : set.complete })),
     validated: true,
     status: "finished" as const,
     court: null,
+    courtInUse: false,
   } : match);
   return reseedChampionships({ ...state, matches });
 }
 
 export function unvalidateTournamentMatch(state: TournamentState, matchId: string): TournamentState {
-  const matches = state.matches.map((match) => match.id === matchId ? { ...match, validated: false, status: "live" as const, court: null } : match);
+  const matches = state.matches.map((match) => match.id === matchId ? { ...match, validated: false, status: match.forfeit ? "finished" as const : "live" as const, court: null, courtInUse: false } : match);
   return reseedChampionships({ ...state, matches });
 }
 
 export function matchWinner(match: Match): string | null {
   if (!match.entryAId || !match.entryBId) return null;
+  if (match.forfeit && [match.entryAId, match.entryBId].includes(match.forfeit.winnerId)) return match.forfeit.winnerId;
   const completed = match.sets.filter((set) => set.complete && isSetWon(set, match.stage, match.format, match.scoring));
   const aWins = completed.filter((set) => set.a > set.b).length;
   const bWins = completed.filter((set) => set.b > set.a).length;
@@ -444,6 +452,12 @@ export function matchWinner(match: Match): string | null {
   if (aWins >= needed) return match.entryAId;
   if (bWins >= needed) return match.entryBId;
   return null;
+}
+
+/** A no-show is a result, not an invented set score. */
+export function matchScoreText(match: Match): string {
+  const scores = match.sets.map(set => `${set.a} – ${set.b}`).join(" / ") || "–";
+  return match.forfeit ? `Forfeit${match.sets.some(set => set.a || set.b) ? ` · Recorded points: ${scores}` : " · No points awarded"}` : scores;
 }
 
 function winnerOrBye(match?: Match): string | null {
@@ -490,7 +504,7 @@ export function reseedChampionships(state: TournamentState): TournamentState {
     const working = { ...state, matches };
     const rank = championshipRanking(working, division);
     const pool = matches.filter((match) => match.divisionId === division.id && match.stage !== "regular");
-    const untouched = (match?: Match) => match && match.status === "ready" && !match.sets.some((set) => set.a || set.b || set.complete) && !match.validated;
+    const untouched = (match?: Match) => match && match.status === "ready" && !match.dispatchedAt && !match.hold && !match.forfeit && !match.sets.some((set) => set.a || set.b || set.complete) && !match.validated;
     if (division.championshipFormat === "ladderized") {
       const rounds = [...new Set(pool.filter((match) => match.stage !== "bronze").map((match) => match.round))].sort((a, b) => a - b);
       rounds.forEach((round, roundIndex) => {
@@ -513,7 +527,7 @@ export function reseedChampionships(state: TournamentState): TournamentState {
       const semis = pool.filter((match) => match.stage === "semifinal");
       const bronze = pool.find((match) => match.stage === "bronze");
       if (bronze && untouched(bronze) && semis.length >= 2) {
-        const winners = semis.map(matchWinner);
+        const winners = semis.map(match => match.forfeit && !match.validated ? null : matchWinner(match));
         bronze.entryAId = winners[0] ? (semis[0].entryAId === winners[0] ? semis[0].entryBId : semis[0].entryAId) : null;
         bronze.entryBId = winners[1] ? (semis[1].entryAId === winners[1] ? semis[1].entryBId : semis[1].entryAId) : null;
       }
@@ -526,7 +540,7 @@ export function reseedChampionships(state: TournamentState): TournamentState {
       const semis = pool.filter((match) => match.stage === "semifinal");
       if (untouched(semis[0])) { semis[0].entryAId = rank[0] ?? null; semis[0].entryBId = rank[3] ?? null; }
       if (untouched(semis[1])) { semis[1].entryAId = rank[1] ?? null; semis[1].entryBId = rank[2] ?? null; }
-      const winners = semis.map(matchWinner);
+      const winners = semis.map(match => match.forfeit && !match.validated ? null : matchWinner(match));
       const losers = semis.map((match, index) => winners[index] ? (match.entryAId === winners[index] ? match.entryBId : match.entryAId) : null);
       const gold = pool.find((match) => match.stage === "gold");
       const bronze = pool.find((match) => match.stage === "bronze");
@@ -716,7 +730,7 @@ export function medalResults(state: TournamentState, divisionId: string) {
 }
 
 export function isMatchUsingCourt(match: Match): boolean {
-  if (!match.court || match.validated || match.status === "finished" || matchWinner(match)) return false;
+  if (!match.court || match.hold || match.forfeit || match.validated || match.status === "finished" || matchWinner(match)) return false;
   if (typeof match.courtInUse === "boolean") return match.courtInUse;
   return match.status === "live" && (!match.sets.some(set => set.complete) || match.sets.some(set => !set.complete && (set.a > 0 || set.b > 0)));
 }

@@ -97,4 +97,80 @@ test('public next-player callouts map different pending games to simultaneous co
  const state=fixture();Object.assign(state.matches[0],{status:'live',court:1,sets:[{a:26,b:20,complete:false}]});Object.assign(state.matches[4],{status:'live',court:2,sets:[{a:26,b:20,complete:false}]});
  const calls=desk.nextGameCalls(state);assert.equal(calls.length,2);assert.notEqual(calls[0].next.id,calls[1].next.id);
 });
+test('court recommendations fill free courts in rotation, skip held games and never share players',()=>{
+ const state=fixture();state.courts=4;state.matches[4].entryAId='B2';state.divisions[1].entries[2].players=state.divisions[0].entries[0].players;
+ state.matches[8].hold={reason:'Waiting for partner',heldAt:new Date().toISOString()};
+ const before=structuredClone(state), recommendations=desk.courtRecommendations(state);
+ assert.deepEqual(recommendations.map(r=>[r.court,r.match.id]),[[1,'A-m0'],[2,'B-m2'],[3,'C-m1'],[4,'D-m0']]);
+ assert.deepEqual(state,before);assert.deepEqual(desk.courtRecommendations(state),recommendations);
+ const occupied=desk.dispatchGame(state,'A-m0',1).state;
+ assert.equal(desk.courtRecommendations(occupied)[0].court,2);
+ occupied.matches[0]={...occupied.matches[0],sets:[{a:31,b:10,complete:true}],status:'live',courtInUse:false};
+ assert.equal(desk.courtRecommendations(occupied)[0].court,1);
+});
+
+test('a reserved game can be held and returned without consuming rotation or restoring its old court',()=>{
+ const original=fixture();let state=desk.dispatchGame(original,'A-m0',1).state;const cursor=state.gameDay.nextBracketKey;
+ state=desk.gameDayAction(state,'holdGame','A-m0',{reason:'  Waiting for partner  '},1000).state;
+ assert.equal(state.matches[0].hold.reason,'Waiting for partner');assert.equal(state.matches[0].court,null);assert.equal(state.matches[0].dispatchedAt,undefined);
+ assert.equal(desk.courtOccupant(state,1),undefined);assert.equal(state.gameDay.nextBracketKey,cursor);assert.equal(desk.gameQueue(state).held[0].id,'A-m0');assert.equal(desk.gameQueue(state).ready.some(m=>m.id==='A-m0'),false);
+ assert.match(desk.dispatchGame(state,'A-m0',1).error,/hold/);
+ assert.equal(logic.adjustMatchScore(state.matches[0],0,'a',1),state.matches[0]);
+ state=desk.gameDayAction(state,'resumeGame','A-m0').state;assert.equal(state.matches[0].hold,undefined);assert.equal(state.matches[0].court,null);assert.equal(state.gameDay.nextBracketKey,cursor);
+ state.matches[1]={...state.matches[1],status:'live',entryAId:'A0',court:2,courtInUse:true};assert.match(desk.gameEligibility(state,state.matches[0]).reason,/Players busy/);
+});
+
+test('holds reject started, scored, completed and validated games',()=>{
+ for(const patch of [{status:'live'},{court:1,courtInUse:true},{sets:[{a:1,b:0,complete:false}]},{status:'finished'},{validated:true}]){
+  const state=fixture();Object.assign(state.matches[0],patch);assert.ok(desk.gameDayAction(state,'holdGame','A-m0').error);
+ }
+});
+
+test('no-show forfeits release courts, retain actual points and count only after validation',()=>{
+ let state=fixture();state.matches[0]={...state.matches[0],status:'live',court:1,courtInUse:true,sets:[{a:12,b:7,complete:false}]};
+ const scores=structuredClone(state.matches[0].sets);
+ state=desk.gameDayAction(state,'forfeitGame','A-m0',{forfeitingEntryId:'A0'},1000).state;
+ const match=state.matches[0];assert.equal(logic.matchWinner(match),'A1');assert.deepEqual(match.sets,scores);assert.equal(desk.courtOccupant(state,1),undefined);assert.equal(desk.gameQueue(state).ready.some(m=>m.id===match.id),false);
+ assert.equal(logic.standingsFor(state,'A').find(r=>r.entryId==='A1').wins,0);
+ assert.equal(logic.adjustMatchScore(match,0,'a',1),match);assert.equal(logic.uncompleteMatchSet(match,0),match);
+ const validated=logic.validateTournamentMatch(state,match.id);const rows=logic.standingsFor(validated,'A');
+ assert.equal(rows.find(r=>r.entryId==='A1').wins,1);assert.equal(rows.find(r=>r.entryId==='A0').losses,1);assert.equal(rows.find(r=>r.entryId==='A1').pointsFor,7);assert.equal(rows.find(r=>r.entryId==='A0').pointsFor,12);
+ assert.ok(desk.gameDayAction(validated,'clearForfeit',match.id).error);
+ state=logic.unvalidateTournamentMatch(validated,match.id);assert.equal(state.matches[0].status,'finished');
+ state=desk.gameDayAction(state,'clearForfeit',match.id).state;assert.equal(state.matches[0].status,'live');assert.equal(state.matches[0].court,null);assert.deepEqual(state.matches[0].sets,scores);assert.equal(logic.matchWinner(state.matches[0]),null);
+});
+
+test('unplayed no-shows add no points or rest and require a confirmed forfeiting entry',()=>{
+ let state=fixture();assert.ok(desk.gameDayAction(state,'forfeitGame','A-m0',{forfeitingEntryId:'unknown'}).error);
+ state.matches[1].entryAId='A1';state=desk.gameDayAction(state,'forfeitGame','A-m0',{forfeitingEntryId:'A0'}).state;
+ assert.equal(desk.gameEligibility(state,state.matches[1]).ready,true);
+ const hydrated=logic.hydrateTournament(state);assert.deepEqual(hydrated.matches[0].forfeit,state.matches[0].forfeit);
+ state=logic.validateTournamentMatch(state,'A-m0');const rows=logic.standingsFor(state,'A');assert.equal(rows.find(r=>r.entryId==='A1').wins,1);assert.ok(rows.every(r=>r.pointsFor===0&&r.pointsAgainst===0));
+ assert.match(logic.matchScoreText(state.matches[0]),/Forfeit.*No points awarded/);
+ const unresolved=fixture();unresolved.matches[0].entryBId=null;assert.ok(desk.gameDayAction(unresolved,'forfeitGame','A-m0',{forfeitingEntryId:'A0'}).error);
+});
+
+test('forfeiting a live game emits a single durable court release event',()=>{
+ const state=fixture();Object.assign(state.matches[0],{status:'live',court:1,courtInUse:true});
+ const next=events.recordCourtCompletions(state,desk.gameDayAction(state,'forfeitGame','A-m0',{forfeitingEntryId:'A0'}).state);
+ assert.equal(next.staffNotifications.length,1);assert.equal(next.staffNotifications[0].kind,'court_released');assert.equal(next.staffNotifications[0].gameComplete,true);assert.equal(next.staffNotifications[0].available,true);
+ assert.equal(events.recordCourtCompletions(next,next).staffNotifications.length,1);
+});
+
+test('automatic championship no-shows require confirmed prior results while manual matchups remain usable',()=>{
+ const state=fixture();state.matches.push({...state.matches[0],id:'final',stage:'gold',round:3});
+ assert.match(desk.gameDayAction(state,'forfeitGame','final',{forfeitingEntryId:'A0'}).error,/validated/);
+ state.divisions[0].manualChampionshipMatchups=true;
+ assert.ok(desk.gameDayAction(state,'forfeitGame','final',{forfeitingEntryId:'A0'}).state);
+});
+
+test('returning a held unresolved championship refreshes entrants confirmed while it was held',()=>{
+ let state=fixture();state.matches.push({...state.matches[0],id:'final',stage:'gold',round:3,entryAId:null,entryBId:null});
+ state=desk.gameDayAction(state,'holdGame','final').state;
+ state={...state,matches:state.matches.map(m=>m.divisionId==='A'&&m.stage==='regular'?{...m,status:'finished',validated:true,sets:[{a:31,b:20,complete:true}]}:m)};
+ state=logic.reseedChampionships(state);assert.equal(state.matches.at(-1).entryAId,null);
+ state=desk.gameDayAction(state,'resumeGame','final').state;
+ const final=state.matches.at(-1);assert.ok(final.entryAId&&final.entryBId);assert.equal(final.hold,undefined);assert.equal(final.court,null);assert.equal(desk.gameEligibility(state,final).ready,true);
+});
+
 test.after(()=>rm(dir,{recursive:true,force:true}));

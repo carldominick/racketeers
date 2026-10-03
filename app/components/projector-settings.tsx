@@ -6,8 +6,10 @@ import { ArrowDown } from "@phosphor-icons/react/dist/csr/ArrowDown";
 import { MAX_SLIDE_SECONDS, MIN_SLIDE_SECONDS, normalizeProjectorSettings, PROJECTOR_SLIDES, type ProjectorSettings as Settings, type ProjectorSlideId } from "../../lib/projector-settings";
 import type { TournamentState } from "../../lib/tournament";
 import { Projector } from "./projector";
+import { SponsorImages, useSponsorImages } from "./sponsor-images";
 
-export function ProjectorSettings({ state, onSave, onPreviewChange }: { state: TournamentState; onSave: (settings: Settings) => Promise<void>; onPreviewChange: (open: boolean) => void }) {
+export function ProjectorSettings({ state, organizerPin, onSave, onPreviewChange }: { state: TournamentState; organizerPin: string; onSave: (settings: Settings) => Promise<void>; onPreviewChange: (open: boolean) => void }) {
+  const sponsors = useSponsorImages();
   const [draft, setDraft] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -67,7 +69,8 @@ export function ProjectorSettings({ state, onSave, onPreviewChange }: { state: T
         </fieldset>
       </form>
       {message && <p className={failed ? "error" : "projector-settings-message"} role={failed ? "alert" : "status"}>{message}</p>}
+      <SponsorImages organizerPin={organizerPin} data={sponsors} />
     </section>
-    {preview && <div className="modal-backdrop projector-preview-backdrop"><section ref={dialog} className="projector-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="projector-preview-title"><div className="projector-preview-heading"><h2 id="projector-preview-title">Slideshow preview</h2><button type="button" className="ghost" onClick={() => { setPreview(false); onPreviewChange(false); }}>Close preview</button></div><Projector state={{ ...state, projector: normalizeProjectorSettings(settings) }} /></section></div>}
+    {preview && <div className="modal-backdrop projector-preview-backdrop"><section ref={dialog} className="projector-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="projector-preview-title"><div className="projector-preview-heading"><h2 id="projector-preview-title">Slideshow preview</h2><button type="button" className="ghost" onClick={() => { setPreview(false); onPreviewChange(false); }}>Close preview</button></div><Projector state={{ ...state, projector: normalizeProjectorSettings(settings) }} sponsorImages={sponsors.library.images} /></section></div>}
   </>;
 }

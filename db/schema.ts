@@ -6,3 +6,10 @@ export const tournamentState = sqliteTable("tournament_state", {
   payload: text("payload").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+// Created lazily by /api/sponsors; does not rewrite tournament state or receipts.
+export const sponsorImages = sqliteTable("sponsor_images", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdAt: text("created_at").notNull(),
+});

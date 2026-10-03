@@ -4,6 +4,7 @@ export const PROJECTOR_SLIDES = [
   { id: "upcoming", label: "Upcoming matchups", seconds: 20 },
   { id: "finished", label: "Results", seconds: 15 },
   { id: "standings", label: "Standings", seconds: 20 },
+  { id: "sponsors", label: "Sponsors", seconds: 15 },
 ] as const;
 
 export type ProjectorSlideId = typeof PROJECTOR_SLIDES[number]["id"];

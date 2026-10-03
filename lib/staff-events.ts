@@ -1,5 +1,5 @@
 import { isMatchUsingCourt, matchWinner, type StaffNotification, type TournamentState } from "./tournament";
-import { gameNumber, matchupText, nextGameCalls } from "./game-day";
+import { courtOccupant, gameNumber, matchupText, nextGameCalls } from "./game-day";
 
 export function appendStaffNotification(state: TournamentState, event: Omit<StaffNotification, "id" | "createdAt">): TournamentState {
   return { ...state, staffNotifications: [...(state.staffNotifications ?? []), { ...event, id: crypto.randomUUID(), createdAt: new Date().toISOString() }].slice(-100) };
@@ -17,6 +17,10 @@ export function recordCourtCompletions(previous: TournamentState, next: Tourname
     const before = previous.matches.find(item => item.id === match.id);
     if (!before || !match.court || match.court > next.courts) continue;
     const setIndex = match.sets.findIndex((set, index) => set.complete && !before.sets[index]?.complete);
+    if (match.forfeit && !before.forfeit) {
+      result = appendStaffNotification(result, { kind: "court_released", court: match.court, matchId: match.id, matchLabel: match.label, gameComplete: true, available: !courtOccupant(next, match.court) });
+      continue;
+    }
     if (setIndex < 0) continue;
     result = appendStaffNotification(result, { kind: "court_released", court: match.court, matchId: match.id, matchLabel: match.label, setNumber: setIndex + 1, gameComplete: Boolean(matchWinner(match)), available: !next.matches.some(item => item.court === match.court && isMatchUsingCourt(item)) });
   }
