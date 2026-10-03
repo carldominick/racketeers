@@ -1,3 +1,58 @@
+# Half-letter print-card implementation QA — 2026-10-03
+
+**Findings**
+No actionable P0/P1/P2 findings remain after two visual fixes. The second displayed design is the implementation target.
+
+## Evidence and comparison state
+- Source: `/workspace/scratch/302884b9ef26/generated_images/exec-122897a9-2ab1-4283-8a2d-7ac09de5b415.png`.
+- Final browser implementation: `/workspace/scratch/302884b9ef26/Racketeers-Updated-Match-Card.jpg`.
+- Full-view source/implementation comparison: `/workspace/scratch/302884b9ef26/print-card-comparison-final.jpg`.
+- Focused metadata, winner and validation comparison: `/workspace/scratch/302884b9ef26/print-card-comparison-detail.jpg`.
+- Letter-sheet view with two cards: `/workspace/scratch/302884b9ef26/print-card-letter-preview.jpg`.
+- Long-name stress case, revised: `/workspace/scratch/302884b9ef26/print-card-long-names-final.jpg`.
+- State: Game 17, Level D/E, Championship final, Alex/Sam versus Chris/Pat, best of three to 21, win by two, cap 30. Court, PIN, scores and signatures are blank.
+- Viewport: card content 816 × 528 CSS pixels at density 1. Source 1559 × 1009 pixels normalized proportionally to 816 × 528. Final browser capture is 816 × 528 pixels. Two cards are 816 × 1056 CSS pixels, exactly letter portrait at 96 CSS pixels per inch.
+- Browser: cloud Chrome. Local-only QA uses the production print component and exact print CSS declarations as screen media so the printed content can be captured. The temporary QA files are excluded from publication. Production print behavior still invokes the native browser print function.
+
+## Required fidelity surfaces
+- Fonts/typography: existing Arial/Helvetica sans-serif print stack; bold tournament/game identifiers, matchup, section headings, set numbers and winner controls preserve the source hierarchy. Body fields are 10.5–11 pt, instructions 9 pt. Long names remain complete and use Pair A/B in the smaller score/winner fields when needed; this prevents wrapping collisions while retaining all individual names and signatures.
+- Spacing/layout: two columns for scores and signatures, thin metadata separators, centered matchup, simple officials footer. All cards are 8.5 × 5.5 inches with 0.23-inch padding. Cards cannot split, and a new page starts before each third card. No forced break follows the last card. Nonprint organizer content is removed from print flow to prevent empty pages.
+- Colors/tokens: white paper, #111 text, #777 thin rules, restrained #f7f7f7 table header. No ink-heavy panels or color dependency.
+- Image/asset fidelity: the target is entirely editable form text, native checkboxes, tables and rules; no raster artwork is required or substituted. Existing Phosphor Printer icons are retained only in the screen controls.
+- Copy/content: the selected fields, final scores only, winner, four player signatures for doubles, Umpire and Checked by lines are present. Rules and set count follow the actual match. Court and Umpire PIN always print as empty write-in lines even for assigned, completed or validated matches. Singles provide one signature per player. Unresolved entrants have distinct A/B labels and blank player lines.
+
+## Comparison history
+1. Initial comparison `/workspace/scratch/302884b9ef26/print-card-comparison-initial.jpg`: P2 metadata grouping drift and weak winner/set-number emphasis. Fixed grid proportions, vertical separators, type weight/size and final-score spacing. The final full-view and focused comparison show those fixes.
+2. Long-name capture `/workspace/scratch/302884b9ef26/print-card-long-names.jpg`: P2 full names in table/winner controls collided with neighboring content. Fixed adaptive Pair A/B labels, tighter long-name table padding and signature label allocation. Revised capture shows all six blank score cells at approximately 37 CSS pixels tall, all four signatures, no overlaps and no card overflow.
+
+## Primary interactions and checks
+- Game Day Desk Print all games: one click generates all 12 fixture games, 24 blank Court/PIN fields, blank score cells and matching signature sections. Card sizes are exactly 816 × 528; positions increase by 528. All 12 cards have zero measured overflow. Named letter page and odd-card break rules are parsed by Chrome.
+- Print game card on an assigned/live court: one click generates only that game's card with empty Court/PIN fields, correct single-set row and four signatures. Print request fires; afterprint restores the desk.
+- Existing match-editor, umpire and Tournament Progress print entry points share the same PrintSheet/PrintMatchCards renderer.
+- Phone view at 390 CSS pixels: screen content width and scroll width both 375, without page overflow. Bulk print control is 46 pixels high; court print controls retain the existing 40-pixel control sizing and remain inside the card.
+- Browser console checked: no application errors or warnings. Browser-extension metadata errors are unrelated to the app.
+- 108 automated tests pass with TZ=Asia/Manila, plus two built-Worker rendering tests (110 total). Production build, targeted ESLint and git diff --check pass. An existing next-Saturday scheduling test depends on the timezone and fails under this container's UTC default; no scheduling behavior was changed.
+- Native print dialog pagination, physical paper output and real devices were not exercised. Browser geometry and production page/break declarations were verified; printer settings should use Letter portrait at 100% scale.
+
+**Open Questions**
+None blocking this update.
+
+**Implementation Checklist**
+- [x] Selected side-by-side layout implemented.
+- [x] Blank Court/PIN fields and blank final-score cells across print actions.
+- [x] Individual signature lines and match-specific scoring formats.
+- [x] One-click single and bulk printing.
+- [x] Half-letter dimensions and two-card letter-page layout.
+- [x] Visual fixes recaptured and compared with the source.
+- [x] Automated checks and build complete.
+
+**Follow-up Polish**
+P3: the generated source uses slightly narrower lettering and larger checkbox outlines; the existing print font and native browser checkboxes are accepted for consistent real printing.
+
+final result: passed
+
+---
+
 # Compact court layout — design QA (2026-10-03)
 
 final result: passed

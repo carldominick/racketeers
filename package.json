@@ -9,7 +9,7 @@
     "dev": "vite --config vite.preview.config.ts",
     "build": "vinext build",
     "deploy": "node scripts/check-deploy.mjs && wrangler deploy",
-    "test": "node --test tests/tournament-logic.test.mjs tests/payment-proof.test.mjs tests/request-security.test.mjs tests/registration-access.test.mjs tests/registration-ui.test.mjs tests/registration-export.test.mjs tests/projector.test.mjs tests/game-day.test.mjs",
+    "test": "node --test tests/tournament-logic.test.mjs tests/payment-proof.test.mjs tests/request-security.test.mjs tests/registration-access.test.mjs tests/registration-ui.test.mjs tests/registration-export.test.mjs tests/projector.test.mjs tests/game-day.test.mjs tests/print-match-card.test.mjs",
     "test:render": "node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
