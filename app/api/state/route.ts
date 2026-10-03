@@ -1,5 +1,6 @@
 import { appendStaffNotification, recordCourtCompletions } from "../../../lib/staff-events";
 import { courtOccupant, dispatchGame } from "../../../lib/game-day";
+import { normalizeProjectorSettings } from "../../../lib/projector-settings";
 import { matchWinner, isMatchUsingCourt, courtInUseAfterScore, tournamentEditingLocked, setupConfiguration, contactError, syncPlayerContacts, resetRegistrations, hydrateTournament, initialTournament, isSetWon, scoringRule, matchScoreLimit, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
 
 const ROW_ID = "racketeers";
@@ -111,7 +112,16 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const row = await ensureRow();
   const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
-  const body = (await request.json()) as { action?: string; court?: number; help?: boolean; divisionId?: string; expectedRevision?: number; confirmation?: string; pin?: string; newPin?: string; matchId?: string; registrationId?: string; registration?: RegistrationForm };
+  const body = (await request.json()) as { action?: string; projector?: unknown; court?: number; help?: boolean; divisionId?: string; expectedRevision?: number; confirmation?: string; pin?: string; newPin?: string; matchId?: string; registrationId?: string; registration?: RegistrationForm };
+  if (body.action === "updateProjectorSettings") {
+    if (!(await authorized(request.headers.get("x-organizer-pin"), state))) return Response.json({ error: "Organizer access is required." }, { status: 401 });
+    if (body.expectedRevision !== row.revision) return Response.json({ error: "Tournament changed. Review your settings and save again.", state: organizerState(state), revision: row.revision }, { status: 409 });
+    if (!body.projector || typeof body.projector !== "object" || Array.isArray(body.projector)) return Response.json({ error: "Projector settings are required." }, { status: 400 });
+    const projector = normalizeProjectorSettings(body.projector);
+    if (!projector.slides.some(slide => slide.enabled)) return Response.json({ error: "Choose at least one projector slide." }, { status: 400 });
+    const saved = await saveStateAtRevision({ ...state, projector }, row.revision);
+    return saved ? Response.json({ state: organizerState(saved.state), revision: saved.revision }) : Response.json({ error: "Tournament changed. Review your settings and save again." }, { status: 409 });
+  }
   if (body.action === "dispatchGame" || body.action === "releaseGameCourt") {
     if (!(await authorized(request.headers.get("x-organizer-pin"), state))) return Response.json({ error: "Organizer access is required." }, { status: 401 });
     if (body.expectedRevision !== row.revision) return Response.json({ error: "Court or game data changed. Refresh and assign again.", state: organizerState(state), revision: row.revision }, { status: 409 });

@@ -1,3 +1,50 @@
+# Projector court overview and settings QA — 2026-10-03
+
+final result: passed (local browser and available Windows checks; Linux release verification runs separately)
+
+## Source and evidence
+
+Selected reference: Venue Overview, revised to match the shared light theme, `exec-21c2f924-ee2a-4d68-a1e8-96e28376017c.png` (1254 × 1254). Both projector and organizer settings regions were used. The fixture uses the same fictional people and scores: 12 courts, seven in play, two reserved and three available. Game numbers follow actual fixture state order (1–9) instead of the illustrative 17–25.
+
+The full projector comparison `outputs/projector-comparison-full.png`, first-court comparison `outputs/projector-comparison-detail.png`, and organizer comparison `outputs/projector-settings-comparison.png` were opened together and inspected. Reference and implementation were proportionally normalized to the same content width. The in-app browser's fullscreen screenshots include unused black canvas; the complete 1440 CSS pixel app region was cropped to 1209 × 860 screenshot pixels for comparison. CSS viewport and screenshot pixels differ, so these are visual comparisons rather than pixel-exact overlays. `outputs/projector-courts-reviewed.png` preserves the complete light display; dark evidence is `outputs/projector-courts-dark-1440.png`.
+
+## Fidelity and comparison findings
+
+- Typography: shared screen font and tokens retained. Large navy court headers, individual full player names and aligned bold scores preserve the hierarchy. Long names wrap on narrower cards without truncation; a modest long-name font adjustment prevents unnecessary wrapping on large displays.
+- Layout: two rows of six courts fit at 1440 × 1024 and 1920 × 1080 CSS pixels in fullscreen, at scale 1. The title and state counts share the header. Existing fullscreen controls, tournament title and page/timing footer remain. Smaller screens use whole-row pagination (three columns on tablet, one on narrow phones).
+- Color: shared paper/card/ink tokens support light and dark slides. Lime marks in-play/available courts and amber marks reservations. Available cards have a pale lime surface in light mode. The organizer retains the existing navy navigation instead of replacing it with the illustration's white navigation.
+- Artwork: generated transparent court-line raster, `public/projector-court-lines.png`, inspected before use. Low-opacity lines sit behind the readable content; no screenshot is used as the UI.
+- Controls: accessible Move up/down buttons replace illustrative drag handles so keyboard and touch users can reorder. Native labeled checkboxes replace illustrated switches. Save and Preview remain beside the settings content and stack on phones; controls are at least 44px high and duration inputs use 16px text.
+- Content: the court card shows real physical occupancy/reservation, current set scores, division/game number and awaiting-player status. Planned-only assignments and released/completed sets are available. PINs, private contacts, receipts and staff notifications do not render in projector or preview.
+
+P2 found during phone QA: the shared backdrop padding pushed the 100dvh dialog/footer below the screen. Removed mobile backdrop padding and locked background scrolling while preview is open. Rechecked at 360 × 800: dialog top 0/bottom 800, footer bottom 788, zero horizontal overflow. Revised evidence: `outputs/projector-courts-phone-fixed.png`. No unresolved actionable P0/P1/P2 findings remain in inspected surfaces.
+
+## Interactions and responsive verification
+
+All mutations used disposable in-memory preview data. Slide order moved up/down correctly. Saved preferences survived reload. A five-second court duration advanced into live matchups while the parent continued polling. All four court detail toggles changed an unsaved preview; hiding available courts showed the nine occupied/reserved courts. Preview focused Close, trapped the dialog and made background navigation inert; Escape restored the Preview trigger. Staff alerts were hidden. Light and dark fullscreen showed all 12 courts.
+
+Settings and projector checked at 1440, 834, 390 and 360 CSS pixel widths with no page-level horizontal overflow. Tablet preview displayed six courts per page; phones preserved a whole court card per page. Existing umpire at 360 and short 844 × 390 landscape, registration and spectator at 390 retained zero page overflow; registration correctly showed its Live-phase lock. No browser application errors/warnings were observed. These are emulated browser widths, not physical-device tests; native fullscreen fallback remains supported but requestFullscreen rejection was not forced.
+
+Automated regression coverage verifies grid row pagination, canonical preferences, physical court occupancy/current sets, public-safe rendering, organizer-only saves, stale revision rejection and preservation of matches/entries/registrations/hashes. Windows `npm test` reports 98 passed and two known pre-assertion React ESM loader failures (`registration-ui` and `print-match-card` importing C: paths); these unrelated tests were not weakened. Lint, production build, two built-Worker render tests and whitespace checks pass. Linux CI is required before release.
+
+README's existing mandatory opening PIN and local-preview D1 statements disagreed with code/context. Corrected those descriptions; this update does not change either existing access behavior or development runtime.
+
+## Release and recovery
+
+Release uses upstream `carldominick/racketeers`, the existing `racketeers` Worker, D1 `racketeers-db` and private R2 `racketeers-payments` bindings, confirmed against the last successful deployment. No binding, schema or initialization credential changes are included. No tournament data or preferences are written during release; old v5 states hydrate defaults, and an organizer saves preferences explicitly. The last production source is `c8b9267857b981b72bbfbca682b5b2474f58204f`; recover by reverting this feature and redeploying through the same workflow or rolling back the previous Worker version with unchanged storage. No live D1/R2 commands are used for tests or migration.
+
+## Implementation checklist
+
+- [x] Approved court composition and shared light/dark palette.
+- [x] Accurate in-play/reserved/available state and public-safe content.
+- [x] Organizer slide selection, ordering, per-page timing and detail controls.
+- [x] Explicit revision-checked save and unsaved preview with keyboard focus handling.
+- [x] Full and focused source comparisons, responsive checks and phone repair recapture.
+- [x] Local automated checks completed with documented Windows baseline limitation.
+- [ ] Linux CI and authorized production release verification (recorded in the pull request).
+
+---
+
 # Half-letter print-card implementation QA — 2026-10-03
 
 **Findings**

@@ -32,7 +32,7 @@ npm run build
 npm run test:render
 ```
 
-For a local preview, create an ignored `.dev.vars` file with an `INITIAL_ORGANIZER_PIN` of your choice, then run `npm run dev`. Local development uses local D1 storage, separate from the hosted tournament database.
+`npm run dev` runs an isolated in-memory UI preview with mocked staff access and payment capabilities. For the actual Worker with local D1 bindings, use `npm run dev:worker` and keep any local `.dev.vars` ignored. Neither mode is evidence that production authorization has been tested.
 
 ## Architecture
 
@@ -77,7 +77,7 @@ New registration IDs use REG followed by a cryptographically generated UUID with
 
 ## Registration and page access
 
-- Opening the site prompts for an organizer or umpire PIN, with a public option for Registration and Spectator views. Organizer access includes every view. Umpire access includes Umpire and Spectator only.
+- The site opens Registration without a mandatory PIN prompt. Staff access opens the organizer or umpire PIN dialog. Organizer access includes every view. Umpire access includes Umpire and Spectator only.
 - Set the shared umpire page PIN in Organizer → Setup → Umpire page access (8–10 digits, different from the organizer PIN). Rotating it immediately rejects the previous PIN on scoring APIs. Individual match PINs are still required.
 - Club/group is optional for each player. After saving an entry, or reopening it using its private PIN, choose Add second entry for the appropriate player. Select the same or another division, keep or change the partner, and choose a black or second tournament shirt. Each entry has its own registration ID and edit PIN; the records retain a shared player identity. Linked players can have at most two entries.
 - Organizer Add Player opens the same registration form. New or duplicated divisions do not create player records. Legacy placeholder entries without registration IDs are not recovered as registrations.
@@ -93,3 +93,13 @@ Preview-only viewport checks: append `?viewport=390`, `?viewport=834`, or `?view
 ### Clubhouse theme and venue
 
 The shared navy/lime theme covers Registration, Organizer, Umpire, Spectator and Projector views. Setup includes an optional Location / venue field (200 characters), which is shown on registration and spectator pages when populated. Venue edits follow the existing setup phase lock. The isolated preview supports `?role=organizer`, `?role=umpire`, and `?role=projector` with demo-only data; these query parameters have no effect on the production Worker.
+
+### Projector court overview and slideshow settings
+
+Organizer → Run tournament → Projector settings controls which slides appear, their order, and 5–300 seconds per page. Save explicitly to update the shared display preferences, or preview unsaved settings first. Court details can show player names, live scores, division/game numbers and available courts. Auto-advance can be paused. Timing applies to every page of a slide, including each division/pool standings page.
+
+The court overview uses the configured number of courts; 12 courts fit in two rows of six on a large fullscreen display. Smaller displays paginate whole court rows. In play means physical occupancy, Reserved means a dispatched game awaiting players, and Available means neither; a planned schedule assignment alone does not occupy a court. Completed sets release their court independently of organizer result validation. The slide follows the shared light/dark theme and never displays PINs, contacts, receipts or staff alerts.
+
+Existing v5 tournament data receives default display preferences during hydration without a schema migration. Preference saves require organizer access and the current revision, and update only preferences. A conflict retains the draft for review and retry. The optional `RACKETEERS_PREVIEW_COURTS=1` environment flag selects a fictional 12-court fixture for `npm run dev` only.
+
+Feature branches and pull requests run the Linux verification workflow (tests, lint, build and built-Worker rendering) before release. Production still deploys through the existing main-branch Cloudflare workflow and its existing Worker, D1 and R2 bindings. This display change requires no data migration; recovery is a source revert/redeployment or rollback to the previous Worker version with the same storage bindings.

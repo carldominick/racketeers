@@ -19,6 +19,21 @@ const post=(body,headers)=>api.POST(request(body,headers));
 const org={'x-organizer-pin':'12345678'};
 const create=(divisionId,extra={})=>({action:'registerPlayer',registration:{divisionId,name:'Alex',partnerName:'Sam',club:'Cebu Club',partnerClub:'Rackets',facebookProfile:'https://www.facebook.com/alex.test',phone:'09123456789',partnerFacebookProfile:'https://www.facebook.com/sam.test',partnerPhone:'+639123456780',...extra}});
 
+test('projector preferences are organizer-only, revision guarded and do not replace scores or registrations',async()=>{
+ const state=await reset();state.status='live';state.umpirePinHash=await hash('87654321');saved.payload=JSON.stringify(state);
+ const before=JSON.parse(saved.payload);
+ const projector={...state.projector,autoAdvance:false,showScores:false,slides:state.projector.slides.map(s=>({...s,seconds:47}))};
+ const body={action:'updateProjectorSettings',projector,expectedRevision:1,state:{...state,matches:[],registrations:[]}};
+ assert.equal((await post(body)).status,401);assert.equal((await post(body,{'x-umpire-pin':'87654321'})).status,401);
+ assert.equal((await post({...body,expectedRevision:0},org)).status,409);assert.equal(saved.revision,1);
+ const result=await post(body,org);assert.equal(result.status,200);assert.equal(saved.revision,2);
+ const after=JSON.parse(saved.payload);assert.deepEqual(after.matches,before.matches);assert.deepEqual(after.registrations,before.registrations);assert.deepEqual(after.divisions,before.divisions);assert.equal(after.projector.showScores,false);assert.equal(after.organizerPinHash,before.organizerPinHash);
+ const safe=(await (await api.GET(new Request('https://test/api/state'))).json()).state;assert.deepEqual(safe.projector,after.projector);assert.equal(safe.organizerPinHash,undefined);assert.equal(safe.umpirePinHash,undefined);assert.deepEqual(safe.registrations,[]);
+ assert.equal((await post(body,org)).status,409);assert.equal(saved.revision,2);
+ assert.equal((await post({...body,projector:null,expectedRevision:2},org)).status,400);
+ assert.equal((await post({...body,projector:{...projector,slides:projector.slides.map(s=>({...s,enabled:false}))},expectedRevision:2},org)).status,400);
+});
+
 test('new and duplicated divisions stay empty through regeneration and hydration',()=>{
  let state=logic.initialTournament();assert.equal(state.registrations.length,0);assert.equal(state.divisions[0].entries.length,0);
  state=logic.addDivision(state);state=logic.duplicateDivision(state,state.divisions[0].id);state=logic.hydrateTournament(logic.regenerateMatches(state));
