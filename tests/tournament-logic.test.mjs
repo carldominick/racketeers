@@ -479,3 +479,64 @@ test("stage tie-break rules stop additions at the winner, allow corrections, and
  const state=fixtureTournament();state.divisions[0].stageScoring={regular:{mode:'first_to_target',target:15,cap:15},gold:{mode:'capped_win_by_two',target:21,cap:25}};
  const hydrated=logic.hydrateTournament(state);assert.equal(hydrated.matches.find(m=>m.stage==='regular').scoring.target,15);assert.equal(hydrated.matches.find(m=>m.stage==='gold').scoring.cap,25);
 });
+
+
+test("validated forfeits advance through ladder sizes 2–64, including byes", () => {
+  for (const size of [2,4,8,16,32,64]) for (const count of size===2?[2]:[size,size-1]) {
+    const division = {...logic.makeDivision(`Ladder ${size}`, 'singles'), registrationManaged:false, playerCount:count, qualifiersPerSubBracket:count, knockoutSize:size, championshipFormat:'ladderized', bracketFormat:'custom', customGroupGameCount:1};
+    division.entries=Array.from({length:count},(_,i)=>({id:`entry-${i}`,name:`Entrant ${String(i).padStart(2,'0')}`,players:[`Entrant ${i}`]}));
+    let state=logic.regenerateMatches({...logic.initialTournament(),divisions:[division]});
+    state={...state,matches:state.matches.map(m=>m.stage==='regular'?{...m,validated:true,status:'finished',forfeit:{winnerId:m.entryAId,reason:'no_show',recordedAt:new Date().toISOString()}}:m)};
+    state=logic.reseedChampionships(state);
+    const rounds=[...new Set(state.matches.filter(m=>m.stage!=='regular'&&m.stage!=='bronze').map(m=>m.round))].sort((a,b)=>a-b);
+    for (const round of rounds) {
+      const games=state.matches.filter(m=>m.round===round&&m.stage!=='regular'&&m.stage!=='bronze');
+      for (const game of games) {
+        if(!game.entryAId||!game.entryBId) { assert.ok(game.entryAId||game.entryBId,`bye ${size} ${game.stage}`); continue; }
+        const downstreamBefore=state.matches.filter(m=>m.round>round).map(m=>[m.id,m.entryAId,m.entryBId]);
+        state={...state,matches:state.matches.map(m=>m.id===game.id?{...m,status:'finished',forfeit:{winnerId:m.entryAId,reason:'no_show',recordedAt:new Date().toISOString()}}:m)};
+        const awaiting=logic.reseedChampionships(state);
+        assert.deepEqual(awaiting.matches.filter(m=>m.round>round).map(m=>[m.id,m.entryAId,m.entryBId]),downstreamBefore,'unvalidated forfeit must not advance');
+        state=logic.validateTournamentMatch(state,game.id);
+      }
+    }
+    const medals=logic.medalResults(state,division.id);assert.ok(medals[0].entryId);assert.ok(medals[1].entryId);
+    if(size>=4){const bronze=state.matches.find(m=>m.stage==='bronze');assert.ok(bronze.entryAId||bronze.entryBId);}
+  }
+});
+
+test("medal semifinals require validated forfeits, protect active finals and preserve manual assignments", () => {
+  let state=fixtureTournament();state=logic.regenerateMatches({...state,divisions:state.divisions.map(d=>({...d,championshipFormat:'semifinals_final'}))});state=logic.reseedChampionships(state);const semis=state.matches.filter(m=>m.stage==='semifinal');
+  state={...state,matches:state.matches.map(m=>m.stage==='semifinal'?{...m,status:'finished',forfeit:{winnerId:m.entryAId,reason:'no_show',recordedAt:new Date().toISOString()}}:m)};
+  let gold=logic.reseedChampionships(state).matches.find(m=>m.stage==='gold');assert.equal(gold.entryAId,null);assert.equal(gold.entryBId,null);
+  for(const game of semis) state=logic.validateTournamentMatch(state,game.id);
+  gold=state.matches.find(m=>m.stage==='gold');assert.ok(gold.entryAId&&gold.entryBId);
+  for(const patch of [{status:'live'},{dispatchedAt:new Date().toISOString()},{hold:{reason:'Waiting',heldAt:new Date().toISOString()}},{sets:[{a:1,b:0,complete:false}]},{validated:true}]) {
+    const active={...state,matches:state.matches.map(m=>m.id===gold.id?{...m,entryAId:'manual-a',entryBId:'manual-b',...patch}:m)};
+    const kept=logic.reseedChampionships(active).matches.find(m=>m.id===gold.id);assert.deepEqual([kept.entryAId,kept.entryBId],['manual-a','manual-b']);
+  }
+  const manual={...state,divisions:state.divisions.map(d=>({...d,manualChampionshipMatchups:true})),matches:state.matches.map(m=>m.id===gold.id?{...m,entryAId:'manual-a',entryBId:'manual-b'}:m)};
+  assert.equal(logic.reseedChampionships(manual).matches.find(m=>m.id===gold.id).entryAId,'manual-a');
+});
+
+
+test("forfeits preserve pool qualification across group and championship formats",()=>{
+ for(const bracketFormat of ['round_robin','double_round_robin','single_elimination','custom']) for(const championshipFormat of ['semifinals_final','direct_medals','ladderized']){
+  const division={...fixtureDivision('Pools','singles'),playerCount:8,subBracketCount:2,qualifiersPerSubBracket:2,knockoutSize:4,bracketFormat,championshipFormat,customGroupGameCount:12};
+  division.entries=Array.from({length:8},(_,i)=>({id:`pool-${i}`,name:`Entrant ${i}`,players:[`Entrant ${i}`],poolOverride:i<4?0:1}));
+  let state=logic.regenerateMatches({...logic.initialTournament(),divisions:[division]});
+  state={...state,matches:state.matches.map(m=>m.stage==='regular'?{...m,status:'finished',validated:true,forfeit:{winnerId:m.entryAId,reason:'no_show',recordedAt:new Date().toISOString()}}:m)};
+  state=logic.reseedChampionships(state);const rank=logic.championshipRanking(state,division);
+  assert.equal(rank.length,4);assert.ok(logic.standingsFor(state,division.id).every(row=>row.pointsFor===0));
+  const firstRound=Math.min(...state.matches.filter(m=>m.stage!=='regular'&&m.stage!=='bronze').map(m=>m.round));const first=state.matches.filter(m=>m.stage!=='regular'&&m.stage!=='bronze'&&m.round===firstRound);assert.ok(first.length);
+  assert.ok(first.every(m=>rank.includes(m.entryAId)&&rank.includes(m.entryBId)));
+ }
+});
+
+
+test("completed played semifinals retain provisional seeding before validation",()=>{
+ let state=fixtureTournament();state=logic.regenerateMatches({...state,divisions:state.divisions.map(d=>({...d,championshipFormat:'semifinals_final'}))});state=logic.reseedChampionships(state);
+ state={...state,matches:state.matches.map(m=>m.stage==='semifinal'?{...m,status:'live',sets:[{a:21,b:10,complete:true},{a:21,b:8,complete:true}]}:m)};
+ const seeded=logic.reseedChampionships(state),semis=state.matches.filter(m=>m.stage==='semifinal'),gold=seeded.matches.find(m=>m.stage==='gold');
+ assert.equal(gold.entryAId,semis[0].entryAId);assert.equal(gold.entryBId,semis[1].entryAId);assert.ok(semis.every(m=>!m.validated));
+});

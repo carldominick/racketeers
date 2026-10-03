@@ -94,6 +94,14 @@ Preview-only viewport checks: append `?viewport=390`, `?viewport=834`, or `?view
 
 The shared navy/lime theme covers Registration, Organizer, Umpire, Spectator and Projector views. Setup includes an optional Location / venue field (200 characters), which is shown on registration and spectator pages when populated. Venue edits follow the existing setup phase lock. The isolated preview supports `?role=organizer`, `?role=umpire`, and `?role=projector` with demo-only data; these query parameters have no effect on the production Worker.
 
+### Game Day queue recommendations, holds and no-shows
+
+Organizer → Run tournament → Game day desk recommends ready games for each free court. Recommendations follow bracket rotation, player overlap, rest and earlier-result validation; they refresh with shared state and are checked again on assignment. Selecting an assignment reserves the court and advances rotation. Recommendations alone make no changes.
+
+Hold game removes an unstarted game from the ready queue and releases its reservation. An optional organizer-only note explains the delay. Return to queue checks eligibility again and requires a new court assignment. Games already opened for play or scored cannot be held through this queue control.
+
+No-show / forfeit asks which entry is absent and awards the opponent the match. In doubles, this applies to the pair. Existing points remain; no target–0 score is invented. Validate the result before it counts as a win/loss in standings or advances players. An unplayed no-show adds zero points and no rest delay. Clear forfeiture is available before validation; unvalidate first to correct a locked result. These actions use organizer authorization and revision checks. Held and forfeited games reject umpire scoring.
+
 ### Projector court overview and slideshow settings
 
 Organizer → Run tournament → Projector settings controls which slides appear, their order, and 5–300 seconds per page. Save explicitly to update the shared display preferences, or preview unsaved settings first. Court details can show player names, live scores, division/game numbers and available courts. Auto-advance can be paused. Timing applies to every page of a slide, including each division/pool standings page.
@@ -105,3 +113,9 @@ Projector-sized displays scale the complete presentation proportionally from a 1
 Existing v5 tournament data receives default display preferences during hydration without a schema migration. Preference saves require organizer access and the current revision, and update only preferences. A conflict retains the draft for review and retry. The optional `RACKETEERS_PREVIEW_COURTS=1` environment flag selects a fictional 12-court fixture for `npm run dev` only.
 
 Feature branches and pull requests run the Linux verification workflow (tests, lint, build and built-Worker rendering) before release. Production still deploys through the existing main-branch Cloudflare workflow and its existing Worker, D1 and R2 bindings. This display change requires no data migration; recovery is a source revert/redeployment or rollback to the previous Worker version with the same storage bindings.
+
+### Projector sponsors
+
+Organizer → Run tournament → Projector settings includes a Sponsors slide and a Sponsor images library. Select multiple PNG/JPG/WebP files (up to 2 MB each), edit their public names, then upload. Add more at any time or remove an image from the display. Each image gets its own page, using the Sponsors timing (15 seconds by default), visibility and order controls. Empty libraries are skipped. Open projector screens refresh the library every 15 seconds. Images fit without cropping and keep transparency during browser conversion to PNG, up to 2000 pixels on the longest side.
+
+`/api/sponsors` permits public reads of listed sponsor images; upload/removal requires the organizer PIN and the shared same-origin/rate/size protections. The separate D1 `sponsor_images` table is created lazily, with immutable images at `sponsors/<UUID>.png` in the existing private `PAYMENT_PROOFS` bucket. Concurrent additions do not overwrite each other or tournament saves. Removal hides the database listing and public endpoint access but retains the object for recovery. Failed database inserts may leave an unlisted object; the public endpoint cannot read it. Receipts and payment QR keys/access remain separate. Sponsor metadata and objects need separate backup from tournament JSON; source rollback leaves them intact. The isolated design preview also supports in-memory sponsor uploads, which disappear when the preview server restarts.

@@ -19,6 +19,34 @@ const {normalizeProjectorSettings}=await import(pathToFileURL(path.join(dir,'set
 const require=createRequire(import.meta.url);
 await build({entryPoints:['app/components/projector-courts.tsx'],outfile:path.join(dir,'courts.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'portable-shared-react',setup(build){build.onResolve({filter:/^react(?:\/.*)?$/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
 const {ProjectorCourts}=await import(pathToFileURL(path.join(dir,'courts.mjs')));
+await build({entryPoints:['app/components/projector.tsx'],outfile:path.join(dir,'slideshow.mjs'),bundle:true,platform:'node',format:'esm',loader:{'.css':'empty'},plugins:[{name:'portable-shared-react',setup(build){build.onResolve({filter:/^react(?:\/.*)?$/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
+const {Projector}=await import(pathToFileURL(path.join(dir,'slideshow.mjs')));
+
+test('Sponsors uses one section per image, honors visibility and skips empty libraries',()=>{
+ const state=initialTournament();
+ state.projector=normalizeProjectorSettings({slides:['courts','live','upcoming','finished','standings'].map(id=>({id,enabled:false})).concat([{id:'sponsors',enabled:true,seconds:37}])});
+ const images=[{id:'one',name:'Community One',url:'/api/sponsors?image=one'},{id:'two',name:'Community Two',url:'/api/sponsors?image=two'}];
+ const html=renderToStaticMarkup(React.createElement(Projector,{state,sponsorImages:images}));
+ assert.equal((html.match(/class="projector-sponsor"/g)||[]).length,2);assert.match(html,/Community One/);assert.match(html,/Community Two/);
+ assert.ok(!html.includes('match PIN'));assert.ok(!html.includes('No entries yet.'));
+ const empty=renderToStaticMarkup(React.createElement(Projector,{state,sponsorImages:[]}));assert.ok(!empty.includes('Thank you to our sponsors'));
+ state.projector.slides.find(s=>s.id==='sponsors').enabled=false;
+ const hidden=renderToStaticMarkup(React.createElement(Projector,{state,sponsorImages:images}));assert.ok(!hidden.includes('Community One'));
+ const hydrated=hydrateTournament({...state,projector:{slides:state.projector.slides.filter(s=>s.id!=='sponsors')}});assert.equal(hydrated.projector.slides.find(s=>s.id==='sponsors').seconds,15);
+});
+
+test('projector results identify no-show winners without invented scores or private notes and held games leave upcoming slides',()=>{
+ const state=initialTournament(),division=state.divisions[0];state.status='live';
+ division.entries=[{id:'a',name:'Miguel / Paolo',players:['Miguel','Paolo']},{id:'b',name:'Luis / Nico',players:['Luis','Nico']}];
+ const base={id:'game',divisionId:division.id,entryAId:'a',entryBId:'b',stage:'regular',round:1,label:'Group Game 1',format:'single_31',pin:'7319',court:null,scheduledAt:null,status:'finished',validated:false,sets:[{a:0,b:0,complete:false}]};
+ state.matches=[{...base,forfeit:{winnerId:'b',reason:'no_show',recordedAt:new Date().toISOString()}}];
+ state.projector=normalizeProjectorSettings({autoAdvance:false,slides:[{id:'finished',enabled:true},...['courts','live','upcoming','standings'].map(id=>({id,enabled:false}))]});
+ const result=renderToStaticMarkup(React.createElement(Projector,{state}));
+ assert.match(result,/Forfeit.*Luis \/ Nico.*wins/);assert.match(result,/Awaiting validation/);assert.match(result,/No points awarded/);assert.ok(!result.includes('7319'));assert.ok(!result.includes('0 – 0'));
+ state.matches=[{...base,status:'ready',hold:{reason:'Private organizer note',heldAt:new Date().toISOString()}}];
+ state.projector=normalizeProjectorSettings({autoAdvance:false,slides:[{id:'upcoming',enabled:true},...['courts','live','finished','standings'].map(id=>({id,enabled:false}))]});
+ const held=renderToStaticMarkup(React.createElement(Projector,{state}));assert.ok(!held.includes('Private organizer note'));assert.ok(!held.includes('Miguel / Paolo'));assert.ok(!held.includes('Group Game 1'));
+});
 test('projector pages cover every row once for growing and shrinking lists and screen sizes',()=>{
  for(const count of [0,1,4,17,64,128])for(const available of [150,400,850]){
   const heights=Array.from({length:count},(_,i)=>i%3===0?90:48);
@@ -60,7 +88,7 @@ test('legacy states receive safe defaults and preferences normalize order, dupli
  const state=initialTournament();delete state.projector;
  const hydrated=hydrateTournament(state);assert.equal(hydrated.version,5);assert.equal(hydrated.projector.slides[0].id,'courts');assert.equal(hydrated.projector.slides[0].seconds,30);
  const preferences=normalizeProjectorSettings({slides:[{id:'standings',enabled:false,seconds:999},{id:'courts',enabled:true,seconds:0},{id:'courts',seconds:23},{id:'live',seconds:NaN},{id:'private',seconds:20}],showPlayers:false,autoAdvance:false,secret:'hidden'});
- assert.deepEqual(preferences.slides.map(s=>s.id),['standings','courts','live','upcoming','finished']);assert.equal(preferences.slides[0].seconds,300);assert.equal(preferences.slides[1].seconds,5);assert.equal(preferences.slides[2].seconds,20);
+ assert.deepEqual(preferences.slides.map(s=>s.id),['standings','courts','live','upcoming','finished','sponsors']);assert.equal(preferences.slides[0].seconds,300);assert.equal(preferences.slides[1].seconds,5);assert.equal(preferences.slides[2].seconds,20);
  assert.equal(preferences.autoAdvance,false);assert.equal(preferences.showPlayers,false);assert.equal(preferences.showScores,true);assert.equal(preferences.secret,undefined);
  assert.deepEqual(normalizeProjectorSettings(preferences),preferences);
 });

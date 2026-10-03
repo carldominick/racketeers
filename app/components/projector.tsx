@@ -1,7 +1,8 @@
 "use client";
+/* eslint-disable @next/next/no-img-element -- Sponsor images use the dedicated public image endpoint. */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { displayName, distributeEntriesToPools, standingsFor, subBracketName, type TournamentState } from "../../lib/tournament";
+import { displayName, matchScoreText, distributeEntriesToPools, standingsFor, subBracketName, type TournamentState } from "../../lib/tournament";
 import { paginateCourts, paginateRows, projectorCourts } from "../../lib/projector";
 import { normalizeProjectorSettings, type ProjectorSlideId } from "../../lib/projector-settings";
 import { ProjectorCourts } from "./projector-courts";
@@ -10,9 +11,13 @@ import { CornersIn } from "@phosphor-icons/react/dist/csr/CornersIn";
 import { NextGameNotice } from "./next-game-notice";
 import { projectorViewport } from "../../lib/projector-viewport";
 import "./projector-resolution.css";
+import { useSponsorImages } from "./sponsor-images";
+import type { SponsorImage } from "../../lib/sponsors";
 
-type Section = { id: string; kind: ProjectorSlideId; title: string; headers: string[]; rows: { id: string; cells: ReactNode[] }[] };
-export function Projector({ state, onFullscreenChange }: { state: TournamentState; onFullscreenChange?: (value: boolean) => void }) {
+type Section = { id: string; kind: ProjectorSlideId; title: string; image?: SponsorImage; headers: string[]; rows: { id: string; cells: ReactNode[] }[] };
+export function Projector({ state, onFullscreenChange, sponsorImages }: { state: TournamentState; onFullscreenChange?: (value: boolean) => void; sponsorImages?: SponsorImage[] }) {
+  const sponsorData = useSponsorImages(sponsorImages === undefined);
+  const sponsors = sponsorImages ?? sponsorData.library.images;
   const root = useRef<HTMLElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(600);
@@ -38,8 +43,8 @@ export function Projector({ state, onFullscreenChange }: { state: TournamentStat
     const result: Section[] = [{ id: "courts", kind: "courts", title: "Courts right now", headers: [], rows: courts.map(court => ({ id: String(court.court), cells: [] })) }];
     const entries = new Map(state.divisions.flatMap(d => d.entries.map(e => [e.id, e] as const)));
     for (const [id, title] of [["live", "Live matchups"], ["upcoming", "Upcoming matchups"], ["finished", "Results"]] as const) {
-      const matches = state.matches.filter(m => id === "live" ? m.status === "live" : id === "finished" ? m.status === "finished" || m.validated : m.status !== "live" && m.status !== "finished" && !m.validated);
-      if (matches.length) result.push({ id, kind: id, title, headers: ["Game / court", "Matchup", "Score"], rows: matches.map(m => ({ id: m.id, cells: [<><strong>{m.label}</strong><small>{state.divisions.find(d => d.id === m.divisionId)?.name} · {m.court ? `Court ${m.court}` : "Court TBD"}</small></>, <><strong>{displayName(entries.get(m.entryAId || ""))}</strong><small>vs</small><strong>{displayName(entries.get(m.entryBId || ""))}</strong></>, m.sets.map(s => `${s.a} – ${s.b}`).join(" / ") || "–"] })) });
+      const matches = state.matches.filter(m => !m.hold && (id === "live" ? m.status === "live" : id === "finished" ? m.status === "finished" || m.validated : m.status !== "live" && m.status !== "finished" && !m.validated));
+      if (matches.length) result.push({ id, kind: id, title, headers: ["Game / court", "Matchup", "Score"], rows: matches.map(m => ({ id: m.id, cells: [<><strong>{m.label}</strong><small>{state.divisions.find(d => d.id === m.divisionId)?.name} · {m.court ? `Court ${m.court}` : "Court TBD"}</small></>, <><strong>{displayName(entries.get(m.entryAId || ""))}</strong><small>vs</small><strong>{displayName(entries.get(m.entryBId || ""))}</strong></>, m.forfeit ? <><strong>Forfeit · {displayName(entries.get(m.forfeit.winnerId))} wins</strong><small>{m.validated ? "Validated" : "Awaiting validation"}</small><small>{matchScoreText(m)}</small></> : matchScoreText(m)] })) });
     }
     for (const division of state.divisions) {
       const pools = distributeEntriesToPools(division);
@@ -48,8 +53,9 @@ export function Projector({ state, onFullscreenChange }: { state: TournamentStat
         result.push({ id: `${division.id}:${pool}`, kind: "standings", title: `${division.name}${pools.length > 1 ? ` · ${subBracketName(pool)}` : ""} — Standings`, headers: ["#", "Entry", "P", "W", "L", "PF", "PA", "Diff"], rows: rows.map((r, i) => ({ id: r.entryId, cells: [i + 1, <strong key="name">{r.name}</strong>, r.played, r.wins, r.losses, r.pointsFor, r.pointsAgainst, r.difference > 0 ? `+${r.difference}` : r.difference] })) });
       }
     }
+    for (const image of sponsors) result.push({ id: `sponsor:${image.id}`, kind: "sponsors", title: "Thank you to our sponsors", image, headers: [], rows: [] });
     return settings.slides.filter(slide => slide.enabled).flatMap(slide => result.filter(section => section.kind === slide.id));
-  }, [state, courts, settings.slides]);
+  }, [state, courts, settings.slides, sponsors]);
   useLayoutEffect(() => {
     const el = root.current;
     if (!el) return;
@@ -89,6 +95,7 @@ export function Projector({ state, onFullscreenChange }: { state: TournamentStat
         const sample = el.querySelectorAll<HTMLElement>(".projector-measure-section")[section];
         if (!sample) return [];
         const header = measuredHeight(sample.querySelector("header"));
+        if (content.kind === "sponsors") return [{ section, start: 0, end: 0, scale: Math.min(1, bodyHeight / Math.max(1, measuredHeight(sample))) }];
         if (content.kind === "courts") {
           const grid = sample.querySelector<HTMLElement>(".projector-court-grid");
           if (!grid) return [{ section, start: 0, end: 0, scale: 1 }];
@@ -124,7 +131,7 @@ export function Projector({ state, onFullscreenChange }: { state: TournamentStat
     return () => clearTimeout(timer);
   }, [slide, pageKey, seconds, settings.autoAdvance, Boolean(section)]); // eslint-disable-line react-hooks/exhaustive-deps
   const table = (s: Section, start = 0, end = s.rows.length) => <table className={s.headers.length === 3 ? "projector-match-table" : "projector-standings-table"}><thead><tr>{s.headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{s.rows.slice(start, end).map(row => <tr key={row.id}>{row.cells.map((cell, i) => <td key={i}>{cell}</td>)}</tr>)}</tbody></table>;
-  const content = (s: Section, start = 0, end = s.rows.length) => s.kind === "courts" ? <ProjectorCourts courts={courts.slice(start, end)} allCourts={allCourts} settings={settings} tournamentName={state.tournamentName} /> : <><header><p>{state.tournamentName}</p><h2>{s.title}</h2></header>{s.rows.length ? table(s, start, end) : <p className="projector-empty">No entries yet.</p>}</>;
+  const content = (s: Section, start = 0, end = s.rows.length) => s.kind === "courts" ? <ProjectorCourts courts={courts.slice(start, end)} allCourts={allCourts} settings={settings} tournamentName={state.tournamentName} /> : <><header><p>{state.tournamentName}</p><h2>{s.title}</h2></header>{s.image ? <figure className="projector-sponsor"><img src={s.image.url} alt={s.image.name} style={{ height: Math.max(80, viewport.height - 300) }} /><figcaption>{s.image.name}</figcaption></figure> : s.rows.length ? table(s, start, end) : <p className="projector-empty">No entries yet.</p>}</>;
   return <section ref={root} className={`auto-projector ${fullscreen ? "projection-mode" : ""}`} style={{ height }} aria-label="Automatic tournament slideshow">
     <div ref={stage} className={`projector-stage ${viewport.scaled ? "projector-scaled" : ""}`} style={{ width: viewport.width, height: viewport.height, transform: `scale(${viewport.scale})` }}>
     <div className="projector-controls"><button type="button" className="ghost" aria-pressed={fullscreen} onClick={() => void toggleFullscreen()}>{fullscreen ? <CornersIn size={20} aria-hidden="true" /> : <CornersOut size={20} aria-hidden="true" />}{fullscreen ? "Exit fullscreen" : "Enter fullscreen"}</button>{fullscreen && <small>Press Escape to exit</small>}</div>

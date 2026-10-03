@@ -10,8 +10,9 @@ await build({entryPoints:['app/api/state/route.ts'],outfile:path.join(dir,'api.m
 await build({entryPoints:['lib/tournament.ts'],outfile:path.join(dir,'logic.mjs'),bundle:true,platform:'node',format:'esm'});
 const logic=await import(pathToFileURL(path.join(dir,'logic.mjs')));
 let saved;
+let rejectNextWrite=false;
 const hash=async pin=>Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pin))).toString('hex');
-globalThis.__rackTestEnv={DB:{prepare(sql){return {run:async()=>({}),bind(...values){return {first:async()=>saved,run:async()=>{if(sql.startsWith('UPDATE')){if(values[4]!==saved.revision)return {meta:{changes:0}};saved={revision:values[0],payload:values[1],updated_at:values[2]};}return {meta:{changes:1}};}};}};}}};
+globalThis.__rackTestEnv={DB:{prepare(sql){return {run:async()=>({}),bind(...values){return {first:async()=>saved,run:async()=>{if(sql.startsWith('UPDATE')){if(rejectNextWrite){rejectNextWrite=false;return {meta:{changes:0}};}if(values[4]!==saved.revision)return {meta:{changes:0}};saved={revision:values[0],payload:values[1],updated_at:values[2]};}return {meta:{changes:1}};}};}};}}};
 const api=await import(pathToFileURL(path.join(dir,'api.mjs')));
 async function reset(){const state=logic.initialTournament();Object.assign(state,{status:'registration',organizerPinHash:await hash('12345678')});saved={revision:1,payload:JSON.stringify(state),updated_at:new Date().toISOString()};return state;}
 const request=(body,headers={},method='POST')=>new Request('https://test/api/state',{method,headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
@@ -302,6 +303,67 @@ async function gameDayApiFixture(){
  const base=state.matches.find(m=>m.stage==='regular');state.matches=[0,1,2].map(i=>({...base,id:`desk-${i}`,entryAId:d.entries[i*2].id,entryBId:d.entries[i*2+1].id,court:null,pin:`100${i}`,status:'ready',sets:[{a:0,b:0,complete:false}],scoring:{mode:'first_to_target',target:31,cap:31}}));
  state.gameDay={evenRotation:true,restMinutes:0,nearCapEnabled:true,nearCapPoints:5};saved.payload=JSON.stringify(state);return state;
 }
+
+test('holds and forfeits are organizer-only, revision guarded and hide organizer notes publicly',async()=>{
+ const state=await gameDayApiFixture(),match=state.matches[0],body={action:'holdGame',matchId:match.id,reason:'Private organizer note',expectedRevision:1};
+ for(const action of ['holdGame','resumeGame','forfeitGame','clearForfeit']){
+  assert.equal((await post({...body,action})).status,401);assert.equal((await post({...body,action},{'x-umpire-pin':'87654321'})).status,401);
+ }
+ assert.equal((await post({...body,expectedRevision:0},org)).status,409);assert.equal((await post(body,org)).status,200);
+ const held=JSON.parse(saved.payload);assert.equal(held.matches[0].hold.reason,'Private organizer note');assert.equal(saved.revision,2);
+ const safe=(await (await api.GET(new Request('https://test/api/state'))).json()).state;assert.equal(safe.matches[0].hold.reason,'');assert.equal(safe.matches[0].pin,'');assert.deepEqual(safe.registrations,[]);
+ assert.equal((await post({action:'dispatchGame',matchId:match.id,court:1,expectedRevision:2},org)).status,409);
+ assert.equal((await post({action:'resumeGame',matchId:match.id,expectedRevision:1},org)).status,409);assert.equal(saved.revision,2);
+ assert.equal((await post({action:'resumeGame',matchId:match.id,expectedRevision:2},org)).status,200);
+ assert.equal((await post({action:'forfeitGame',matchId:match.id,forfeitingEntryId:'unknown',expectedRevision:3},org)).status,409);assert.equal(saved.revision,3);
+ assert.equal((await post({action:'forfeitGame',matchId:match.id,forfeitingEntryId:match.entryAId,expectedRevision:3},org)).status,200);
+ const result=JSON.parse(saved.payload);assert.equal(logic.matchWinner(result.matches[0]),match.entryBId);assert.deepEqual(result.matches[0].sets,match.sets);assert.deepEqual(result.registrations,state.registrations);
+});
+
+test('an open or stale umpire cannot score a held or forfeited game and organizer score saves are locked too',async()=>{
+ const state=await gameDayApiFixture(),match=state.matches[0],ump={'x-umpire-pin':'87654321'};
+ const patch=()=>api.PATCH(request({matchId:match.id,pin:match.pin,sets:[{a:1,b:0,complete:false}]},ump,'PATCH'));
+ for(const action of ['holdGame','forfeitGame']){
+  if(action==='forfeitGame') assert.equal((await post({action:'resumeGame',matchId:match.id,expectedRevision:saved.revision},org)).status,200);
+  assert.equal((await post({action,matchId:match.id,forfeitingEntryId:match.entryAId,expectedRevision:saved.revision},org)).status,200);
+  const before=JSON.parse(saved.payload),revision=saved.revision;
+  assert.equal((await post({action:'verifyMatch',pin:match.pin},ump)).status,409);assert.equal((await patch()).status,409);
+  const forged={...before,matches:before.matches.map(m=>m.id===match.id?{...m,sets:[{a:2,b:0,complete:false}]}:m)};
+  assert.equal((await api.PUT(request({state:forged,expectedRevision:revision},org,'PUT'))).status,409);assert.equal(saved.revision,revision);
+ }
+ const before=JSON.parse(saved.payload);const validated=logic.validateTournamentMatch(before,match.id);
+ assert.equal((await api.PUT(request({state:validated,expectedRevision:saved.revision},org,'PUT'))).status,200);
+ assert.equal((await post({action:'clearForfeit',matchId:match.id,expectedRevision:saved.revision},org)).status,409);
+ const unvalidated=logic.unvalidateTournamentMatch(JSON.parse(saved.payload),match.id);
+ assert.equal((await api.PUT(request({state:unvalidated,expectedRevision:saved.revision},org,'PUT'))).status,200);
+ assert.equal((await post({action:'clearForfeit',matchId:match.id,expectedRevision:saved.revision},org)).status,200);
+ assert.equal((await patch()).status,200);
+});
+
+test('concurrent court dispatch and hold cannot both succeed and stale actions preserve newer scores',async()=>{
+ const state=await gameDayApiFixture(),match=state.matches[0];
+ const replies=await Promise.all(['holdGame','dispatchGame'].map(action=>post({action,matchId:match.id,court:1,expectedRevision:1},org)));
+ assert.deepEqual(replies.map(r=>r.status).sort(),[200,409]);assert.equal(saved.revision,2);
+ const after=JSON.parse(saved.payload);assert.equal(Boolean(after.matches[0].hold),!Boolean(after.matches[0].dispatchedAt));
+ await gameDayApiFixture();const score=await api.PATCH(request({matchId:match.id,pin:match.pin,sets:[{a:3,b:2,complete:false}]},org,'PATCH'));assert.equal(score.status,200);
+ assert.equal((await post({action:'forfeitGame',matchId:match.id,forfeitingEntryId:match.entryAId,expectedRevision:1},org)).status,409);
+ assert.equal(JSON.parse(saved.payload).matches[0].sets[0].a,3);assert.equal(JSON.parse(saved.payload).matches[0].forfeit,undefined);
+ assert.equal((await post({action:'holdGame',matchId:match.id,expectedRevision:2},org)).status,409);
+});
+
+test('simultaneous no-show and umpire saves use compare-and-swap and failed actions can be retried',async()=>{
+ let state=await gameDayApiFixture();const match=state.matches[0];
+ const result=await Promise.all([
+  post({action:'forfeitGame',matchId:match.id,forfeitingEntryId:match.entryAId,expectedRevision:1},org),
+  api.PATCH(request({matchId:match.id,pin:match.pin,sets:[{a:1,b:0,complete:false}]},{'x-umpire-pin':'87654321'},'PATCH'))
+ ]);
+ assert.deepEqual(result.map(r=>r.status).sort(),[200,409]);assert.equal(saved.revision,2);
+ const current=JSON.parse(saved.payload).matches[0];assert.equal(current.sets[0].a,current.forfeit?0:1);
+ state=await gameDayApiFixture();const before=saved.payload;
+ const body={action:'holdGame',matchId:state.matches[0].id,reason:'Waiting for partner',expectedRevision:1};rejectNextWrite=true;
+ assert.equal((await post(body,org)).status,409);assert.equal(saved.payload,before);assert.equal(saved.revision,1);
+ assert.equal((await post(body,org)).status,200);assert.equal(JSON.parse(saved.payload).matches[0].hold.reason,body.reason);
+});
 test('game-day dispatch is organizer-only and atomically reserves courts without changing scores or PINs',async()=>{
  const state=await gameDayApiFixture();const body={action:'dispatchGame',matchId:state.matches[0].id,court:1,expectedRevision:1};
  assert.equal((await post(body)).status,401);assert.equal((await post(body,{'x-umpire-pin':'87654321'})).status,401);
