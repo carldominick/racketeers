@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { displayName, type Match, type TournamentState } from "../../lib/tournament";
+import { displayName, forfeitWinningPoints, type Match, type TournamentState } from "../../lib/tournament";
 import { bracketLabel, gameNumber, type GameDayAction } from "../../lib/game-day";
 
 export type DeskAction = "holdGame" | "forfeitGame" | "clearForfeit";
@@ -49,10 +49,10 @@ export function GameDayActionDialog({ state, match, action, busy, onAction, onCl
   return <div className="modal-backdrop desk-editor-backdrop"><section ref={panel} tabIndex={-1} className="desk-action-dialog" role="dialog" aria-modal="true" aria-labelledby="desk-action-title" aria-describedby="desk-action-summary">
     <h2 id="desk-action-title">{title}</h2>
     <p id="desk-action-summary"><strong>Game {gameNumber(state, match)} · {bracketLabel(state, match)}</strong><br />{name(match.entryAId)} vs {name(match.entryBId)}</p>
-    {action === "holdGame" ? <><p>This game will leave the ready queue and release its reserved court. Return it to the queue when the players are ready.</p><label>Organizer note (optional)<textarea value={reason} maxLength={160} rows={3} disabled={waiting} onChange={event => setReason(event.target.value)} /><small>Visible to organizers only.</small></label></> : action === "clearForfeit" ? <p>The forfeiture will be removed. Recorded points will be kept. Assign an available court before resuming play.</p> : <>
+    {action === "holdGame" ? <><p>This game will leave the ready queue and release its reserved court. Return it to the queue when the players are ready.</p><label>Organizer note (optional)<textarea value={reason} maxLength={160} rows={3} disabled={waiting} onChange={event => setReason(event.target.value)} /><small>Visible to organizers only.</small></label></> : action === "clearForfeit" ? <p>The awarded result will be removed. Recorded play scores will be restored. Assign an available court before resuming play.</p> : <>
       <fieldset disabled={waiting}><legend>Which entry did not show up?</legend>{[match.entryAId, match.entryBId].map((id, index) => <label className="desk-forfeit-choice" key={index}><input type="radio" name="forfeiting-entry" value={id ?? ""} checked={forfeitingEntryId === id} onChange={() => setForfeitingEntryId(id ?? "")} /><span>{name(id)}</span></label>)}</fieldset>
-      {validChoice && <p className="desk-forfeit-outcome"><strong>{name(winnerId)}</strong> will win by forfeiture.</p>}
-      <p>This applies to the whole entry, including both players in doubles. Actual points are kept; no points are added. The result requires organizer validation before it counts in standings or advances players.</p>
+      {validChoice && <p className="desk-forfeit-outcome"><strong>{name(winnerId)}</strong> will win by forfeiture: {Array.from({ length: match.format === "best_of_3_21" ? 2 : 1 }, () => `${forfeitWinningPoints(match)}–0`).join(" / ")}.</p>}
+      <p>This applies to the whole entry, including both players in doubles. The absent entry receives 0; the opponent receives the configured winning score for each awarded set. Best-of-three awards two winning sets. The result requires organizer validation before it counts in standings or advances players.</p>
     </>}
     {error && <p role="alert" className="desk-dialog-error">{error}</p>}
     <div className="desk-dialog-actions"><button type="button" className="secondary" disabled={waiting} onClick={onClose}>Cancel</button><button type="button" className={action === "forfeitGame" ? "desk-danger" : "primary"} disabled={waiting || action === "forfeitGame" && !validChoice} onClick={() => void submit()}>{submitting ? "Saving…" : action === "holdGame" ? "Place on hold" : action === "clearForfeit" ? "Clear forfeiture" : "Confirm forfeiture"}</button></div>

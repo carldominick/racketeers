@@ -304,6 +304,36 @@ async function gameDayApiFixture(){
  state.gameDay={evenRotation:true,restMinutes:0,nearCapEnabled:true,nearCapPoints:5};saved.payload=JSON.stringify(state);return state;
 }
 
+test('pure-black theme persists with organizer authorization and revisions while Live setup is locked',async()=>{
+ const state=await gameDayApiFixture(),before=structuredClone(state),next={...state,theme:'black'};
+ const put=(value,headers=org,revision=saved.revision)=>api.PUT(request({state:value,expectedRevision:revision},headers,'PUT'));
+ assert.equal((await put(next,{})).status,401);assert.equal((await put(next,{'x-umpire-pin':'87654321'})).status,401);
+ assert.equal((await put(next,org,0)).status,409);assert.equal(saved.revision,1);
+ assert.equal((await put(next)).status,200);const persisted=JSON.parse(saved.payload);assert.equal(persisted.theme,'black');
+ assert.deepEqual(persisted.matches,before.matches);assert.deepEqual(persisted.registrations,before.registrations);
+ const publicState=(await (await api.GET(new Request('https://test/api/state'))).json()).state;
+ assert.equal(publicState.theme,'black');assert.equal(publicState.organizerPinHash,undefined);assert.equal(publicState.matches[0].pin,'');
+ for(const theme of ['light','dark','black'])assert.equal(logic.hydrateTournament({...state,theme}).theme,theme);
+ for(const theme of [undefined,null,'invalid'])assert.equal(logic.hydrateTournament({...state,theme}).theme,'light');
+});
+
+test('server captures a stage-specific best-of-three forfeit award and rejects direct award tampering',async()=>{
+ let state=await gameDayApiFixture();state.divisions[0].stageScoring={regular:{mode:'first_to_target',target:15,cap:15}};
+ state.matches[0].format='best_of_3_21';state.matches[0].sets=[{a:8,b:12,complete:false}];saved.payload=JSON.stringify(state);
+ const match=state.matches[0];
+ const response=await post({action:'forfeitGame',matchId:match.id,forfeitingEntryId:match.entryBId,points:99,expectedRevision:1},org);
+ assert.equal(response.status,200);state=JSON.parse(saved.payload);assert.equal(state.matches[0].forfeit.points,15);
+ assert.deepEqual(state.matches[0].sets,match.sets);assert.deepEqual(logic.matchResultSets(state.matches[0]),[{a:15,b:0,complete:true},{a:15,b:0,complete:true}]);
+ const forged=structuredClone(state);forged.matches[0].forfeit.points=99;
+ assert.equal((await api.PUT(request({state:forged,expectedRevision:2},org,'PUT'))).status,409);assert.equal(saved.revision,2);
+ assert.equal(logic.standingsFor(state,match.divisionId).find(r=>r.entryId===match.entryAId).pointsFor,0);
+ const validated=logic.validateTournamentMatch(state,match.id);
+ assert.equal((await api.PUT(request({state:validated,expectedRevision:2},org,'PUT'))).status,200);
+ assert.equal(logic.standingsFor(JSON.parse(saved.payload),match.divisionId).find(r=>r.entryId===match.entryAId).pointsFor,30);
+ const safe=(await (await api.GET(new Request('https://test/api/state'))).json()).state;
+ assert.equal(logic.matchScoreText(safe.matches[0]),'Forfeit · 15 – 0 / 15 – 0');assert.equal(safe.matches[0].pin,'');
+});
+
 test('holds and forfeits are organizer-only, revision guarded and hide organizer notes publicly',async()=>{
  const state=await gameDayApiFixture(),match=state.matches[0],body={action:'holdGame',matchId:match.id,reason:'Private organizer note',expectedRevision:1};
  for(const action of ['holdGame','resumeGame','forfeitGame','clearForfeit']){

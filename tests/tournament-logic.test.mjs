@@ -527,7 +527,7 @@ test("forfeits preserve pool qualification across group and championship formats
   let state=logic.regenerateMatches({...logic.initialTournament(),divisions:[division]});
   state={...state,matches:state.matches.map(m=>m.stage==='regular'?{...m,status:'finished',validated:true,forfeit:{winnerId:m.entryAId,reason:'no_show',recordedAt:new Date().toISOString()}}:m)};
   state=logic.reseedChampionships(state);const rank=logic.championshipRanking(state,division);
-  assert.equal(rank.length,4);assert.ok(logic.standingsFor(state,division.id).every(row=>row.pointsFor===0));
+  assert.equal(rank.length,4);assert.equal(logic.standingsFor(state,division.id).reduce((sum,row)=>sum+row.pointsFor,0),state.matches.filter(m=>m.stage==='regular').reduce((sum,m)=>sum+logic.forfeitWinningPoints(m),0));
   const firstRound=Math.min(...state.matches.filter(m=>m.stage!=='regular'&&m.stage!=='bronze').map(m=>m.round));const first=state.matches.filter(m=>m.stage!=='regular'&&m.stage!=='bronze'&&m.round===firstRound);assert.ok(first.length);
   assert.ok(first.every(m=>rank.includes(m.entryAId)&&rank.includes(m.entryBId)));
  }

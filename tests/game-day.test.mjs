@@ -134,20 +134,53 @@ test('no-show forfeits release courts, retain actual points and count only after
  assert.equal(logic.standingsFor(state,'A').find(r=>r.entryId==='A1').wins,0);
  assert.equal(logic.adjustMatchScore(match,0,'a',1),match);assert.equal(logic.uncompleteMatchSet(match,0),match);
  const validated=logic.validateTournamentMatch(state,match.id);const rows=logic.standingsFor(validated,'A');
- assert.equal(rows.find(r=>r.entryId==='A1').wins,1);assert.equal(rows.find(r=>r.entryId==='A0').losses,1);assert.equal(rows.find(r=>r.entryId==='A1').pointsFor,7);assert.equal(rows.find(r=>r.entryId==='A0').pointsFor,12);
+ assert.equal(rows.find(r=>r.entryId==='A1').wins,1);assert.equal(rows.find(r=>r.entryId==='A0').losses,1);assert.equal(rows.find(r=>r.entryId==='A1').pointsFor,31);assert.equal(rows.find(r=>r.entryId==='A0').pointsFor,0);assert.equal(rows.find(r=>r.entryId==='A1').difference,31);assert.equal(rows.find(r=>r.entryId==='A0').pointsAgainst,31);
  assert.ok(desk.gameDayAction(validated,'clearForfeit',match.id).error);
  state=logic.unvalidateTournamentMatch(validated,match.id);assert.equal(state.matches[0].status,'finished');
  state=desk.gameDayAction(state,'clearForfeit',match.id).state;assert.equal(state.matches[0].status,'live');assert.equal(state.matches[0].court,null);assert.deepEqual(state.matches[0].sets,scores);assert.equal(logic.matchWinner(state.matches[0]),null);
 });
 
-test('unplayed no-shows add no points or rest and require a confirmed forfeiting entry',()=>{
+test('unplayed no-shows award winning points without adding rest and require a confirmed forfeiting entry',()=>{
  let state=fixture();assert.ok(desk.gameDayAction(state,'forfeitGame','A-m0',{forfeitingEntryId:'unknown'}).error);
  state.matches[1].entryAId='A1';state=desk.gameDayAction(state,'forfeitGame','A-m0',{forfeitingEntryId:'A0'}).state;
  assert.equal(desk.gameEligibility(state,state.matches[1]).ready,true);
  const hydrated=logic.hydrateTournament(state);assert.deepEqual(hydrated.matches[0].forfeit,state.matches[0].forfeit);
- state=logic.validateTournamentMatch(state,'A-m0');const rows=logic.standingsFor(state,'A');assert.equal(rows.find(r=>r.entryId==='A1').wins,1);assert.ok(rows.every(r=>r.pointsFor===0&&r.pointsAgainst===0));
- assert.match(logic.matchScoreText(state.matches[0]),/Forfeit.*No points awarded/);
+ state=logic.validateTournamentMatch(state,'A-m0');const rows=logic.standingsFor(state,'A');assert.equal(rows.find(r=>r.entryId==='A1').wins,1);assert.equal(rows.find(r=>r.entryId==='A1').pointsFor,31);assert.equal(rows.find(r=>r.entryId==='A0').pointsFor,0);
+ assert.match(logic.matchScoreText(state.matches[0]),/Forfeit.*0 – 31/);
  const unresolved=fixture();unresolved.matches[0].entryBId=null;assert.ok(desk.gameDayAction(unresolved,'forfeitGame','A-m0',{forfeitingEntryId:'A0'}).error);
+});
+
+test('forfeits award the configured score and two straight sets for best-of-three, in either direction',()=>{
+ for(const [format,scoring,points,count] of [
+  ['single_31',undefined,31,1],['single_21',undefined,21,1],['best_of_3_21',undefined,21,2],
+  ['single_31',{mode:'first_to_target',target:15,cap:15},15,1],
+  ['best_of_3_21',{mode:'capped_win_by_two',target:25,cap:30},25,2],
+  ['single_21',{mode:'capped_win_by_two',target:1,cap:3},2,1],
+ ]) for(const absent of ['A0','A1']){
+  let state=fixture();Object.assign(state.matches[0],{format,scoring,sets:[{a:9,b:4,complete:false}]});
+  state=desk.gameDayAction(state,'forfeitGame','A-m0',{forfeitingEntryId:absent}).state;
+  const match=state.matches[0],winner=absent==='A0'?'A1':'A0';
+  assert.equal(match.forfeit.points,points);assert.equal(logic.matchWinner(match),winner);
+  const expected=Array.from({length:count},()=>({a:absent==='A0'?0:points,b:absent==='A1'?0:points,complete:true}));
+  assert.deepEqual(logic.matchResultSets(match),expected);assert.ok(expected.every(set=>logic.isSetWon(set,match.stage,format,scoring)));
+  assert.equal(logic.matchScoreText(match),`Forfeit · ${expected.map(s=>`${s.a} – ${s.b}`).join(' / ')}`);
+  const rows=logic.standingsFor(logic.validateTournamentMatch(state,match.id),'A');
+  assert.equal(rows.find(r=>r.entryId===winner).pointsFor,points*count);assert.equal(rows.find(r=>r.entryId===absent).pointsFor,0);
+  assert.deepEqual(match.sets,[{a:9,b:4,complete:false}]);
+ }
+});
+
+test('captured awards survive hydration and rule edits; legacy forfeits derive awards without overwriting play',()=>{
+ let state=fixture();state.divisions[0].stageScoring={regular:{mode:'first_to_target',target:17,cap:17}};
+ state=logic.hydrateTournament(state);state=desk.gameDayAction(state,'forfeitGame','A-m0',{forfeitingEntryId:'A1'}).state;
+ assert.equal(state.matches[0].forfeit.points,17);
+ state.divisions[0].stageScoring.regular={mode:'first_to_target',target:19,cap:19};state=logic.hydrateTournament(state);
+ assert.equal(logic.matchResultSets(state.matches[0])[0].a,17);
+ const legacy={...state.matches[0],forfeit:{winnerId:'A0',reason:'no_show',recordedAt:new Date().toISOString()},sets:[{a:5,b:8,complete:false}]};
+ assert.deepEqual(logic.matchResultSets(legacy),[{a:19,b:0,complete:true}]);assert.deepEqual(legacy.sets,[{a:5,b:8,complete:false}]);
+ assert.deepEqual(logic.matchResultSets({...legacy,forfeit:{...legacy.forfeit,winnerId:'unknown'}}),legacy.sets);
+ const cleared=desk.gameDayAction({...state,matches:[legacy]},'clearForfeit',legacy.id).state.matches[0];
+ assert.deepEqual(logic.matchResultSets(cleared),legacy.sets);assert.equal(cleared.forfeit,undefined);
 });
 
 test('forfeiting a live game emits a single durable court release event',()=>{

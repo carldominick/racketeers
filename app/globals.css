@@ -899,5 +899,30 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
 .sponsor-pending button {justify-self:start}
 .projector-sponsor {margin:0;text-align:center;border-top:4px solid var(--lime);padding-top:16px}
 .projector-sponsor img {display:block;width:100%;object-fit:contain;border-radius:8px;background:#fff}
+
+/* Pure-black display mode keeps large OLED surfaces unlit; print remains white. */
+@media screen {
+ .clubhouse-site .theme {display:flex;align-items:center;justify-content:center;gap:8px;width:auto;height:auto;min-height:44px;padding:8px 12px;font-size:14px;font-weight:750;white-space:nowrap}
+ .clubhouse-site.registration-view .header-tools {display:flex}
+ .clubhouse-site.registration-view .header-tools .sync {display:none}
+ .clubhouse-site.dark.oled {--paper:#000;--card:#000;--navy:#000;--ink:#f4f7fa;--muted:#b8c5cf;--line:#56616b;--shadow:none;background:#000;min-height:100vh}
+ html:has(.clubhouse-site.oled),body:has(.clubhouse-site.oled) {background:#000;color-scheme:dark}
+ .clubhouse-site.dark.oled :is(.topbar,.theme,.view-switch,.desk-primary-nav,.clubhouse-sidebar,.portal-hero,.scoreboard-hero,.umpire-console-header,.umpire-shell>.section-head,.projector-court,.projector-court-heading,.auto-projector th,.pin-ribbon,.registration-number,.bracket-column>h3,.sub-bracket-rosters p b,.secondary,.sticky-actions,.desk-rotation-list>div.next,.court-needs-help) {background:#000;color:var(--ink)}
+ .clubhouse-site.dark.oled :is(.topbar,.view-switch,.desk-primary-nav,.clubhouse-sidebar,.portal-hero,.scoreboard-hero,.umpire-console-header,.projector-court-heading,.secondary,.theme) {border:1px solid var(--line)}
+ .clubhouse-site.dark.oled .view-switch button {color:var(--muted)}
+ .clubhouse-site.dark.oled .view-switch button.active {background:var(--lime);color:#14212d}
+ .clubhouse-site.dark.oled :is(.next-game-notice,.phase-lock-note,.unlock-set,.registration-save-warning,.umpire-sync.offline) {background:#000;color:#ffe2a1;border:1px solid #957741}
+ .clubhouse-site.dark.oled :is(.registration-id-display,.shirt-guide-dialog,.shirt-guide-preview,.shirt-guide-image,.umpire-minus,.sponsor-library-grid img,.projector-sponsor img) {background:#000;color:var(--ink)}
+ .clubhouse-site.dark.oled .clubhouse-sidebar::before {display:none}
+ .clubhouse-site.dark.oled .clubhouse-sidebar :is(p,small) {color:var(--muted)}
+ .clubhouse-site.dark.oled .umpire-console-court .court-help-button {background:#000;color:#ffe2a1}
+ .clubhouse-site.dark.oled .registration-id-display span {color:var(--muted)}
+ .clubhouse-site.dark.oled .clubhouse-add {color:var(--lime)}
+ @media(max-width:600px) {
+  .desk-organizer .topbar {grid-template-columns:minmax(0,1fr) auto}
+  .desk-organizer .header-tools {grid-row:1;grid-column:2}
+  .desk-organizer .desk-public-views {grid-row:3;grid-column:1/-1;justify-self:start}
+ }
+}
 .projector-sponsor figcaption {color:var(--ink);font-size:24px;font-weight:750;line-height:1.3;padding-top:12px;overflow-wrap:anywhere}
 @media(max-width:650px) {.projector-sponsor figcaption {font-size:18px}.sponsor-pending button {width:100%}}

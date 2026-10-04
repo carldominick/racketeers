@@ -7,7 +7,6 @@ import { paginateCourts, paginateRows, projectorCourts } from "../../lib/project
 import { normalizeProjectorSettings, type ProjectorSlideId } from "../../lib/projector-settings";
 import { ProjectorCourts } from "./projector-courts";
 import { CornersOut } from "@phosphor-icons/react/dist/csr/CornersOut";
-import { CornersIn } from "@phosphor-icons/react/dist/csr/CornersIn";
 import { NextGameNotice } from "./next-game-notice";
 import { projectorViewport } from "../../lib/projector-viewport";
 import "./projector-resolution.css";
@@ -20,6 +19,8 @@ export function Projector({ state, onFullscreenChange, sponsorImages }: { state:
   const sponsors = sponsorImages ?? sponsorData.library.images;
   const root = useRef<HTMLElement>(null);
   const stage = useRef<HTMLDivElement>(null);
+  const fullscreenButton = useRef<HTMLButtonElement>(null);
+  const wasFullscreen = useRef(false);
   const [height, setHeight] = useState(600);
   const [viewport, setViewport] = useState(() => projectorViewport(1920, 600));
   const [pages, setPages] = useState<{ section: number; start: number; end: number; scale: number }[]>([]);
@@ -28,11 +29,15 @@ export function Projector({ state, onFullscreenChange, sponsorImages }: { state:
   const settings = useMemo(() => normalizeProjectorSettings(state.projector), [state.projector]);
   const allCourts = useMemo(() => projectorCourts(state), [state]);
   const courts = useMemo(() => allCourts.filter(court => settings.showAvailableCourts || court.status !== "available"), [allCourts, settings.showAvailableCourts]);
-  const toggleFullscreen = async () => {
-    if (fullscreen) { if (document.fullscreenElement === root.current) await document.exitFullscreen(); setFullscreen(false); onFullscreenChange?.(false); return; }
+  const enterFullscreen = async () => {
     setFullscreen(true); onFullscreenChange?.(true);
     try { await root.current?.requestFullscreen(); } catch { /* Keep a navigation-free projection mode when native fullscreen is unavailable. */ }
   };
+  useEffect(() => {
+    if (fullscreen) root.current?.focus({ preventScroll: true });
+    else if (wasFullscreen.current) fullscreenButton.current?.focus({ preventScroll: true });
+    wasFullscreen.current = fullscreen;
+  }, [fullscreen]);
   useEffect(() => {
     const changed = () => { const active = document.fullscreenElement === root.current; setFullscreen(active); onFullscreenChange?.(active); };
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !document.fullscreenElement) { setFullscreen(false); onFullscreenChange?.(false); } };
@@ -119,7 +124,7 @@ export function Projector({ state, onFullscreenChange, sponsorImages }: { state:
     observer.observe(el);
     document.fonts.ready.then(measure);
     return () => { active = false; observer.disconnect(); };
-  }, [sections, viewport]);
+  }, [sections, viewport, fullscreen]);
   const index = slide % Math.max(1, pages.length);
   const page = pages[index];
   const section = page && sections[page.section];
@@ -132,9 +137,9 @@ export function Projector({ state, onFullscreenChange, sponsorImages }: { state:
   }, [slide, pageKey, seconds, settings.autoAdvance, Boolean(section)]); // eslint-disable-line react-hooks/exhaustive-deps
   const table = (s: Section, start = 0, end = s.rows.length) => <table className={s.headers.length === 3 ? "projector-match-table" : "projector-standings-table"}><thead><tr>{s.headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{s.rows.slice(start, end).map(row => <tr key={row.id}>{row.cells.map((cell, i) => <td key={i}>{cell}</td>)}</tr>)}</tbody></table>;
   const content = (s: Section, start = 0, end = s.rows.length) => s.kind === "courts" ? <ProjectorCourts courts={courts.slice(start, end)} allCourts={allCourts} settings={settings} tournamentName={state.tournamentName} /> : <><header><p>{state.tournamentName}</p><h2>{s.title}</h2></header>{s.image ? <figure className="projector-sponsor"><img src={s.image.url} alt={s.image.name} style={{ height: Math.max(80, viewport.height - 300) }} /><figcaption>{s.image.name}</figcaption></figure> : s.rows.length ? table(s, start, end) : <p className="projector-empty">No entries yet.</p>}</>;
-  return <section ref={root} className={`auto-projector ${fullscreen ? "projection-mode" : ""}`} style={{ height }} aria-label="Automatic tournament slideshow">
+  return <section ref={root} tabIndex={-1} className={`auto-projector ${fullscreen ? "projection-mode" : ""}`} style={{ height }} aria-label="Automatic tournament slideshow">
     <div ref={stage} className={`projector-stage ${viewport.scaled ? "projector-scaled" : ""}`} style={{ width: viewport.width, height: viewport.height, transform: `scale(${viewport.scale})` }}>
-    <div className="projector-controls"><button type="button" className="ghost" aria-pressed={fullscreen} onClick={() => void toggleFullscreen()}>{fullscreen ? <CornersIn size={20} aria-hidden="true" /> : <CornersOut size={20} aria-hidden="true" />}{fullscreen ? "Exit fullscreen" : "Enter fullscreen"}</button>{fullscreen && <small>Press Escape to exit</small>}</div>
+    {!fullscreen && <div className="projector-controls"><button ref={fullscreenButton} type="button" className="ghost" onClick={() => void enterFullscreen()}><CornersOut size={20} aria-hidden="true" />Enter fullscreen</button></div>}
     <NextGameNotice state={state} />
     <div className="projector-measure" aria-hidden="true">{sections.map(s => <section className="projector-measure-section" key={s.id}>{content(s)}</section>)}</div>
     {section ? <section className={`projector-page ${section.kind === "courts" ? "projector-courts-page" : ""}`}><div style={{ transform: `scale(${page.scale})`, transformOrigin: "center" }}>{content(section, page.start, page.end)}</div></section> : <p className="projector-empty">No slides to display.</p>}

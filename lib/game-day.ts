@@ -1,4 +1,4 @@
-import { displayName, gameDaySettings, isMatchUsingCourt, isSetWon, matchWinner, reseedChampionships, scoringRule, subBracketName, type Match, type TournamentState } from "./tournament";
+import { displayName, forfeitWinningPoints, gameDaySettings, isMatchUsingCourt, isSetWon, matchWinner, reseedChampionships, scoringRule, subBracketName, type Match, type TournamentState } from "./tournament";
 
 export function bracketKey(match: Match) { return `${match.divisionId}:${match.subBracket ?? 0}`; }
 export function bracketLabel(state: TournamentState, match: Match) {
@@ -117,7 +117,7 @@ export function gameDayAction(state: TournamentState, action: GameDayAction, mat
       if (!match.entryAId || !match.entryBId) return { error: "Confirm both entries before recording a no-show." };
       if (![match.entryAId, match.entryBId].includes(details.forfeitingEntryId ?? "")) return { error: "Choose the entry that did not show up." };
       const winnerId = details.forfeitingEntryId === match.entryAId ? match.entryBId : match.entryAId;
-      updated = { ...match, forfeit: { winnerId, reason: "no_show", recordedAt: new Date(now).toISOString() }, hold: undefined, status: "finished", courtInUse: false, dispatchedAt: undefined, completedAt: new Date(now).toISOString() }; break;
+      updated = { ...match, forfeit: { winnerId, points: forfeitWinningPoints(match), reason: "no_show", recordedAt: new Date(now).toISOString() }, hold: undefined, status: "finished", courtInUse: false, dispatchedAt: undefined, completedAt: new Date(now).toISOString() }; break;
     }
     case "clearForfeit":
       if (!match.forfeit) return { error: "This game does not have a forfeiture." };

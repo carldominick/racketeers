@@ -6,7 +6,7 @@ import { DotsThree } from "@phosphor-icons/react/dist/csr/DotsThree";
 import { HandWaving } from "@phosphor-icons/react/dist/csr/HandWaving";
 import { Minus } from "@phosphor-icons/react/dist/csr/Minus";
 import { Plus } from "@phosphor-icons/react/dist/csr/Plus";
-import { displayName, isMatchUsingCourt, isSetWon, matchScoreLimit, matchWinner, scoringRule, type Match, type TournamentState } from "../../lib/tournament";
+import { displayName, isMatchUsingCourt, isSetWon, matchScoreLimit, matchResultSets, matchWinner, scoringRule, type Match, type TournamentState } from "../../lib/tournament";
 
 type Props = {
   match: Match; state: TournamentState; sync: "saved" | "saving" | "offline"; focused: boolean;
@@ -20,12 +20,13 @@ export function UmpireScorecard({ match, state, sync, focused, helpRequested, he
   const menu = useRef<HTMLDetailsElement>(null);
   const [chosenSet, setChosenSet] = useState<number | null>(null);
   const division = state.divisions.find(item => item.id === match.divisionId);
-  const setCount = match.format === "best_of_3_21" ? 3 : 1;
-  const sets = Array.from({ length: setCount }, (_, index) => match.sets[index] ?? { a: 0, b: 0, complete: false });
+  const resultSets = matchResultSets(match);
+  const setCount = match.forfeit ? resultSets.length : match.format === "best_of_3_21" ? 3 : 1;
+  const sets = Array.from({ length: setCount }, (_, index) => resultSets[index] ?? { a: 0, b: 0, complete: false });
   const winner = matchWinner(match);
   const firstOpen = sets.findIndex(set => !set.complete);
   const lastComplete = sets.map(set => set.complete).lastIndexOf(true);
-  const index = chosenSet ?? (winner ? Math.max(0, lastComplete) : firstOpen < 0 ? setCount - 1 : firstOpen);
+  const index = Math.min(setCount - 1, chosenSet ?? (winner ? Math.max(0, lastComplete) : firstOpen < 0 ? setCount - 1 : firstOpen));
   const set = sets[index];
   const rule = scoringRule(match.format, match.scoring);
   const ruleText = rule.mode === "first_to_target" ? `First to ${rule.target} wins` : `First to ${rule.target} · Win by 2${rule.mode === "capped_win_by_two" ? ` · Cap ${rule.cap}` : ""}`;
