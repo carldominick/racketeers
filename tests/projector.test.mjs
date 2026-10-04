@@ -35,14 +35,14 @@ test('Sponsors uses one section per image, honors visibility and skips empty lib
  const hydrated=hydrateTournament({...state,projector:{slides:state.projector.slides.filter(s=>s.id!=='sponsors')}});assert.equal(hydrated.projector.slides.find(s=>s.id==='sponsors').seconds,15);
 });
 
-test('projector results identify no-show winners without invented scores or private notes and held games leave upcoming slides',()=>{
+test('projector results identify no-show winners with awarded scores and no private notes and held games leave upcoming slides',()=>{
  const state=initialTournament(),division=state.divisions[0];state.status='live';
  division.entries=[{id:'a',name:'Miguel / Paolo',players:['Miguel','Paolo']},{id:'b',name:'Luis / Nico',players:['Luis','Nico']}];
  const base={id:'game',divisionId:division.id,entryAId:'a',entryBId:'b',stage:'regular',round:1,label:'Group Game 1',format:'single_31',pin:'7319',court:null,scheduledAt:null,status:'finished',validated:false,sets:[{a:0,b:0,complete:false}]};
  state.matches=[{...base,forfeit:{winnerId:'b',reason:'no_show',recordedAt:new Date().toISOString()}}];
  state.projector=normalizeProjectorSettings({autoAdvance:false,slides:[{id:'finished',enabled:true},...['courts','live','upcoming','standings'].map(id=>({id,enabled:false}))]});
  const result=renderToStaticMarkup(React.createElement(Projector,{state}));
- assert.match(result,/Forfeit.*Luis \/ Nico.*wins/);assert.match(result,/Awaiting validation/);assert.match(result,/No points awarded/);assert.ok(!result.includes('7319'));assert.ok(!result.includes('0 – 0'));
+ assert.match(result,/Forfeit.*Luis \/ Nico.*wins/);assert.match(result,/Awaiting validation/);assert.match(result,/Forfeit · 0 – 31/);assert.ok(!result.includes('7319'));assert.ok(!result.includes('0 – 0'));
  state.matches=[{...base,status:'ready',hold:{reason:'Private organizer note',heldAt:new Date().toISOString()}}];
  state.projector=normalizeProjectorSettings({autoAdvance:false,slides:[{id:'upcoming',enabled:true},...['courts','live','finished','standings'].map(id=>({id,enabled:false}))]});
  const held=renderToStaticMarkup(React.createElement(Projector,{state}));assert.ok(!held.includes('Private organizer note'));assert.ok(!held.includes('Miguel / Paolo'));assert.ok(!held.includes('Group Game 1'));

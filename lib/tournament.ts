@@ -1,4 +1,5 @@
 import { normalizeProjectorSettings, type ProjectorSettings } from "./projector-settings";
+import { normalizeTheme, type TournamentTheme } from "./theme";
 
 export type Mode = "singles" | "doubles" | "team";
 export type BracketFormat = "round_robin" | "single_elimination" | "double_round_robin" | "custom";
@@ -115,7 +116,8 @@ export type Match = {
   completedAt?: string;
   nearCapNotified?: boolean;
   hold?: { reason: string; heldAt: string };
-  forfeit?: { winnerId: string; reason: "no_show"; recordedAt: string };
+  /** Awarded result; sets retain played scores for correction and rest calculations. */
+  forfeit?: { winnerId: string; reason: "no_show"; recordedAt: string; points?: number };
 };
 
 export type MedalPoints = { gold: number; silver: number; bronze: number; runnerUp: number };
@@ -132,7 +134,7 @@ export type TournamentState = {
   venue?: string;
   organizerPinHash?: string;
   umpirePinHash?: string;
-  theme: "light" | "dark";
+  theme: TournamentTheme;
   startDate: string;
   endDate: string;
   dayStart: string;
@@ -454,10 +456,28 @@ export function matchWinner(match: Match): string | null {
   return null;
 }
 
-/** A no-show is a result, not an invented set score. */
+/** Freeze the legal winning score when recording a forfeiture; legacy results use their match rule. */
+export function forfeitWinningPoints(match: Match): number {
+  const stored = match.forfeit?.points;
+  if (typeof stored === "number" && Number.isInteger(stored) && stored >= 1 && stored <= 199) return stored;
+  const rule = scoringRule(match.format, match.scoring);
+  return rule.mode === "first_to_target" ? rule.target : Math.min(rule.cap, Math.max(2, rule.target));
+}
+
+/** Official scores for displays and standings, without replacing any recorded play. */
+export function matchResultSets(match: Match): SetScore[] {
+  if (!match.entryAId || !match.entryBId || !match.forfeit || ![match.entryAId, match.entryBId].includes(match.forfeit.winnerId)) return match.sets;
+  const points = forfeitWinningPoints(match);
+  return Array.from({ length: match.format === "best_of_3_21" ? 2 : 1 }, () => ({
+    a: match.forfeit!.winnerId === match.entryAId ? points : 0,
+    b: match.forfeit!.winnerId === match.entryBId ? points : 0,
+    complete: true,
+  }));
+}
+
 export function matchScoreText(match: Match): string {
-  const scores = match.sets.map(set => `${set.a} – ${set.b}`).join(" / ") || "–";
-  return match.forfeit ? `Forfeit${match.sets.some(set => set.a || set.b) ? ` · Recorded points: ${scores}` : " · No points awarded"}` : scores;
+  const scores = matchResultSets(match).map(set => `${set.a} – ${set.b}`).join(" / ") || "–";
+  return match.forfeit ? `Forfeit · ${scores}` : scores;
 }
 
 function winnerOrBye(match?: Match): string | null {
@@ -476,8 +496,9 @@ export function standingsFor(state: TournamentState, divisionId: string, subBrac
     const b = match.entryBId ? rows.get(match.entryBId) : null;
     const winner = matchWinner(match);
     if (!a || !b || !winner) continue;
-    const aPoints = match.sets.reduce((sum, set) => sum + set.a, 0);
-    const bPoints = match.sets.reduce((sum, set) => sum + set.b, 0);
+    const resultSets = matchResultSets(match);
+    const aPoints = resultSets.reduce((sum, set) => sum + set.a, 0);
+    const bPoints = resultSets.reduce((sum, set) => sum + set.b, 0);
     a.played++; b.played++;
     a.pointsFor += aPoints; a.pointsAgainst += bPoints;
     b.pointsFor += bPoints; b.pointsAgainst += aPoints;
@@ -669,7 +690,7 @@ export function hydrateTournament(input: TournamentState): TournamentState {
     if (matchPin) usedPins.add(matchPin);
     return { ...match, scoring: scoringRule(match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21"), formatByDivision.get(match.divisionId)?.stageScoring?.[match.stage] ?? match.scoring), pin: matchPin, format: match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21") };
   });
-  return { ...input, gameDay: gameDaySettings(input), projector: normalizeProjectorSettings(input.projector), venue: typeof input.venue === "string" ? input.venue.trim().slice(0, 200) : "", version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
+  return { ...input, theme: normalizeTheme(input.theme), gameDay: gameDaySettings(input), projector: normalizeProjectorSettings(input.projector), venue: typeof input.venue === "string" ? input.venue.trim().slice(0, 200) : "", version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
 }
 
 /** Operational settings remain editable while structural tournament setup is locked. */

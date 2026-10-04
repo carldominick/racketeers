@@ -59,3 +59,11 @@ test('best-of-three console defaults to the next unfinished set and retains comp
 test('offline umpire retains retry and help controls and disables exiting while scores are unsaved',()=>{
  const html=consoleHtml(umpireMatch,{sync:'offline',helpRequested:true});assert.match(html,/Retry save/);assert.match(html,/<button[^>]*disabled=""[^>]*>Exit match</);assert.match(html,/aria-pressed="true"/);assert.match(html,/Cancel help request/);
 });
+
+test('a stale umpire scorecard displays awarded forfeiture sets with all score controls locked',()=>{
+ const forfeit={winnerId:'b',points:15,reason:'no_show',recordedAt:new Date().toISOString()};
+ const html=consoleHtml({...umpireMatch,format:'best_of_3_21',forfeit,sets:[{a:8,b:7,complete:false}]});
+ assert.match(html,/Set 1 · 0–15 · Complete/);assert.match(html,/Set 2 · 0–15 · Complete/);assert.doesNotMatch(html,/Set 3/);
+ assert.match(html,/Forfeiture recorded · Scores locked/);assert.doesNotMatch(html,/Unlock Set|>Complete Set/);
+ for(const side of ['Alex / Sam','Chris / Pat'])for(const action of ['Add','Subtract'])assert.match(html,new RegExp(`<button[^>]*disabled=""[^>]*aria-label="${action} one point (?:to|from) ${side}, set 2"`));
+});
