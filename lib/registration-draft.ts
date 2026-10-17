@@ -11,6 +11,7 @@ export type RegistrationDraft = {
   partnerClub?: string;
   sourceRegistrationId?: string;
   samePartner?: boolean;
+  owner?: SecondEntryOwner;
   secondShirt?: "black" | "tournament";
   partnerSecondShirt?: "black" | "tournament";
   entryCount?: number;
@@ -27,6 +28,28 @@ export type RegistrationDraft = {
 };
 
 export type PartnerChoice = "same" | "different" | null;
+export type SecondEntryOwner = "primary" | "partner";
+
+/** Describe the original pair relative to the player entering again. */
+export function secondEntrySource(draft: RegistrationDraft, owner: SecondEntryOwner): RegistrationDraft {
+  if (owner === "primary") return { ...draft };
+  return {
+    ...draft,
+    name: draft.partnerName,
+    club: draft.partnerClub,
+    facebookProfile: draft.partnerFacebookProfile,
+    phone: draft.partnerPhone,
+    shirtSize: draft.partnerShirtSize,
+    desiredLevel: draft.partnerDesiredLevel,
+    playerLevel: "",
+    partnerName: draft.name,
+    partnerClub: draft.club,
+    partnerFacebookProfile: draft.facebookProfile,
+    partnerPhone: draft.phone,
+    partnerShirtSize: draft.shirtSize,
+    partnerDesiredLevel: draft.desiredLevel,
+  };
+}
 
 type PartnerFields = Pick<RegistrationDraft, "partnerName" | "partnerClub" | "partnerFacebookProfile" | "partnerPhone" | "partnerShirtSize" | "partnerDesiredLevel" | "partnerSecondShirt">;
 

@@ -125,6 +125,48 @@ test('combined entries save atomically with one PIN, a shared payment group, and
  assert.equal((await post({...create(state.divisions[0].id,{sourceRegistrationId:result.registration.id,secondShirt:'black'}),pin:result.editPin})).status,409);
  assert.equal(JSON.stringify(result).includes('registrationPinRecovery'),false);assert.equal(JSON.stringify(lookup).includes('registrationPinHash'),false);
 });
+test('either player can own a combined second entry and reuse the other player as their partner',async()=>{
+ for(const owner of ['primary','partner']){
+  let state=await reset();state=logic.addDivision(state,'Second division');saved.payload=JSON.stringify(state);
+  const response=await post(create(state.divisions[0].id,{shirtSize:'S',partnerShirtSize:'XL',secondEntry:{owner,divisionId:state.divisions[1].id,samePartner:true,secondShirt:'black',partnerSecondShirt:'tournament',name:'Ignored name',facebookProfile:'https://facebook.com/ignored',phone:'09999999999',partnerName:'Ignored partner'}}));
+  assert.equal(response.status,200);const result=await response.json();
+  const records=JSON.parse(saved.payload).registrations;
+  const primary=records.find(r=>r.id===result.registration.id), firstPartner=records.find(r=>r.id===primary.partnerId);
+  const selected=owner==='partner'?firstPartner:primary, counterpart=owner==='partner'?primary:firstPartner;
+  const second=result.registrations.find(r=>r.divisionId===state.divisions[1].id), secondPartner=records.find(r=>r.id===second.partnerId);
+  assert.equal(saved.revision,2);assert.equal(records.length,4);assert.equal(result.registrations.length,2);
+  assert.equal(second.name,selected.name);assert.equal(second.personId,selected.id);assert.equal(second.club,selected.club);assert.equal(second.facebookProfile,selected.facebookProfile);assert.equal(second.phone,selected.phone);assert.equal(second.shirtSize,selected.shirtSize);assert.equal(second.secondShirt,'black');
+  assert.equal(secondPartner.name,counterpart.name);assert.equal(secondPartner.personId,counterpart.id);assert.equal(secondPartner.phone,counterpart.phone);assert.equal(secondPartner.shirtSize,counterpart.shirtSize);assert.equal(secondPartner.secondShirt,'tournament');assert.equal(secondPartner.partnerId,second.id);
+  assert.equal(new Set(records.map(r=>r.paymentGroupId)).size,1);
+  const lookup=await (await post({action:'lookupRegistration',pin:result.editPin,registrationId:second.id})).json();assert.equal(lookup.registration.id,second.id);assert.equal(lookup.registrations.length,2);
+  assert.equal((await post({action:'updateRegistration',pin:result.editPin,registrationId:second.id,registration:{phone:'09111222333',partnerPhone:'09111222444'}})).status,200);
+  const updated=JSON.parse(saved.payload).registrations;assert.equal(updated.find(r=>r.id===selected.id).phone,'09111222333');assert.equal(updated.find(r=>r.id===counterpart.id).phone,'09111222444');
+  assert.equal((await post({...create(state.divisions[1].id,{sourceRegistrationId:selected.id,secondShirt:'black'}),pin:result.editPin})).status,409);
+ }
+});
+test('Player 2 can take a second entry with a different partner without linking Player 1 to that entry',async()=>{
+ let state=await reset();state=logic.addDivision(state,'Second division');saved.payload=JSON.stringify(state);
+ const response=await post(create(state.divisions[0].id,{partnerShirtSize:'XL',secondEntry:{owner:'partner',divisionId:state.divisions[1].id,samePartner:false,secondShirt:'black',partnerName:'Morgan',partnerClub:'Other Club',partnerFacebookProfile:'https://facebook.com/morgan.test',partnerPhone:'09123456788',partnerShirtSize:'XS'}}));
+ assert.equal(response.status,200);const result=await response.json();
+ const records=JSON.parse(saved.payload).registrations, second=result.registrations.find(r=>r.divisionId===state.divisions[1].id), newPartner=records.find(r=>r.id===second.partnerId);
+ assert.equal(second.name,'Sam');assert.equal(second.personId,result.registration.partnerId);assert.equal(second.shirtSize,'XL');assert.equal(second.partnerName,'Morgan');assert.equal(newPartner.personId,undefined);assert.equal(newPartner.secondShirt,undefined);assert.equal(newPartner.shirtSize,'XS');assert.equal(newPartner.phone,'09123456788');
+ assert.equal(records.filter(r=>(r.personId||r.id)===result.registration.id).length,1);assert.equal(records.filter(r=>(r.personId||r.id)===result.registration.partnerId).length,2);
+ assert.equal((await post({...create(state.divisions[1].id,{sourceRegistrationId:result.registration.partnerId,secondShirt:'black'}),pin:result.editPin})).status,409);
+ const primarySecond=await post({...create(state.divisions[1].id,{sourceRegistrationId:result.registration.id,samePartner:false,partnerName:'Jamie',secondShirt:'black'}),pin:result.editPin});assert.equal(primarySecond.status,200);
+});
+test('combined second-entry owner validation and failed revision writes never save a partial registration',async()=>{
+ let state=await reset();state=logic.addDivision(state,'Singles');state.divisions[1].mode='singles';saved.payload=JSON.stringify(state);
+ const doubleId=state.divisions[0].id, singleId=state.divisions[1].id;
+ for(const owner of ['unknown','',null,2]){
+  assert.equal((await post(create(doubleId,{secondEntry:{owner,divisionId:doubleId,samePartner:true,secondShirt:'black',partnerSecondShirt:'black'}}))).status,400);
+  assert.equal(saved.revision,1);assert.equal(JSON.parse(saved.payload).registrations.length,0);
+ }
+ assert.equal((await post(create(singleId,{secondEntry:{owner:'partner',divisionId:singleId,secondShirt:'black'}}))).status,400);assert.equal(saved.revision,1);
+ const body=create(doubleId,{secondEntry:{owner:'partner',divisionId:singleId,secondShirt:'black'}});
+ rejectNextWrite=true;assert.equal((await post(body)).status,409);assert.equal(saved.revision,1);assert.equal(JSON.parse(saved.payload).registrations.length,0);
+ const response=await post(body);assert.equal(response.status,200);const result=await response.json();
+ const second=result.registrations.find(r=>r.divisionId===singleId);assert.equal(second.name,'Sam');assert.equal(second.personId,result.registration.partnerId);assert.equal(second.partnerId,null);assert.equal(JSON.parse(saved.payload).registrations.length,3);
+});
 test('combined same-division entries support different partners and reject invalid second entries without saving',async()=>{
  const state=await reset(), id=state.divisions[0].id;
  for(const secondEntry of [{divisionId:'missing',secondShirt:'black'},{divisionId:id,secondShirt:'invalid'},{divisionId:id,secondShirt:'black',partnerName:''}]){

@@ -6,7 +6,7 @@ import { matchWinner, isMatchUsingCourt, courtInUseAfterScore, tournamentEditing
 const ROW_ID = "racketeers";
 const comparable = (value: unknown) => JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 type EntryForm = Partial<PlayerRegistration> & { partnerFacebookProfile?: string; partnerPhone?: string; partnerShirtSize?: string; partnerDesiredLevel?: string; partnerClub?: string; sourceRegistrationId?: string; samePartner?: boolean; partnerSecondShirt?: "black" | "tournament" };
-type RegistrationForm = EntryForm & { secondEntry?: EntryForm };
+type RegistrationForm = EntryForm & { secondEntry?: EntryForm & { owner?: "primary" | "partner" } };
 function organizerState(state: TournamentState) {
   return { ...state, registrations: state.registrations.map(({ registrationPinRecovery: secret, ...registration }) => { void secret; return registration; }) };
 }
@@ -233,6 +233,8 @@ export async function POST(request: Request) {
     const second = form.secondEntry;
     const secondDivision = second && state.divisions.find(d => d.id === second.divisionId);
     if (second && (source || !secondDivision || typeof second !== "object" || Array.isArray(second))) return Response.json({ error: "Choose a valid division for the second entry. Only two entries are allowed." }, { status: 400 });
+    if (second?.owner !== undefined && second.owner !== "primary" && second.owner !== "partner") return Response.json({ error: "Choose which player will have the second entry." }, { status: 400 });
+    if (second?.owner === "partner" && (division.mode === "singles" || !clean(form.partnerName))) return Response.json({ error: "The first entry has no second player to select." }, { status: 400 });
     if (second && !["black", "tournament"].includes(second.secondShirt || "")) return Response.json({ error: "Choose the second-entry shirt." }, { status: 400 });
     if (second && secondDivision?.mode === "doubles" && !clean(second.samePartner ? form.partnerName : second.partnerName)) return Response.json({ error: "Enter a partner for the second entry." }, { status: 400 });
     if (second?.samePartner && (!clean(form.partnerName) || division.mode === "singles")) return Response.json({ error: "The first entry has no partner to reuse." }, { status: 400 });
@@ -260,12 +262,14 @@ export async function POST(request: Request) {
     let existingRegistrations = state.registrations;
     if (source && !source.paymentGroupId) existingRegistrations = state.registrations.map(r => r.id === source.id || r.id === sourceOwner?.id ? { ...r, paymentGroupId } : r);
     if (second && secondDivision) {
-      const linked: PlayerRegistration = { ...makeUniqueRegistration(secondDivision.id, state.registrations.length + newRegistrations.length, [...state.registrations, ...newRegistrations]), facebookProfile: registration.facebookProfile, phone: registration.phone, name: registration.name, club: registration.club, personId: registration.id, secondShirt: second.secondShirt, shirtSize: clean(second.shirtSize, 8) || registration.shirtSize, desiredLevel: "", playerLevel: "", teamName: clean(second.teamName), registrationPinHash, registrationPinRecovery: editPin, paymentGroupId, selfRegistered: true };
-      newRegistrations.push(linked);
       const firstPartner = newRegistrations.find(r => r.id === registration.partnerId);
-      const secondPartnerName = secondDivision.mode === "singles" ? "" : clean(second.samePartner ? firstPartner?.name : second.partnerName);
+      const secondOwner = second.owner === "partner" ? firstPartner! : registration;
+      const originalPartner = second.owner === "partner" ? registration : firstPartner;
+      const linked: PlayerRegistration = { ...makeUniqueRegistration(secondDivision.id, state.registrations.length + newRegistrations.length, [...state.registrations, ...newRegistrations]), facebookProfile: secondOwner.facebookProfile, phone: secondOwner.phone, name: secondOwner.name, club: secondOwner.club, personId: secondOwner.id, secondShirt: second.secondShirt, shirtSize: clean(second.shirtSize, 8) || secondOwner.shirtSize, desiredLevel: "", playerLevel: "", teamName: clean(second.teamName), registrationPinHash, registrationPinRecovery: editPin, paymentGroupId, selfRegistered: true };
+      newRegistrations.push(linked);
+      const secondPartnerName = secondDivision.mode === "singles" ? "" : clean(second.samePartner ? originalPartner?.name : second.partnerName);
       if (secondPartnerName) {
-        const partner: PlayerRegistration = { ...makeUniqueRegistration(secondDivision.id, state.registrations.length + newRegistrations.length, [...state.registrations, ...newRegistrations]), facebookProfile: second.samePartner ? firstPartner?.facebookProfile : clean(second.partnerFacebookProfile, 500), phone: second.samePartner ? firstPartner?.phone : clean(second.partnerPhone, 30), name: secondPartnerName, club: second.samePartner ? firstPartner?.club : clean(second.partnerClub), personId: second.samePartner ? firstPartner?.id : undefined, secondShirt: second.samePartner ? second.partnerSecondShirt : undefined, shirtSize: clean(second.partnerShirtSize, 8) || firstPartner?.shirtSize || "M", desiredLevel: "", playerLevel: "", teamName: linked.teamName, partnerId: linked.id, paymentGroupId, selfRegistered: true };
+        const partner: PlayerRegistration = { ...makeUniqueRegistration(secondDivision.id, state.registrations.length + newRegistrations.length, [...state.registrations, ...newRegistrations]), facebookProfile: second.samePartner ? originalPartner?.facebookProfile : clean(second.partnerFacebookProfile, 500), phone: second.samePartner ? originalPartner?.phone : clean(second.partnerPhone, 30), name: secondPartnerName, club: second.samePartner ? originalPartner?.club : clean(second.partnerClub), personId: second.samePartner ? originalPartner?.id : undefined, secondShirt: second.samePartner ? second.partnerSecondShirt : undefined, shirtSize: clean(second.partnerShirtSize, 8) || originalPartner?.shirtSize || "M", desiredLevel: "", playerLevel: "", teamName: linked.teamName, partnerId: linked.id, paymentGroupId, selfRegistered: true };
         linked.partnerId = partner.id; newRegistrations.push(partner);
       }
     }

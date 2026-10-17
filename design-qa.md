@@ -281,3 +281,25 @@ None blocking this release. The illustration does not specify every edit, empty,
 P3: The generated illustration's decorative progress connectors and larger radio outlines could be revisited with a future design-system refinement. The current labeled native controls preserve clear selection and keyboard semantics; these refinements do not block the approved flow.
 
 final result: passed
+
+## Second-entry player selection — 2026-10-18
+
+This is a functional correction requested after the registration release, using the existing labeled selection cards and design tokens. The user requested an explicit choice of which original player is entering again before choosing Same partner or Different partner. The earlier mockup did not contain this new owner selector; this supplemental check evaluates the requested behavior and existing interface consistency rather than claiming a new pixel-identical visual target.
+
+### Evidence and inspected behavior
+
+- `outputs/second-entry-player-choice/desktop-choose-partner.jpg`: 1440 × 1500 CSS-pixel viewport, Light, Player 2 selected and partner choice still empty. Both original names are visible, with separate Player 1 / Player 2 descriptions. The second-entry heading and shirt belong to Player 2; Same partner names Player 1.
+- `outputs/second-entry-player-choice/desktop-same-partner.jpg`: complete desktop example with Player 2 and Same partner selected. Player 2 defaults to their L shirt; Player 1 defaults to their M shirt. First-entry details remain unchanged.
+- `outputs/second-entry-player-choice/mobile-owner-choice.jpg`: 390 × 844 CSS-pixel viewport. Names remain readable, choices stack and the selected state is clear. Additional overflow checks at 360 and 834 CSS pixels passed.
+- `outputs/second-entry-player-choice/tablet-pure-black.jpg`: 834 × 1112 CSS-pixel viewport. Named owner controls, partner choices, labels and focus outlines remain visible against #000.
+- Browser checks: owner selection starts empty; partner controls appear only after an owner is chosen; both partner choices start empty; either owner can reuse the other original player; Different partner retains separate contact/shirt drafts; switching owners restores each owner's draft; original doubles → singles invalidates hidden Player 2 selection until a valid player is chosen; returning to doubles restores it; second-entry singles excludes partner fields; review and local confirmation show the selected owner; keyboard arrow selection works.
+- Local preview submission confirmed `Level F · Paolo Reyes / Miguel Santos` after selecting Player 2 and Same partner. Preview is an isolated mock, not proof of production authentication or storage. API tests independently verify authoritative identity/contact derivation, shared PIN/payment group, per-person entry limits, invalid selections and atomic failed saves.
+- Browser warning/error log checks returned no entries. Viewport overrides were reset after checks.
+
+### Outcome and limitations
+
+No actionable layout, control-label or owner/partner consistency issue remains in inspected states. Existing fonts, navy/lime styling, document links and responsive card patterns are retained; no stylesheet change was needed. Physical-device and live-registration submissions were not performed.
+
+Verification: 74 relevant API/payment/helper/UI tests pass. Full local suite: 155 pass, with only the documented Windows print-test ESM loader failure before assertions. Lint, build, two render tests and whitespace checks pass. Linux CI and live deployment remain pending explicit release authorization; no production data was changed.
+
+final result: passed

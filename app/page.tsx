@@ -17,7 +17,7 @@ import { CalendarBlank } from "@phosphor-icons/react/dist/csr/CalendarBlank";
 import { PencilSimple } from "@phosphor-icons/react/dist/csr/PencilSimple";
 import { ArrowRight } from "@phosphor-icons/react/dist/csr/ArrowRight";
 import { Check } from "@phosphor-icons/react/dist/csr/Check";
-import { chooseSecondEntryPartner, entryDetailsError, partnerFields, registrationForSubmission, withPartnerFields, type PartnerChoice, type RegistrationDraft } from "../lib/registration-draft";
+import { chooseSecondEntryPartner, entryDetailsError, partnerFields, registrationForSubmission, secondEntrySource, withPartnerFields, type PartnerChoice, type RegistrationDraft, type SecondEntryOwner } from "../lib/registration-draft";
 import { ShirtSizeGuide } from "./components/shirt-size-guide";
 import { TournamentCountdown } from "./components/tournament-countdown";
 import { PaymentSettings } from "./components/payment-settings";
@@ -159,6 +159,14 @@ function RegistrationPartnerChoice({ name, choice, playerName, reuseName, canReu
   </fieldset>;
 }
 
+function RegistrationSecondEntryOwner({ name, choice, primaryName, partnerName, canChoosePartner, busy, onChoose }: { name: string; choice: SecondEntryOwner | null; primaryName: string; partnerName: string; canChoosePartner: boolean; busy: boolean; onChoose: (choice: SecondEntryOwner) => void }) {
+  return <fieldset className="registration-partner-choices registration-owner-choices" disabled={busy}>
+    <legend>Who is entering again?</legend>
+    <label className="partner-choice"><input type="radio" name={name} value="primary" checked={choice === "primary"} onChange={() => onChoose("primary")} /><strong>{primaryName || "Player 1"}</strong><small>Player 1 from your first entry</small></label>
+    {canChoosePartner && <label className="partner-choice"><input type="radio" name={name} value="partner" checked={choice === "partner"} onChange={() => onChoose("partner")} /><strong>{partnerName || "Player 2"}</strong><small>Player 2 from your first entry</small></label>}
+  </fieldset>;
+}
+
 function PublicRegistration({ state, onSaved, organizerPin = "", initialDivisionId, initialRegistration }: { state: TournamentState; onSaved: () => void; organizerPin?: string; initialDivisionId?: string; initialRegistration?: PlayerRegistration }) {
   const fieldPrefix = useId();
   const makeDraft = (): RegistrationDraft => ({ name: "", divisionId: initialDivisionId || state.divisions[0]?.id || "", partnerName: "", partnerShirtSize: "M", partnerDesiredLevel: "", teamName: "", shirtSize: "M", playerLevel: "Beginner", desiredLevel: "" });
@@ -183,8 +191,10 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
     }
   }, [state.divisions, draft.divisionId]);
   const [secondEntry, setSecondEntry] = useState<RegistrationDraft | null>(null);
+  const [secondEntryOwner, setSecondEntryOwner] = useState<SecondEntryOwner | null>(null);
   const [secondPartnerChoice, setSecondPartnerChoice] = useState<PartnerChoice>(null);
   const [samePartnerSize, setSamePartnerSize] = useState("M");
+  const secondEntryDrafts = useRef<Partial<Record<SecondEntryOwner, { draft: RegistrationDraft; partnerChoice: PartnerChoice; samePartnerSize: string }>>>({});
   const [linkedPartnerChoice, setLinkedPartnerChoice] = useState<PartnerChoice>(null);
   const linkedDifferentPartner = useRef(partnerFields({}));
   const linkedSamePartner = useRef<ReturnType<typeof partnerFields> | null>(null);
@@ -202,7 +212,10 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
     fetch("/api/payment-proof?capabilities=1").then(r => r.json()).then(data => setPaymentEnabled(Boolean(data.enabled))).catch(() => setPaymentEnabled(false));
   }, []);
   const division = state.divisions.find((item) => item.id === draft.divisionId);
-  const makeSecondEntry = (): RegistrationDraft => ({ ...makeDraft(), divisionId: draft.divisionId, desiredLevel: draft.desiredLevel, samePartner: false, secondShirt: "tournament", partnerSecondShirt: "tournament", shirtSize: draft.shirtSize });
+  const makeSecondEntry = (owner: SecondEntryOwner = "primary"): RegistrationDraft => {
+    const source = secondEntrySource(draft, owner);
+    return { ...makeDraft(), divisionId: draft.divisionId, desiredLevel: source.desiredLevel, owner, samePartner: false, secondShirt: "tournament", partnerSecondShirt: "tournament", shirtSize: source.shirtSize };
+  };
   const update = (patch: Partial<RegistrationDraft>) => {
     // Division changes affect participation, not the entered person drafts.
     setDraft(current => ({ ...current, ...patch }));
@@ -217,11 +230,22 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
   };
   const toggleSecondEntry = (enabled: boolean) => {
     setSecondEntry(enabled ? makeSecondEntry() : null);
+    setSecondEntryOwner(null);
+    secondEntryDrafts.current = {};
     setSecondPartnerChoice(null);
     setSamePartnerSize(draft.partnerShirtSize);
   };
+  const chooseSecondEntryOwner = (owner: SecondEntryOwner) => {
+    if (secondEntryOwner && secondEntry) secondEntryDrafts.current[secondEntryOwner] = { draft: secondEntry, partnerChoice: secondPartnerChoice, samePartnerSize };
+    const restored = secondEntryDrafts.current[owner];
+    setSecondEntry(restored?.draft || makeSecondEntry(owner));
+    setSecondPartnerChoice(restored?.partnerChoice || null);
+    setSamePartnerSize(restored?.samePartnerSize || secondEntrySource(draft, owner).partnerShirtSize);
+    setSecondEntryOwner(owner);
+    setMessage("");
+  };
   const startNewRegistration = () => {
-    setDraft(makeDraft()); setSecondEntry(null); setSecondPartnerChoice(null); setLinkedPartnerChoice(null); linkedDifferentPartner.current = partnerFields({}); linkedSamePartner.current = null; setSavedEntries([]); setPaymentFile(null);
+    setDraft(makeDraft()); setSecondEntry(null); setSecondEntryOwner(null); secondEntryDrafts.current = {}; setSecondPartnerChoice(null); setLinkedPartnerChoice(null); linkedDifferentPartner.current = partnerFields({}); linkedSamePartner.current = null; setSavedEntries([]); setPaymentFile(null);
     setSavedRegistrationId(""); setPin(""); setSubmittedPin(""); setMessage(""); setStep(0); setMode("new");
   };
   const lookup = async (registrationId?: string) => {
@@ -229,13 +253,13 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
     const response = await fetch("/api/state", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "lookupRegistration", pin, registrationId }) });
     const data = await response.json(); setBusy(false);
     if (!response.ok || !data.registration) return setMessage(data.error || "Registration PIN did not match an entry.");
-    setSecondEntry(null); setSecondPartnerChoice(null); setLinkedPartnerChoice(null); linkedDifferentPartner.current = partnerFields({}); linkedSamePartner.current = null; setSavedEntries(data.registrations || [data.registration]);
+    setSecondEntry(null); setSecondEntryOwner(null); secondEntryDrafts.current = {}; setSecondPartnerChoice(null); setLinkedPartnerChoice(null); linkedDifferentPartner.current = partnerFields({}); linkedSamePartner.current = null; setSavedEntries(data.registrations || [data.registration]);
     setDraft({ ...makeDraft(), ...data.registration }); setSubmittedPin(""); setSavedRegistrationId(data.registration.id); setPaymentFile(null); setMode("edit"); setStep(0);
   };
   const beginSecondEntry = (partner = false) => {
     const sourceId = partner ? draft.partnerId : savedRegistrationId;
     if (!sourceId) return;
-    setSecondEntry(null); setSecondPartnerChoice(null); setLinkedPartnerChoice(null); linkedDifferentPartner.current = partnerFields({}); linkedSamePartner.current = null; setSavedEntries([]);
+    setSecondEntry(null); setSecondEntryOwner(null); secondEntryDrafts.current = {}; setSecondPartnerChoice(null); setLinkedPartnerChoice(null); linkedDifferentPartner.current = partnerFields({}); linkedSamePartner.current = null; setSavedEntries([]);
     setOriginalPartnerName(partner ? draft.name : draft.partnerName);
     setOriginalPartnerContact({ facebookProfile: (partner ? draft.facebookProfile : draft.partnerFacebookProfile) || "", phone: (partner ? draft.phone : draft.partnerPhone) || "", club: (partner ? draft.club : draft.partnerClub) || "" });
     setDraft({ ...draft, id: undefined, sourceRegistrationId: sourceId, samePartner: Boolean(partner ? draft.name : draft.partnerName),
@@ -293,11 +317,14 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
   const linkedChoiceRequired = Boolean(draft.sourceRegistrationId && division?.mode !== "singles");
   const playersIssue = linkedChoiceRequired && !linkedPartnerChoice ? "Choose Same partner or Different partner to continue." : entryDetailsError(draft, division?.mode);
   const playersValid = !playersIssue;
-  const canReuseSecondPartner = Boolean(draft.partnerName.trim() && division?.mode !== "singles");
+  const canChooseSecondPartner = Boolean(draft.partnerName.trim() && division?.mode !== "singles");
+  const effectiveSecondOwner = secondEntryOwner === "partner" && !canChooseSecondPartner ? null : secondEntryOwner;
+  const secondSource = effectiveSecondOwner ? secondEntrySource(draft, effectiveSecondOwner) : null;
+  const canReuseSecondPartner = Boolean(secondSource?.partnerName.trim() && division?.mode !== "singles");
   const effectiveSecondChoice = secondPartnerChoice === "same" && !canReuseSecondPartner ? null : secondPartnerChoice;
-  const selectedSecond = secondEntry ? chooseSecondEntryPartner({ ...secondEntry, name: draft.name, club: draft.club, facebookProfile: draft.facebookProfile, phone: draft.phone }, effectiveSecondChoice, draft, division?.mode) : null;
+  const selectedSecond = secondEntry && secondSource && effectiveSecondOwner ? chooseSecondEntryPartner({ ...secondEntry, owner: effectiveSecondOwner, name: secondSource.name, club: secondSource.club, facebookProfile: secondSource.facebookProfile, phone: secondSource.phone, desiredLevel: secondSource.desiredLevel }, effectiveSecondChoice, secondSource, division?.mode) : null;
   const activeSecondEntry = selectedSecond && effectiveSecondChoice === "same" ? { ...selectedSecond, partnerShirtSize: samePartnerSize } : selectedSecond;
-  const secondIssue = activeSecondEntry ? secondDivision?.mode !== "singles" && !effectiveSecondChoice ? "Choose Same partner or Different partner to continue." : entryDetailsError(activeSecondEntry, secondDivision?.mode) : null;
+  const secondIssue = secondEntry && !effectiveSecondOwner ? "Choose which player is entering again to continue." : activeSecondEntry ? secondDivision?.mode !== "singles" && !effectiveSecondChoice ? "Choose Same partner or Different partner to continue." : entryDetailsError(activeSecondEntry, secondDivision?.mode) : null;
   const secondValid = !secondEntry || !secondIssue;
   const shirtSize = (label: string, value: string, onChange: (value: string) => void) => <label>{label}<select disabled={busy} value={value} onChange={event => onChange(event.target.value)}>{sizes.map(size => <option key={size}>{size}</option>)}</select></label>;
   const shirtType = (label: string, value: "black" | "tournament" | undefined, onChange: (value: "black" | "tournament") => void) => <label>{label}<select disabled={busy} value={value || "tournament"} onChange={event => onChange(event.target.value as "black" | "tournament")}><option value="tournament">Second tournament shirt</option><option value="black">Black shirt</option></select></label>;
@@ -345,20 +372,24 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
           </div>
         </section>
         {mode === "new" && !draft.sourceRegistrationId && <section className="combined-entry">
-          <label className="combined-toggle"><input type="checkbox" disabled={busy} checked={Boolean(secondEntry)} onChange={event => toggleSecondEntry(event.target.checked)} /><span><strong>Add a second entry (optional)</strong><small>Join the same or another division with the same or a different partner.</small></span></label>
+          <label className="combined-toggle"><input type="checkbox" disabled={busy} checked={Boolean(secondEntry)} onChange={event => toggleSecondEntry(event.target.checked)} /><span><strong>Add a second entry (optional)</strong><small>Choose who is entering again, then choose the same or a different partner.</small></span></label>
           {secondEntry && <div className="registration-second-entry">
-            <h3>Second entry for {draft.name}</h3>
+            <RegistrationSecondEntryOwner name={`${fieldPrefix}-second-owner`} choice={effectiveSecondOwner} primaryName={draft.name} partnerName={draft.partnerName} canChoosePartner={canChooseSecondPartner} busy={busy} onChoose={chooseSecondEntryOwner} />
+            {!secondSource && <p className="registration-field-note" role="status">Choose the player adding a second entry. Their division, partner and shirt options will appear next.</p>}
+            {secondSource && <>
+            <h3>Second entry for {secondSource.name}</h3>
             <label>Division<select disabled={busy} aria-label="Second entry division" value={secondEntry.divisionId} onChange={event => setSecondEntry({ ...secondEntry, divisionId: event.target.value })}>{state.divisions.map(item => <option key={item.id} value={item.id}>{item.name} · {item.mode}</option>)}</select></label>
             {secondDivision?.mode === "team" && <label>Second entry team name<input disabled={busy} value={secondEntry.teamName} onChange={event => setSecondEntry({ ...secondEntry, teamName: event.target.value })} /></label>}
-            {secondDivision?.mode !== "singles" && <><RegistrationPartnerChoice name={`${fieldPrefix}-second-partner`} choice={effectiveSecondChoice} playerName={draft.name} reuseName={draft.partnerName} canReuse={canReuseSecondPartner} busy={busy} onChoose={choice => { setSecondPartnerChoice(choice); setMessage(""); }} />{!effectiveSecondChoice && <p className="registration-field-note" role="status">Choose one option above to continue. Partner details appear after you choose.</p>}</>}
-            <div className="registration-shirt-row"><strong>{draft.name}</strong>{shirtType("Second-entry shirt", secondEntry.secondShirt, value => setSecondEntry({ ...secondEntry, secondShirt: value }))}{shirtSize("Second-entry shirt size", secondEntry.shirtSize, value => setSecondEntry({ ...secondEntry, shirtSize: value }))}</div>
-            {secondDivision?.mode !== "singles" && effectiveSecondChoice === "same" && <section aria-label="Same partner for second entry"><p className="registration-field-note"><strong>{draft.partnerName}</strong> — existing player details are reused. Your first entry stays unchanged.</p><div className="registration-shirt-row"><strong>{draft.partnerName}</strong>{shirtType("Partner second-entry shirt", secondEntry.partnerSecondShirt, value => setSecondEntry({ ...secondEntry, partnerSecondShirt: value }))}{shirtSize("Partner second-entry shirt size", samePartnerSize, setSamePartnerSize)}</div></section>}
-            {secondDivision?.mode !== "singles" && effectiveSecondChoice === "different" && <fieldset className="registration-new-partner" disabled={busy}><legend>New partner for this entry</legend><p className="registration-field-note">All new partner fields are required. Your first entry with {draft.partnerName || "the original partner"} stays unchanged.</p>
+            {secondDivision?.mode !== "singles" && <><RegistrationPartnerChoice name={`${fieldPrefix}-second-partner`} choice={effectiveSecondChoice} playerName={secondSource.name} reuseName={secondSource.partnerName} canReuse={canReuseSecondPartner} busy={busy} onChoose={choice => { setSecondPartnerChoice(choice); setMessage(""); }} />{!effectiveSecondChoice && <p className="registration-field-note" role="status">Choose one option above to continue. Partner details appear after you choose.</p>}</>}
+            <div className="registration-shirt-row"><strong>{secondSource.name}</strong>{shirtType("Second-entry shirt", secondEntry.secondShirt, value => setSecondEntry({ ...secondEntry, secondShirt: value }))}{shirtSize("Second-entry shirt size", secondEntry.shirtSize, value => setSecondEntry({ ...secondEntry, shirtSize: value }))}</div>
+            {secondDivision?.mode !== "singles" && effectiveSecondChoice === "same" && <section aria-label="Same partner for second entry"><p className="registration-field-note"><strong>{secondSource.partnerName}</strong> — existing player details are reused. Your first entry stays unchanged.</p><div className="registration-shirt-row"><strong>{secondSource.partnerName}</strong>{shirtType("Partner second-entry shirt", secondEntry.partnerSecondShirt, value => setSecondEntry({ ...secondEntry, partnerSecondShirt: value }))}{shirtSize("Partner second-entry shirt size", samePartnerSize, setSamePartnerSize)}</div></section>}
+            {secondDivision?.mode !== "singles" && effectiveSecondChoice === "different" && <fieldset className="registration-new-partner" disabled={busy}><legend>New partner for this entry</legend><p className="registration-field-note">All new partner fields are required. Your first entry stays unchanged.</p>
               <label>New partner’s full name<input required value={secondEntry.partnerName} onChange={event => setSecondEntry({ ...secondEntry, partnerName: event.target.value })} placeholder="Partner’s full name" /></label>
               <label>Club / group<input required maxLength={80} value={secondEntry.partnerClub || ""} onChange={event => setSecondEntry({ ...secondEntry, partnerClub: event.target.value })} placeholder="Badminton club/group, coach or group leader" /><small className="affiliation-help">Someone who can confirm their level.</small></label>
               <ContactFields facebookProfile={secondEntry.partnerFacebookProfile} phone={secondEntry.partnerPhone} onChange={patch => setSecondEntry({ ...secondEntry, ...(patch.facebookProfile !== undefined ? { partnerFacebookProfile: patch.facebookProfile } : {}), ...(patch.phone !== undefined ? { partnerPhone: patch.phone } : {}) })} />
               <div className="registration-shirt-row"><div>{secondEntry.partnerName || "New partner"}<small>Tournament shirt</small></div>{shirtSize("New partner shirt size", secondEntry.partnerShirtSize, value => setSecondEntry({ ...secondEntry, partnerShirtSize: value }))}</div><p className="registration-field-note">These details are for Entry 2 only.</p>
             </fieldset>}
+            </>}
             <button type="button" disabled={busy} className="guided-text-button" onClick={() => toggleSecondEntry(false)}>Remove second entry</button>
           </div>}
         </section>}
@@ -370,7 +401,7 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
       <section hidden={step !== 2} className="guided-payment" aria-label="Review and payment">
         <aside className="guided-summary" aria-label="Registration summary"><h3>Your registration</h3>
           <div className="guided-summary-entry"><strong>Entry {draft.sourceRegistrationId || draft.secondShirt ? "2" : "1"} · {division?.name || "Select division"}</strong><span>{division?.mode === "singles" ? "Singles · 1 player" : division?.mode === "team" ? "Team entry" : "Doubles · 2 players"}</span><div className="summary-player"><strong>{draft.name || "Player name"}</strong><span>{draft.secondShirt === "black" ? "Black shirt" : draft.secondShirt ? "Second tournament shirt" : "Tournament shirt"} · Size {draft.shirtSize}</span></div>{division?.mode !== "singles" && <div className="summary-player"><strong>{draft.partnerName || "Partner name"}</strong><span>{draft.sourceRegistrationId && linkedPartnerChoice === "same" ? draft.partnerSecondShirt === "black" ? "Black shirt" : "Second tournament shirt" : "Tournament shirt"} · Size {draft.partnerShirtSize}</span></div>}</div>
-          {activeSecondEntry && <div className="guided-summary-entry"><strong>Entry 2 · {secondDivision?.name || "Select division"}</strong><div className="summary-player"><strong>{draft.name}</strong><span>{activeSecondEntry.secondShirt === "black" ? "Black shirt" : "Second tournament shirt"} · Size {activeSecondEntry.shirtSize}</span></div>{secondDivision?.mode !== "singles" && <div className="summary-player"><strong>{activeSecondEntry.partnerName}</strong><span>{activeSecondEntry.samePartner ? activeSecondEntry.partnerSecondShirt === "black" ? "Black shirt" : "Second tournament shirt" : "Tournament shirt"} · Size {activeSecondEntry.partnerShirtSize}</span></div>}</div>}
+          {activeSecondEntry && <div className="guided-summary-entry"><strong>Entry 2 · {secondDivision?.name || "Select division"}</strong><div className="summary-player"><strong>{activeSecondEntry.name}</strong><span>{activeSecondEntry.secondShirt === "black" ? "Black shirt" : "Second tournament shirt"} · Size {activeSecondEntry.shirtSize}</span></div>{secondDivision?.mode !== "singles" && <div className="summary-player"><strong>{activeSecondEntry.partnerName}</strong><span>{activeSecondEntry.samePartner ? activeSecondEntry.partnerSecondShirt === "black" ? "Black shirt" : "Second tournament shirt" : "Tournament shirt"} · Size {activeSecondEntry.partnerShirtSize}</span></div>}</div>}
           <p>{draft.sourceRegistrationId ? "Your second entry stays linked to your original registration." : secondEntry ? "Both entries will share one PIN and one payment proof." : (draft.entryCount || 1) >= 2 ? "This player has two linked entries." : "You can review your entries and player details before submitting."}</p><button type="button" disabled={busy} className="guided-text-button" onClick={() => goToStep(0)}>Review player details</button><button type="button" disabled={busy} className="guided-text-button" onClick={() => goToStep(1)}>Edit entries & shirts</button>
         </aside>
         {draft.sourceRegistrationId && <p className="guided-note">This entry shares the payment proof from your first registration. Upload an updated photo only if you need to replace it.</p>}

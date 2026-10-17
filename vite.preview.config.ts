@@ -6,6 +6,7 @@ import {gameDayAction,type GameDayAction} from './lib/game-day';
 import react from '@vitejs/plugin-react';
 import {appendStaffNotification,recordCourtCompletions} from './lib/staff-events';
 import {courtInUseAfterScore,initialTournament,contactError,hydrateTournament} from './lib/tournament';
+import {secondEntrySource} from './lib/registration-draft';
 let savedEntries: Record<string, unknown>[] = [];
 const previewPin = '00000000';
 const sponsors = new Map<string, { id: string; name: string; bytes: Buffer }>();
@@ -47,7 +48,9 @@ export default defineConfig({root:'preview',publicDir:'../public',server:{host:'
   const draft = data.registration;
   const error = !draft?.name?.trim() || !draft?.club?.trim() ? 'Enter the required player details.' : contactError(draft.facebookProfile, draft.phone);
   if(error) {res.statusCode=400;res.end(JSON.stringify({error}));return;}
-  savedEntries = [{...draft,id:'PREVIEW-ENTRY-1',entryCount:draft.secondEntry?2:1},...(draft.secondEntry?[{...draft,...draft.secondEntry,id:'PREVIEW-ENTRY-2',name:draft.name,partnerName:draft.secondEntry.samePartner?draft.partnerName:draft.secondEntry.partnerName,entryCount:2}]:[])];
+  const second = draft.secondEntry;
+  const source = secondEntrySource(draft, second?.owner === 'partner' ? 'partner' : 'primary');
+  savedEntries = [{...draft,id:'PREVIEW-ENTRY-1',entryCount:second&&(second.owner!=='partner'||second.samePartner)?2:1},...(second?[{...draft,...second,id:'PREVIEW-ENTRY-2',name:source.name,club:source.club,facebookProfile:source.facebookProfile,phone:source.phone,partnerName:second.samePartner?source.partnerName:second.partnerName,entryCount:2}]:[])];
   res.end(JSON.stringify({registration:savedEntries[0],registrations:savedEntries,editPin:previewPin}));return;
  }
  if(data.action === 'lookupRegistration' && data.pin === previewPin && savedEntries.length) {res.end(JSON.stringify({registration:savedEntries.find(r=>r.id===data.registrationId)||savedEntries[0],registrations:savedEntries}));return;}
