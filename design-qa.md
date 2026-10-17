@@ -208,3 +208,76 @@ Evidence: `Racketeers-Game-Day-Desk.jpg`, `game-day-comparison-final.jpg`, `game
 All 102 automated tests and both built-Worker rendering checks pass (104 total). ESLint, the production build, and Git whitespace checks pass. The production bundle contains no preview fixture, demo staff credential, or sample player marker. New API checks cover organizer-only dispatch, stale revisions, simultaneous assignment, reserved-court conflicts in match access and scoring, editable operational settings during Live, durable warnings, and public PIN privacy. Queue tests cover even rotation, independent pools, busy players across divisions, rest expiry, qualification dependencies, multi-set warnings, disabled warnings, and notification deduplication.
 
 The standalone TypeScript command still encounters existing repository errors in Cloudflare ambient types, export-link unions and the Blob typing used for workbook downloads; it is not claimed as passing. Native/fullscreen behavior was verified in Chrome; unsupported native fullscreen uses a navigation-free viewport fallback. Physical printing, real devices, SMS/email delivery and a formal accessibility certification were not tested. Notifications are in-app callouts and organizer alerts. Historical games without completion timestamps do not acquire an invented rest start time.
+
+---
+
+# Registration sidebar flow - design QA (2026-10-17)
+
+**Findings**
+
+No actionable P0/P1/P2 findings remain in the inspected registration surfaces after the desktop density and organizer-dialog repairs. This is a comparison of the approved layout and behavior with the existing Racketeers design system, not a claim of pixel-perfect reproduction or accessibility certification.
+
+## Source, implementation and normalization
+
+- Source visual truth: `outputs/product-design-2026-10-17/registration-left-sidebar/02-partner-choice.png`.
+- Supplemental approved states: `01-combined.png` and `03-different-partner.png` in that same folder. The approved sequence is Division & players, Entries & shirts, Review & payment; the illustrations do not include a separate payment-page image.
+- Final browser-rendered implementation: `outputs/registration-release/02-partner-choice-desktop-final.jpg`.
+- Browser viewport: 1440 x 1120 CSS pixels. State: light theme, Entries & shirts, first pair Miguel Santos / Paolo Reyes, second entry enabled, Level F selected for the second entry, neither partner option selected. Continue is disabled until a partner choice is made.
+- Pixel dimensions measured with Pillow: source 1403 x 1121; implementation 1440 x 1120. The original pre-fix browser capture is 1425 x 1362. The final desktop capture is one screenshot pixel per CSS pixel; the initial capture excludes the 15px vertical scrollbar and has full-document height.
+- The generated source has no recorded CSS viewport or device scale factor. For the persisted comparison it was proportionally normalized to 1440 x 1151; the implementation remains 1440 x 1120, without stretching its aspect ratio or hiding content. This is visual normalization, not an exact pixel-difference test.
+- Full-view evidence opened together: the approved original and final screenshot were displayed in the same tool response. The saved normalized combined input is `outputs/registration-release/qa-partner-choice-full-comparison.png` (source left, implementation right).
+- Focused inputs opened and inspected: `outputs/registration-release/qa-partner-controls-comparison.png` (source above, implementation below) for type, radio labels, control outlines and helper copy; `outputs/registration-release/qa-sidebar-comparison.png` (source left, implementation right) for document links, title wrapping and the existing photo. These are offline crops of real captured artifacts used only for QA, not application assets.
+
+## Required fidelity surfaces
+
+| Surface | Evidence and classification |
+| --- | --- |
+| Fonts and typography | The application retains its existing Arial/Helvetica/sans-serif stack rather than replacing it with an unverified face inferred from the generated illustration. Display headings remain bold with tight tracking; normal labels and helper text use the established smaller UI scale. Main heading is approximately 44px at this viewport; partner-choice labels are 19px, body/field text 14-16px, with 16px inputs. Focused comparison confirms full names and both partner descriptions remain readable, without truncation. The illustration has rounder, heavier lettering and larger radio circles; retaining the existing system and native radio rendering is intentional. |
+| Spacing and layout rhythm | Left event sidebar and right working surface remain separate, approximately 29%/71% at wide desktop. A single visible three-step progress indicator precedes the heading. Entry 1 is a compact two-person summary above the full-width second-entry area. The size guide aligns beside the intro; partner choices appear before any new-person fields; limit/payment notes and Back/Continue remain visible in the 1120px-tall final capture. Cards have restrained 6px radii and thin borders. The corrected page has comparable overall density to the approved image without shrinking inputs or hiding controls. |
+| Colors and tokens | Existing navy sidebar/header, lime progress/selection accents, white form surface, muted secondary text and pale disabled Continue are preserved. The source illustration uses more saturated lime in the tournament title and bluer helper text; the implementation intentionally follows current title rendering and shared site tokens. Selected/disabled states use native inputs plus textual labels rather than color alone. Dark and Pure black use shared theme tokens; OLED large surfaces remain black. |
+| Image quality and asset fidelity | The existing `/clubhouse-shuttle.webp` photograph remains the event-sidebar background; its subject, lower-side crop and navy treatment fit the approved direction. It is the current site asset, not a reconstruction of the generated reference. The saved JPEG capture is slightly softer than the PNG illustration, but no stretched image, transparency halo, broken image or low-resolution placeholder is visible. Existing Racketeers brand treatment and Phosphor icons are retained; no new hand-drawn asset approximations were introduced. |
+| Copy and content | Tournament title, Philippine date/time, venue, Tournament rules & regulations, Disclaimer & waiver, Edit registration and the two-entry explanation remain visible. Same partner names the reused person; Different partner explains that a new person's details will follow. Additional helper copy explicitly says those fields appear after choosing. Remove second entry is available beside the heading on wide desktop. Actual configured division names and selected shirt values can differ from the illustrative fixture; they are data, not hard-coded mock text. The authenticated organizer header shows Organizer/Umpire/Projector and sign-out controls instead of the public illustration's shorter header; existing role access is intentionally preserved. |
+
+## Comparison history and repair
+
+1. **Initial desktop comparison - P2 density drift.** `outputs/registration-release/02-partner-choice-desktop.jpg` measured 1425 x 1362 pixels at a 1440 x 1120 CSS viewport. The approved source is 1121px tall (approximately 1120px before width normalization). The size guide occupied a standalone row, with repeated large section gaps and a separate Remove second entry row. The Continue/footer content fell below the intended viewport. This materially changed above-the-fold density, so the initial comparison was blocked.
+2. **Focused CSS repair.** Registration-only wide-desktop rules align the size guide with the intro, place Remove second entry beside its heading, compact the first-entry summary and reduce repeated gaps from 18-24px to 12-16px. Inputs remain at least 46px high, Continue remains 54px, and partner-choice cards remain at least 92px. Mobile/tablet document flow is unchanged.
+3. **Post-fix desktop comparison.** `outputs/registration-release/02-partner-choice-desktop-final.jpg` measures 1440 x 1120. The same source and post-fix capture were reopened together, followed by focused comparisons. The final screenshot shows the complete second-entry choice, shirt selectors, entry-limit note and Back/Continue footer within the viewport. The P2 density finding is resolved; no further desktop-density fix was made after this passing comparison.
+4. **Additional organizer Add Player dialog - P2 navigation and wrapping.** In a narrow modal, the prior heading-focused `scrollIntoView` action scrolled the Close control and progress indicator out of view. The narrowed right surface also left the Invitational division choice too little width, breaking its name into short fragments. Browser viewport/DOM readback established these findings; the earlier full-page modal screenshot is not treated as reliable fixed-position evidence. These were separate modal issues discovered after the desktop-density pass.
+5. **Organizer dialog repair and post-fix review.** The form now scrolls the progress reference into view, with a 104px modal progress scroll margin, while the existing Close button remains sticky and at least 44px high. Modal-only division choices stack in one column at widths at or below 760px. The fixed screenshot `outputs/registration-release/08-organizer-dialog-fixed.jpg` was opened and then compared in the same tool input with the approved first-step `01-combined.png`. The screenshot shows Close above all three progress steps, the complete heading, and readable division names including Invitational, without overlap or clipping. The parent browser readback places Close at approximately y32-79 and progress at y104 or below, with no horizontal overflow at a reported 390 x 844 CSS viewport. Pillow measures the supplemental image at 375 x 811 pixels; no one-pixel-per-CSS-pixel claim or pixel-perfect comparison is made for this capture. The intentional modal adaptation removes the event sidebar and stacks choices while retaining the same first-step hierarchy and form. Both P2 modal findings are resolved.
+
+## Browser interactions and responsive evidence
+
+All interaction checks used isolated in-memory preview data. No production registration, receipt, credential or tournament phase was changed during QA. The parent implementation run verified:
+
+- Division changes, including a round trip through Singles, preserve entered player details and restore the partner draft.
+- Second-entry Same partner / Different partner choices reveal only the appropriate branch; changing branches retains separate drafts and shirt sizes.
+- Entry 1 and Entry 2 shirt selections remain associated with their respective people.
+- A local two-entry submission reaches confirmation with linked entries and the existing shared PIN/payment behavior.
+- Widths 1440, 834, 390 and 360 CSS pixels have no page-level horizontal overflow. At 390, page scroll width was 375px, accounting for the 15px vertical scrollbar; visible inputs measured at least 16px font size.
+- Light, Dark and Pure black were checked. Supplemental evidence: `03-different-partner-mobile.jpg` (375 x 3099 pixels, viewport width 390), `04-dark-360.jpg` (345 x 3168, viewport width 360), and `05-oled-tablet.jpg` (819 x 2262, viewport width 834). These are full-document captures; their heights exceed the device viewport because the page scrolls normally.
+- The browser development log check at warning and error levels returned an empty array.
+- Organizer Add Player at a 390 x 844 CSS viewport retains the sticky Close button, visible progress, readable single-column division choices and no page-level horizontal overflow after the modal repair. `08-organizer-dialog-fixed.jpg` is the inspected post-fix evidence; the raster size is recorded separately above.
+
+These are emulated browser checks rather than physical-device testing. The static comparison is not a complete screen-reader, keyboard or text-zoom audit. The payment page follows existing payment instructions and optional-proof behavior; no new payment-provider integration was introduced or tested against live storage.
+
+**Open Questions**
+
+None blocking this release. The illustration does not specify every edit, empty, error or payment state; existing product behavior and role boundaries govern those states.
+
+**Implementation Checklist**
+
+- [x] Approved left event sidebar, document links and current image retained.
+- [x] Division selection and player details combined in the first step.
+- [x] Explicit partner choice precedes different-partner fields.
+- [x] Draft preservation and per-person shirt ownership verified in the preview.
+- [x] Desktop density finding fixed, recaptured and compared with the source.
+- [x] Narrow organizer-dialog scroll/navigation and division-name wrapping findings fixed and recaptured.
+- [x] Full and focused source/implementation comparisons inspected across all five fidelity surfaces.
+- [x] Responsive widths, shared themes, local submission and browser logs checked.
+
+**Follow-up Polish**
+
+P3: The generated illustration's decorative progress connectors and larger radio outlines could be revisited with a future design-system refinement. The current labeled native controls preserve clear selection and keyboard semantics; these refinements do not block the approved flow.
+
+final result: passed

@@ -10,7 +10,7 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const require=createRequire(import.meta.url);
 const dir=await mkdtemp(path.join(tmpdir(),'registration-ui-'));
-await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf8'))+'\nexport { PublicRegistration, TournamentCountdown, UmpireScorecard };',resolveDir:path.resolve('app'),loader:'tsx'},outfile:path.join(dir,'page.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:require.resolve(args.path),external:true}));}}]});
+await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf8'))+'\nexport { PublicRegistration, TournamentCountdown, UmpireScorecard };',resolveDir:path.resolve('app'),loader:'tsx'},outfile:path.join(dir,'page.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
 const {default:Home,PublicRegistration,TournamentCountdown,UmpireScorecard}=await import(pathToFileURL(path.join(dir,'page.mjs')));
 const state={status:'registration',divisions:[{id:'d',name:'Open Doubles',mode:'doubles'}],registrations:[{id:'one',name:'Alex',facebookProfile:'https://facebook.com/alex.test',phone:'09123456789',divisionId:'d',partnerId:'two',club:'Cebu Club',shirtSize:'L',desiredLevel:'Intermediate'},{id:'two',name:'Sam',facebookProfile:'https://facebook.com/sam.test',phone:'09123456780',divisionId:'d',partnerId:'one',club:'Rackets',shirtSize:'S',desiredLevel:'Advanced'}]};
 test('opening page shows registration without a PIN dialog and offers staff access',()=>{
@@ -19,17 +19,53 @@ test('opening page shows registration without a PIN dialog and offers staff acce
  const nav=html.match(/<nav class="view-switch"[^>]*>(.*?)<\/nav>/s)[1];
  assert.match(nav,/>Staff access</);assert.match(nav,/>Registration</);assert.match(nav,/>Spectator</);assert.doesNotMatch(nav,/>Organizer<|>Umpire<|>Projector</);
 });
-test('organizer registration dialog uses full player form and required club fields',()=>{
- const html=renderToStaticMarkup(React.createElement(PublicRegistration,{state,organizerPin:'test-only',onSaved(){}}));
- assert.equal((html.match(/<label>Club \/ group/g)||[]).length,2);
- assert.equal((html.match(/Facebook profile link/g)||[]).length,2);assert.equal((html.match(/Phone \/ mobile number/g)||[]).length,2);assert.doesNotMatch(html,/Registered level|Allowed registration levels/);assert.match(html,/Player 1/);assert.match(html,/Player 2 \/ Partner/);assert.match(html,/Submit Registration/);assert.match(html,/Upload payment photo/);
+test('public and organizer registration share required player fields and preserve event documents',()=>{
+ for(const organizerPin of ['', 'test-only']){
+  const html=renderToStaticMarkup(React.createElement(PublicRegistration,{state,organizerPin,onSaved(){}}));
+  assert.equal((html.match(/<label>Club \/ group/g)||[]).length,2);
+  assert.equal((html.match(/Facebook profile link/g)||[]).length,2);assert.equal((html.match(/Phone \/ mobile number/g)||[]).length,2);
+  assert.doesNotMatch(html,/Registered level|Allowed registration levels/);assert.match(html,/Player 1/);assert.match(html,/Player 2 \/ Partner/);
+  assert.match(html,/Submit Registration/);assert.match(html,/Upload payment photo/);
+  assert.match(html,/<aside class="clubhouse-sidebar"/);assert.match(html,/aria-label="Tournament documents"/);
+  assert.match(html,/Tournament rules &amp; regulations/);assert.match(html,/Disclaimer &amp; waiver/);
+ }
 });
-test('second-entry form preserves both players and exposes black or tournament shirt choices',()=>{
+
+test('division selection and player details occupy the same first step of a visible three-step flow',()=>{
+ const html=renderToStaticMarkup(React.createElement(PublicRegistration,{state,onSaved(){}}));
+ assert.match(html,/Division &amp; players/);assert.match(html,/Entries &amp; shirts/);assert.match(html,/Review &amp; payment/);
+ const progress=html.match(/<ol([^>]*class="registration-steps"[^>]*)>(.*?)<\/ol>/s);
+ assert.ok(progress);assert.doesNotMatch(progress[1],/\bhidden\b/);assert.equal((progress[2].match(/<li\b/g)||[]).length,3);
+ const firstStep=html.slice(html.indexOf('registration-entry-basics'),html.indexOf('guided-entry-review'));
+ assert.match(firstStep,/Open Doubles/);assert.match(firstStep,/Full name/);assert.match(firstStep,/Partner/);
+ assert.match(firstStep,/<fieldset[^>]*class="registration-division-options"[^>]*>/);
+ assert.match(firstStep,/<legend>Choose (?:your |a )?division<\/legend>/);
+ assert.match(firstStep,/<input(?=[^>]*type="radio")(?=[^>]*checked="")[^>]*>/);
+});
+
+test('later-linked second entry requires an explicit partner choice before showing new partner fields',()=>{
  const html=renderToStaticMarkup(React.createElement(PublicRegistration,{state,organizerPin:'test-only',initialRegistration:state.registrations[0],onSaved(){}}));
- assert.match(html,/Second entry linked to/);assert.match(html,/Same partner as the first entry/);
- assert.equal((html.match(/<option value="black">Black shirt<\/option>/g)||[]).length,2);
- assert.match(html,/value="https:\/\/facebook.com\/alex.test"/);assert.match(html,/value="https:\/\/facebook.com\/sam.test"/);assert.match(html,/value="09123456780"/);assert.match(html,/value="Sam"/);assert.match(html,/value="Rackets"/);
+ assert.match(html,/Second entry linked to/);assert.match(html,/Same partner/);assert.match(html,/Different partner/);
+ const choices=html.match(/<fieldset[^>]*class="registration-partner-choices"[^>]*>(.*?)<\/fieldset>/s);
+ assert.ok(choices);assert.equal((choices[1].match(/type="radio"/g)||[]).length,2);assert.doesNotMatch(choices[1],/\bchecked=/);
+ assert.match(html,/<button[^>]*class="primary"[^>]*disabled=""[^>]*>Continue to entries &amp; shirts/);
+ assert.match(html,/Sam/);assert.match(html,/value="https:\/\/facebook.com\/alex.test"/);
+ assert.doesNotMatch(html,/<input[^>]*value="(?:Sam|Rackets|09123456780|https:\/\/facebook.com\/sam.test)"/);
+ assert.equal((html.match(/<label>Club \/ group/g)||[]).length,1);
+ assert.equal((html.match(/Facebook profile link/g)||[]).length,1);
+ assert.match(html,/<option value="black">Black shirt<\/option>/);
+ assert.match(html,/<option value="tournament"[^>]*>Second tournament shirt<\/option>/);
 });
+
+test('singles registration exposes only the participating player fields',()=>{
+ const singleState={...state,divisions:[...state.divisions,{id:'single',name:'Open Singles',mode:'singles'}]};
+ const html=renderToStaticMarkup(React.createElement(PublicRegistration,{state:singleState,initialDivisionId:'single',onSaved(){}}));
+ assert.equal((html.match(/<label>Club \/ group/g)||[]).length,1);
+ assert.equal((html.match(/Facebook profile link/g)||[]).length,1);
+ assert.doesNotMatch(html,/<legend>Player 2 \/ Partner<\/legend>/);
+ assert.match(html,/Open Singles/);assert.match(html,/Disclaimer &amp; waiver/);
+});
+
 test('spectator countdown shows the scheduled Philippine start and handles missing schedules',()=>{
  const html=renderToStaticMarkup(React.createElement(TournamentCountdown,{state:{...state,tournamentName:'Racketeers',startDate:'2026-10-01',dayStart:'08:30'}}));
  assert.match(html,/Philippine time/);assert.match(html,/Days/);assert.match(html,/Hours/);assert.match(html,/Minutes/);assert.match(html,/Seconds/);assert.match(html,/8:30/);
