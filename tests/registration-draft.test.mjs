@@ -8,7 +8,7 @@ import {pathToFileURL} from 'node:url';
 
 const dir=await mkdtemp(path.join(tmpdir(),'registration-draft-'));
 await build({entryPoints:['lib/registration-draft.ts'],outfile:path.join(dir,'draft.mjs'),bundle:true,platform:'node',format:'esm'});
-const {partnerFields,withPartnerFields,registrationForSubmission,chooseSecondEntryPartner,entryDetailsError}=await import(pathToFileURL(path.join(dir,'draft.mjs')));
+const {partnerFields,withPartnerFields,registrationForSubmission,chooseSecondEntryPartner,secondEntrySource,entryDetailsError}=await import(pathToFileURL(path.join(dir,'draft.mjs')));
 test.after(()=>rm(dir,{recursive:true,force:true}));
 
 function primary(){return {
@@ -91,4 +91,70 @@ test('restoring partner snapshots preserves non-partner fields and supports immu
  assert.equal(restored.partnerShirtSize,'S');assert.equal(original.partnerShirtSize,'L');
  const empty=partnerFields({});
  assert.equal(empty.partnerName,'');assert.equal(empty.partnerPhone,'');assert.equal(empty.partnerClub,'');assert.equal(empty.partnerShirtSize,'M');
+});
+
+test('second-entry owner projection preserves Player 1 and reverses all participating Player 2 details immutably',()=>{
+ const first=Object.freeze({...primary(),desiredLevel:'Intermediate',partnerDesiredLevel:'Advanced'});
+ const own=secondEntrySource(first,'primary');
+ assert.deepEqual(own,first);assert.notEqual(own,first);
+ const partner=secondEntrySource(first,'partner');
+ assert.equal(partner.name,'Paolo Reyes');assert.equal(partner.club,'Metro Badminton');
+ assert.equal(partner.facebookProfile,first.partnerFacebookProfile);assert.equal(partner.phone,first.partnerPhone);
+ assert.equal(partner.shirtSize,'L');assert.equal(partner.desiredLevel,'Advanced');
+ assert.equal(partner.partnerName,'Miguel Santos');assert.equal(partner.partnerClub,'Harbor Badminton');
+ assert.equal(partner.partnerFacebookProfile,first.facebookProfile);assert.equal(partner.partnerPhone,first.phone);
+ assert.equal(partner.partnerShirtSize,'M');assert.equal(partner.partnerDesiredLevel,'Intermediate');
+ assert.equal(partner.divisionId,first.divisionId);assert.equal(partner.teamName,first.teamName);
+ assert.notEqual(partner,first);assert.equal(first.name,'Miguel Santos');assert.equal(first.partnerName,'Paolo Reyes');
+ assert.equal(first.shirtSize,'M');assert.equal(first.partnerShirtSize,'L');
+});
+
+test('Player 2 second entry reuses Player 1 as Same partner or keeps a separate Different partner draft',()=>{
+ const first=Object.freeze(primary());
+ const source=secondEntrySource(first,'partner');
+ const separate=Object.freeze({...different(),name:source.name,club:source.club,facebookProfile:source.facebookProfile,phone:source.phone,shirtSize:source.shirtSize});
+ const same=chooseSecondEntryPartner(separate,'same',source,'doubles');
+ assert.equal(same.name,'Paolo Reyes');assert.equal(same.club,'Metro Badminton');
+ assert.equal(same.facebookProfile,first.partnerFacebookProfile);assert.equal(same.phone,first.partnerPhone);assert.equal(same.shirtSize,'L');
+ assert.equal(same.partnerName,'Miguel Santos');assert.equal(same.partnerClub,'Harbor Badminton');
+ assert.equal(same.partnerFacebookProfile,first.facebookProfile);assert.equal(same.partnerPhone,first.phone);
+ assert.equal(same.partnerShirtSize,'M');assert.equal(same.partnerSecondShirt,'black');assert.equal(same.samePartner,true);
+ assert.equal(entryDetailsError(same,'doubles'),null);
+ const differentPartner=chooseSecondEntryPartner(separate,'different',source,'doubles');
+ assert.equal(differentPartner.name,'Paolo Reyes');assert.equal(differentPartner.club,'Metro Badminton');
+ assert.equal(differentPartner.facebookProfile,first.partnerFacebookProfile);assert.equal(differentPartner.phone,first.partnerPhone);
+ assert.equal(differentPartner.partnerName,'Enzo Garcia');assert.equal(differentPartner.partnerClub,'Eastside Badminton');
+ assert.equal(differentPartner.partnerFacebookProfile,separate.partnerFacebookProfile);assert.equal(differentPartner.partnerPhone,separate.partnerPhone);
+ assert.equal(differentPartner.partnerShirtSize,'S');assert.equal(differentPartner.samePartner,false);
+ assert.equal(entryDetailsError(differentPartner,'doubles'),null);
+ assert.equal(separate.partnerName,'Enzo Garcia');assert.equal(separate.partnerShirtSize,'S');assert.deepEqual(first,primary());
+});
+
+test('second-entry owner projection reflects edited first-entry details without mutating prior projections',()=>{
+ const first=Object.freeze(primary());
+ const before=secondEntrySource(first,'partner');
+ const edited={...first,name:'Miguel S. Santos',club:'Harbor Rackets',facebookProfile:'https://facebook.com/miguel.santos.updated',phone:'09123456781',shirtSize:'XL',partnerName:'Paolo R. Reyes',partnerClub:'Metro Rackets',partnerFacebookProfile:'https://facebook.com/paolo.reyes.updated',partnerPhone:'09123456782',partnerShirtSize:'2XL'};
+ const after=secondEntrySource(edited,'partner');
+ assert.equal(after.name,edited.partnerName);assert.equal(after.club,edited.partnerClub);
+ assert.equal(after.facebookProfile,edited.partnerFacebookProfile);assert.equal(after.phone,edited.partnerPhone);assert.equal(after.shirtSize,'2XL');
+ assert.equal(after.partnerName,edited.name);assert.equal(after.partnerClub,edited.club);
+ assert.equal(after.partnerFacebookProfile,edited.facebookProfile);assert.equal(after.partnerPhone,edited.phone);assert.equal(after.partnerShirtSize,'XL');
+ assert.equal(before.name,'Paolo Reyes');assert.equal(before.partnerName,'Miguel Santos');assert.equal(before.shirtSize,'L');assert.equal(before.partnerShirtSize,'M');
+ assert.deepEqual(first,primary());
+ const current=secondEntrySource(edited,'primary');
+ assert.deepEqual(current,edited);assert.notEqual(current,edited);
+ const same=chooseSecondEntryPartner({...different(),name:after.name,club:after.club,facebookProfile:after.facebookProfile,phone:after.phone},'same',after,'doubles');
+ assert.equal(same.name,'Paolo R. Reyes');assert.equal(same.partnerName,'Miguel S. Santos');
+ assert.equal(same.partnerFacebookProfile,edited.facebookProfile);assert.equal(same.partnerPhone,edited.phone);assert.equal(same.partnerShirtSize,'XL');
+});
+
+test('Player 2 entering singles remains the selected owner and excludes hidden partner details from submission',()=>{
+ const first=Object.freeze(primary());const source=secondEntrySource(first,'partner');
+ const draft={...different(),owner:'partner',divisionId:'singles',name:source.name,club:source.club,facebookProfile:source.facebookProfile,phone:source.phone,shirtSize:source.shirtSize};
+ const submitted=registrationForSubmission(draft,'singles');
+ assert.equal(submitted.owner,'partner');assert.equal(submitted.name,'Paolo Reyes');assert.equal(submitted.club,'Metro Badminton');
+ assert.equal(submitted.facebookProfile,first.partnerFacebookProfile);assert.equal(submitted.phone,first.partnerPhone);assert.equal(submitted.shirtSize,'L');
+ assert.equal(submitted.partnerName,'');assert.equal(submitted.partnerPhone,undefined);assert.equal(submitted.partnerShirtSize,'');assert.equal(submitted.samePartner,false);
+ assert.equal(entryDetailsError(submitted,'singles'),null);
+ assert.equal(draft.partnerName,'Enzo Garcia');assert.deepEqual(first,primary());
 });

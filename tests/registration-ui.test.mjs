@@ -10,8 +10,8 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const require=createRequire(import.meta.url);
 const dir=await mkdtemp(path.join(tmpdir(),'registration-ui-'));
-await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf8'))+'\nexport { PublicRegistration, TournamentCountdown, UmpireScorecard };',resolveDir:path.resolve('app'),loader:'tsx'},outfile:path.join(dir,'page.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
-const {default:Home,PublicRegistration,TournamentCountdown,UmpireScorecard}=await import(pathToFileURL(path.join(dir,'page.mjs')));
+await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf8'))+'\nexport { PublicRegistration, RegistrationSecondEntryOwner, TournamentCountdown, UmpireScorecard };',resolveDir:path.resolve('app'),loader:'tsx'},outfile:path.join(dir,'page.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
+const {default:Home,PublicRegistration,RegistrationSecondEntryOwner,TournamentCountdown,UmpireScorecard}=await import(pathToFileURL(path.join(dir,'page.mjs')));
 const state={status:'registration',divisions:[{id:'d',name:'Open Doubles',mode:'doubles'}],registrations:[{id:'one',name:'Alex',facebookProfile:'https://facebook.com/alex.test',phone:'09123456789',divisionId:'d',partnerId:'two',club:'Cebu Club',shirtSize:'L',desiredLevel:'Intermediate'},{id:'two',name:'Sam',facebookProfile:'https://facebook.com/sam.test',phone:'09123456780',divisionId:'d',partnerId:'one',club:'Rackets',shirtSize:'S',desiredLevel:'Advanced'}]};
 test('opening page shows registration without a PIN dialog and offers staff access',()=>{
  const html=renderToStaticMarkup(React.createElement(Home));
@@ -64,6 +64,35 @@ test('singles registration exposes only the participating player fields',()=>{
  assert.equal((html.match(/Facebook profile link/g)||[]).length,1);
  assert.doesNotMatch(html,/<legend>Player 2 \/ Partner<\/legend>/);
  assert.match(html,/Open Singles/);assert.match(html,/Disclaimer &amp; waiver/);
+});
+
+const secondEntryOwnerHtml=(overrides={})=>renderToStaticMarkup(React.createElement(RegistrationSecondEntryOwner,{name:'second-entry-owner',choice:null,primaryName:'Miguel Santos',partnerName:'Paolo Reyes',canChoosePartner:true,busy:false,onChoose(){},...overrides}));
+const ownerRadios=html=>[...html.matchAll(/<input\b(?=[^>]*type="radio")[^>]*>/g)].map(match=>match[0]);
+
+test('second-entry owner choice uses named native radio labels and requires an explicit selection',()=>{
+ const html=secondEntryOwnerHtml();const radios=ownerRadios(html);
+ assert.match(html,/<fieldset\b[^>]*>[\s\S]*?<legend>Who is entering again\?<\/legend>/);
+ assert.equal(radios.length,2);assert.ok(radios.every(radio=>/name="second-entry-owner"/.test(radio)));
+ assert.ok(radios.every(radio=>!(/\bchecked=/.test(radio))));
+ const labels=[...html.matchAll(/<label\b[^>]*>([\s\S]*?)<\/label>/g)].map(match=>match[1]);
+ assert.ok(labels.some(label=>/value="primary"/.test(label)&&/Miguel Santos/.test(label)&&/Player 1/.test(label)));
+ assert.ok(labels.some(label=>/value="partner"/.test(label)&&/Paolo Reyes/.test(label)&&/Player 2/.test(label)));
+});
+
+test('choosing Player 2 marks only that named owner as selected',()=>{
+ const html=secondEntryOwnerHtml({choice:'partner'});const radios=ownerRadios(html);
+ assert.equal(radios.length,2);
+ assert.match(radios.find(radio=>/value="partner"/.test(radio)),/\bchecked=""/);
+ assert.doesNotMatch(radios.find(radio=>/value="primary"/.test(radio)),/\bchecked=/);
+ assert.match(html,/Paolo Reyes/);assert.match(html,/Miguel Santos/);
+});
+
+test('singles first entry offers only its participating player and saving disables the entire owner group',()=>{
+ const singles=secondEntryOwnerHtml({canChoosePartner:false,choice:'primary'});const radios=ownerRadios(singles);
+ assert.equal(radios.length,1);assert.match(radios[0],/value="primary"/);assert.match(radios[0],/\bchecked=""/);
+ assert.match(singles,/Miguel Santos/);assert.doesNotMatch(singles,/Paolo Reyes|Player 2/);
+ const busy=secondEntryOwnerHtml({busy:true,choice:'partner'});
+ assert.match(busy,/<fieldset\b[^>]*\bdisabled=""/);assert.equal(ownerRadios(busy).length,2);
 });
 
 test('spectator countdown shows the scheduled Philippine start and handles missing schedules',()=>{
