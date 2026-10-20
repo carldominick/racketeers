@@ -2,7 +2,13 @@
 
 Standalone Cloudflare deployment of the Racketeers application. Includes tournament setup, individual registrations and pairing, pools and knockout draws, umpire scoring, organizer PIN controls, schedules, projector views, and printable scorecards.
 
+## Working from two computers
+
+Start with [AGENTS.md](AGENTS.md), [the repository map](PROJECT_CONTEXT.md), and [the MateBook planning / desktop development workflow](docs/development-workflow.md). Use the [feature spec template](docs/specs/FEATURE_TEMPLATE.md) and GitHub Issue/PR templates to hand off approved concepts. Work on separate branches. Merging to main automatically deploys, even for documentation; release requires explicit approval.
+
 ## Deploy from the connected GitHub repository
+
+The steps below are for a new installation. This repository already has production D1/R2 bindings and a main-branch deployment workflow. Do not recreate storage, replace IDs or follow a fresh-install procedure to set up a second development computer.
 
 1. In Cloudflare, create a D1 database named `racketeers-db`.
 2. Copy its database ID into `wrangler.json`, replacing the placeholder `database_id`. Keep the binding name `DB`.
