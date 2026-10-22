@@ -2,6 +2,28 @@
 
 Standalone Cloudflare deployment of the Racketeers application. Includes tournament setup, individual registrations and pairing, pools and knockout draws, umpire scoring, organizer PIN controls, schedules, projector views, and printable scorecards.
 
+## Dedicated court window and receipt review
+
+Organizer → Run tournament → Game day desk → **Open court view** launches `/courts` separately. Keep the main desk open to assign courts while the display shows usage, reservations and available courts. Live Venue supports 12 courts in a four-by-three layout, selectable badminton courts, current players/scores, rotate/zoom/reset, and a 2D list. Player artwork shows illustrative positions, not tracking. Narrow screens start in 2D; unavailable WebGL falls back to it. Enter fullscreen hides its button; Escape exits. Light, Dark and Pure black follow the tournament theme.
+
+Organizer credentials remain in the main window. A temporary random BroadcastChannel carries whitelisted display fields for pre-Live staff preview while that window remains open. Independently opened `/courts` uses public `/api/courts`, withholding courts until Live/Completed even when staff headers are supplied. Failed polling retains the last update with a reconnecting message. Assignments stay in the main desk.
+
+Organizer → Prepare → Registration shows **Amount & reference** beneath an uploaded screenshot. Choose **Read payment screenshot**, review/correct the amount, reference, provider and optional date, then **Save reviewed details**. Missing or ambiguous readings remain empty; manual entry is available. Saved amount/reference appears in the summary. Tesseract.js runs in a browser worker using same-origin WebAssembly and English language data, without sending receipts to an external OCR service. The first reading downloads engine/language files and can take longer on slow connections/devices.
+
+Reviewed fields are organizer-only and shared across linked players/entries. Separate revision checks and screenshot versions reject stale saves; replaced screenshots require renewed review. References reused across unrelated payment groups show a warning. OCR never marks anyone paid: **Confirm payment received** remains separate. The existing registration phase lock still applies to this interface.
+
+### Read all registration screenshots
+
+In **Organizer → Prepare → Registration**, use **Read all payment screenshots** above the division/player list. It checks all divisions, reads each shared payment screenshot once, and skips registrations without an upload. Saved reviews are skipped unless their image changed; select **Also read screenshots with saved details** to reread them explicitly.
+
+A single Tesseract.js worker processes images sequentially on this device, reusing its loaded English engine. Progress and **Stop reading** are shown. Completed readings remain available after stopping; **Read remaining payment screenshots** continues without replacing staged results. Keep the tab open: these readings stay in memory until saved. Clearing local results does not remove saved details or screenshots.
+
+Open **Amount & reference** beneath each result, use **View screenshot for review**, correct any missing/uncertain fields and click **Save reviewed details**. Batch scanning never posts extracted values or changes payment confirmation automatically. Each explicit save retains the existing organizer authorization, screenshot-version and review-revision checks. A screenshot/review changed during scanning is discarded for rereading; a later change is rejected on save. Linked registration cards refresh the shared saved review without replacing unsaved edits. OCR is not a bank/payment verification service, and no external OCR service receives the image.
+
+Private D1 table `payment_receipt_details` is created lazily after authorization, separately from tournament-state saves. Reviews are retained after screenshot removal but cannot be retrieved through this endpoint without a current authorized receipt. These fields are excluded from current tournament JSON and registration spreadsheet exports; back up this table separately for migration. No new Cloudflare resource/binding is needed. Development checks never run remote migrations.
+
+Development/build scripts prepare ignored `public/ocr/` assets from locked npm dependencies. Run `npm ci` first. For the disposable 12-court and synthetic receipt fixture, set PowerShell `$env:RACKETEERS_PREVIEW_COURTS = '1'`, then run `npm run dev -- --host 127.0.0.1`. Open `http://127.0.0.1:5173/?role=organizer`. The fixture starts Live; switch Setup to Registration to exercise receipt review. Data disappears on preview restart. This does not test production authentication. Verification is recorded in `design-qa.md` and `outputs/court-ocr-verification.md`.
+
 ## Deploy from the connected GitHub repository
 
 1. In Cloudflare, create a D1 database named `racketeers-db`.
@@ -23,6 +45,14 @@ The deploy command deliberately refuses deployment while the database ID is stil
 This repository contains source code only. It does not include current player records, registration PINs, payment details, or scores from the existing site. A new D1 database begins with a new tournament. Keep using the existing site until a separate data migration has been completed and verified. Do not enter the same event independently on both sites.
 
 ## Local development and checks
+
+The locked runtime uses Vinext 1.3.0, React/React DOM/RSC 19.3.1 and `@vitejs/plugin-rsc` 0.5.37. The existing Cloudflare Worker entry and bindings are retained. Client assets now use `/_next/static/`; both `/_next/image` and the legacy `/_vinext/image` are supported. Without an Images binding, image requests return the original file. The interface uses its existing Arial stack; unused Geist downloads and tracked generated font caches have been removed.
+
+Built-Worker checks use pinned Miniflare 4.20260730.0 with real local workerd, synthetic credentials and disposable D1. The test reads built static files locally and does not load production resource identifiers or connect to remote storage. It verifies pages/assets and actual registration requests. Plain Node cannot import this build's `cloudflare:workers` module. The older Miniflare transitively supplied by Wrangler cannot run the configured August compatibility date; this dedicated test dependency preserves that date and the existing deployment configuration.
+
+The header starts **Connecting…**, then shows **Synced** after a valid server response. HTTP errors and a 10-second refresh timeout show **Offline**. An overdue confirmed update shows **Update delayed**, using the current role's polling interval. Successful saves also confirm the timestamp. This indicator does not add durable offline storage or change score retry behavior.
+
+Public registration has separate per-network limits over 15 minutes: 300 successful submission requests and 1,200 attempts. One request may contain multiple linked player records. Failed validation, conflicts and locked-phase responses return their reserved success slot; they still count toward the attempt ceiling. Verified organizer registration bypasses these public quotas, with a fresh authorization check in the registration handler. Invalid organizer headers return 401 rather than falling back to public creation. Existing failed-credential protection remains separate at 15 failures per network/window, including second-entry PIN checks. Its precheck is not a strict ceiling for simultaneous credential attempts; this change is not a replacement for stronger organizer authentication.
 
 ```sh
 npm ci
@@ -89,7 +119,7 @@ New registration IDs use REG followed by a cryptographically generated UUID with
 
 ## Clubhouse Clarity design preview
 
-`npm run dev` opens an isolated frontend preview using the production UI components and demo tournament data. Demo submissions stay in memory; payment storage and staff access are not connected. `npm run dev:worker` starts the actual Cloudflare/Vinext development runtime using local bindings. `npm run build` and `npm run deploy` still build and deploy the production Worker and its real APIs.
+`npm run dev` opens an isolated frontend preview using the production UI components and demo tournament data. Demo submissions and payment storage stay in memory; production storage and staff access are not connected. `npm run dev:worker` starts the actual Cloudflare/Vinext development runtime using local bindings. `npm run build` and `npm run deploy` still build and deploy the production Worker and its real APIs.
 
 Preview-only viewport checks: append `?viewport=390`, `?viewport=834`, or `?viewport=1440` to the preview address. The desktop fixture scales a 1440 × 1024 frame uniformly for visual comparison. These fixtures are not production routes.
 

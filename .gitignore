@@ -44,4 +44,5 @@ next-env.d.ts
 .dev.vars*
 .openai/
 /.vinext/
+/public/ocr/
 *.tsbuildinfo

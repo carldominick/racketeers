@@ -18,6 +18,7 @@ import { GameDayActionDialog, type DeskAction, type DeskActionHandler } from "./
 
 type Props = {
   state: TournamentState; busy: boolean; help: Record<string, CourtHelpRequest>;
+  onOpenCourtView?: () => void;
   onAssign: (id: string, court: number) => Promise<void>; onRelease: (id: string) => Promise<void>;
   onAction: DeskActionHandler;
   onSettings: (patch: Partial<GameDaySettings>) => void; onSettingsPage: () => void;
@@ -79,7 +80,7 @@ export function GameDayDesk(props: Props) {
   const looseLive = state.matches.filter(m => m.status === "live" && !m.hold && !isFinished(m) && !m.court);
   return <div className="game-day-desk">
     <header className="desk-event"><div><strong>{state.tournamentName}</strong><span>{state.venue && <><MapPin size={18} aria-hidden="true" />{state.venue}</>}<CalendarBlank size={18} aria-hidden="true" />{new Date(`${state.startDate}T12:00:00+08:00`).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short", day: "numeric", month: "short", year: "numeric" })}</span></div><div className="desk-event-actions"><button type="button" className="secondary desk-print-button desk-bulk-print" onClick={() => props.onPrint()}><Printer size={18} aria-hidden="true" />Print all games</button><label>Division<select value={divisionFilter} onChange={e => setDivisionFilter(e.target.value)}><option value="all">All divisions</option>{state.divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label><span className="desk-phase">{state.status}</span></div></header>
-    <div className="desk-heading"><h2>Game day desk</h2><p>{available.length} courts available · {state.courts - available.length} in use / reserved</p></div>
+    <div className="desk-heading"><h2>Game day desk</h2><p>{available.length} courts available · {state.courts - available.length} in use / reserved</p>{props.onOpenCourtView && <button className="secondary" onClick={props.onOpenCourtView}>Open court view</button>}</div>
     <section className="desk-recommendations" aria-label="Court recommendations"><header><h3>Recommended assignments</h3><p>Updates as courts open. Each assignment is checked again before saving.</p></header><div className="desk-recommendation-list">{recommendations.length ? recommendations.map(item => <article key={item.court}><span className="desk-state free">Court {item.court} available</span><strong>Game {gameNumber(state, item.match)} · {bracketLabel(state, item.match)}</strong><p>{matchupText(state, item.match)}</p><button className="primary" disabled={busy} onClick={() => void props.onAssign(item.match.id, item.court)}>Assign to Court {item.court}</button></article>) : <p>{available.length ? "No eligible games are ready. Check waiting games and holds below." : "All courts are in use or reserved. Recommendations appear when a court opens."}</p>}</div></section>
     <NextGameNotice state={state} />
     <section className="desk-courts" aria-label="Court availability">{Array.from({ length: state.courts }, (_, i) => {
