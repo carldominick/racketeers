@@ -11,7 +11,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 
 const require = createRequire(import.meta.url);
 const dir = await mkdtemp(path.join(tmpdir(), 'match-card-print-'));
-await build({entryPoints:['app/components/print-match-card.tsx'], outfile:path.join(dir,'card.mjs'), bundle:true, platform:'node', format:'esm', jsx:'automatic', plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:require.resolve(args.path),external:true}));}}]});
+await build({entryPoints:['app/components/print-match-card.tsx'], outfile:path.join(dir,'card.mjs'), bundle:true, platform:'node', format:'esm', jsx:'automatic', plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
 const {PrintMatchCard, PrintMatchCards} = await import(pathToFileURL(path.join(dir, 'card.mjs')));
 after(() => rm(dir, {recursive:true,force:true}));
 

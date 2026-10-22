@@ -1,5 +1,7 @@
 /** Isolated design preview. Mock data is never part of the production Worker. */
 import {defineConfig} from 'vite';
+import {courtViewSnapshot} from './lib/court-view';
+import {previewPaymentHandler} from './preview/payment-fixture';
 import {gameDayFixture} from './preview/game-day-fixture';
 import {projectorFixture} from './preview/projector-fixture';
 import {gameDayAction,type GameDayAction} from './lib/game-day';
@@ -12,6 +14,7 @@ const previewPin = '00000000';
 const sponsors = new Map<string, { id: string; name: string; bytes: Buffer }>();
 let revision=1;
 let state: ReturnType<typeof initialTournament>=process.env.RACKETEERS_PREVIEW_COURTS === '1' ? projectorFixture() : gameDayFixture();
+const previewPayments=previewPaymentHandler(()=>state);
 export default defineConfig({root:'preview',publicDir:'../public',server:{host:'0.0.0.0',allowedHosts:['terminal.local'],fs:{allow:['..']}},plugins:[react(),{name:'isolated-design-data',enforce:'pre',transform(code,id){
  if(!id.split('?')[0].endsWith('/app/page.tsx'))return;
  const role="new URLSearchParams(location.search).get('role')";
@@ -19,6 +22,8 @@ export default defineConfig({root:'preview',publicDir:'../public',server:{host:'
  return code.replace('useState<Tab>("setup")',`useState<Tab>(${role} === 'organizer' ? 'scores' : 'setup')`).replace('const [umpirePin, setUmpirePin] = useState("")',`const [umpirePin, setUmpirePin] = useState(${role} === 'umpire' ? '4317' : '')`).replace('const [selectedMatch, setSelectedMatch] = useState("")',`const [selectedMatch, setSelectedMatch] = useState(${role} === 'umpire' ? 'demo-match' : '')`).replace('const [umpireUnlocked, setUmpireUnlocked] = useState(false)',`const [umpireUnlocked, setUmpireUnlocked] = useState(${role} === 'umpire')`).replace('const [organizerPin, setOrganizerPin] = useState("")',`const [organizerPin, setOrganizerPin] = useState(${role} === 'organizer' || ${role} === 'projector' ? 'demo-only' : '')`).replace('useState<View>("register")',`useState<View>(${role} === 'organizer' ? 'organizer' : ${role} === 'umpire' ? 'umpire' : ${role} === 'projector' ? 'projector' : ${role} === 'spectator' ? 'spectator' : 'register')`).replace('useState(false);\n  const [sync',`useState(${role} === 'organizer' || ${role} === 'projector');\n  const [sync`).replace('const [umpireAccessPin, setUmpireAccessPin] = useState("")',`const [umpireAccessPin, setUmpireAccessPin] = useState(${role} === 'umpire' ? 'demo-only' : '')`);
  },configureServer(server){server.middlewares.use('/api/',async(req,res)=>{
  res.setHeader('content-type','application/json');
+ if(req.url?.startsWith('/payment-proof') || req.url?.startsWith('/payment-details')){await previewPayments(req,res);return;}
+ if(req.method==='GET' && req.url?.startsWith('/courts')){res.end(JSON.stringify(courtViewSnapshot(state)));return;}
  if(req.url?.startsWith('/sponsors')) {
   const id = new URL(req.url, 'http://preview').searchParams.get('image');
   if(req.method==='GET') {

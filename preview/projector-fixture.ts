@@ -1,5 +1,5 @@
 /** Disposable 12-court visual fixture. Never imported by the production Worker. */
-import { initialTournament, makeDivision, type Entry, type Match, type TournamentState } from "../lib/tournament";
+import { initialTournament, makeDivision, makeRegistration, type Entry, type Match, type TournamentState } from "../lib/tournament";
 export function projectorFixture(): TournamentState {
   const samples = [
     [1, "Level E", ["Miguel Santos", "Paolo Reyes"], ["Adrian Cruz", "Nico Garcia"], 18, 16],
@@ -21,5 +21,6 @@ export function projectorFixture(): TournamentState {
     const reserved = court === 3 || court === 9;
     return { id: index === 0 ? "demo-match" : `projector-match-${court}`, divisionId: division.id, stage: "regular", round: 1, label: `Group Game ${index + 1}`, entryAId: first.id, entryBId: second.id, sets: [{ a, b, complete: false }], status: reserved ? "ready" : "live", court, courtInUse: !reserved, dispatchedAt: new Date().toISOString(), scheduledAt: null, validated: false, pin: index === 0 ? "4317" : String(5000 + index), format: "single_31" };
   });
-  return { ...initialTournament(), status: "live", tournamentName: "Racketeers Badminton Cup", venue: "Sample badminton venue", courts: 12, startDate: "2026-10-03", endDate: "2026-10-03", divisions, matches, gameDay: { evenRotation: true, restMinutes: 0, nearCapEnabled: false, nearCapPoints: 5 } };
+  const registrations = ["Miguel Santos", "Paolo Reyes"].map((name,index)=>({...makeRegistration(divisions[0].id,index),id:`PREVIEW-REG-${index+1}`,name,club:"Sample club",phone:"09000000000",facebookProfile:"https://www.facebook.com/sample.player",paymentGroupId:"PREVIEW-PAYMENT",partnerId:`PREVIEW-REG-${index===0?2:1}`}));
+  return { ...initialTournament(), status: "live", tournamentName: "Racketeers X Fruitas Badminton Tournament", venue: "Metro Sports Center, Cebu City", courts: 12, startDate: "2026-11-29", endDate: "2026-11-29", divisions, matches, registrations, gameDay: { evenRotation: true, restMinutes: 0, nearCapEnabled: false, nearCapPoints: 5 } };
 }

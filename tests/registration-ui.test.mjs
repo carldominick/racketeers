@@ -10,11 +10,12 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const require=createRequire(import.meta.url);
 const dir=await mkdtemp(path.join(tmpdir(),'registration-ui-'));
-await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf8'))+'\nexport { PublicRegistration, RegistrationSecondEntryOwner, TournamentCountdown, UmpireScorecard };',resolveDir:path.resolve('app'),loader:'tsx'},outfile:path.join(dir,'page.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
-const {default:Home,PublicRegistration,RegistrationSecondEntryOwner,TournamentCountdown,UmpireScorecard}=await import(pathToFileURL(path.join(dir,'page.mjs')));
+await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf8'))+'\nexport { PublicRegistration, RegistrationSecondEntryOwner, TournamentCountdown, UmpireScorecard, ReceiptBatchReview };\nexport {ReceiptReview} from "./components/receipt-review";',resolveDir:path.resolve('app'),loader:'tsx'},outfile:path.join(dir,'page.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
+const {default:Home,PublicRegistration,RegistrationSecondEntryOwner,TournamentCountdown,UmpireScorecard,ReceiptBatchReview,ReceiptReview}=await import(pathToFileURL(path.join(dir,'page.mjs')));
 const state={status:'registration',divisions:[{id:'d',name:'Open Doubles',mode:'doubles'}],registrations:[{id:'one',name:'Alex',facebookProfile:'https://facebook.com/alex.test',phone:'09123456789',divisionId:'d',partnerId:'two',club:'Cebu Club',shirtSize:'L',desiredLevel:'Intermediate'},{id:'two',name:'Sam',facebookProfile:'https://facebook.com/sam.test',phone:'09123456780',divisionId:'d',partnerId:'one',club:'Rackets',shirtSize:'S',desiredLevel:'Advanced'}]};
 test('opening page shows registration without a PIN dialog and offers staff access',()=>{
  const html=renderToStaticMarkup(React.createElement(Home));
+ assert.match(html,/Connecting/);assert.doesNotMatch(html,/>● Synced</);
  assert.doesNotMatch(html,/role="dialog"/);assert.match(html,/class="active">Registration/);
  const nav=html.match(/<nav class="view-switch"[^>]*>(.*?)<\/nav>/s)[1];
  assert.match(nav,/>Staff access</);assert.match(nav,/>Registration</);assert.match(nav,/>Spectator</);assert.doesNotMatch(nav,/>Organizer<|>Umpire<|>Projector</);
@@ -131,4 +132,22 @@ test('a stale umpire scorecard displays awarded forfeiture sets with all score c
  assert.match(html,/Set 1 · 0–15 · Complete/);assert.match(html,/Set 2 · 0–15 · Complete/);assert.doesNotMatch(html,/Set 3/);
  assert.match(html,/Forfeiture recorded · Scores locked/);assert.doesNotMatch(html,/Unlock Set|>Complete Set/);
  for(const side of ['Alex / Sam','Chris / Pat'])for(const action of ['Add','Subtract'])assert.match(html,new RegExp(`<button[^>]*disabled=""[^>]*aria-label="${action} one point (?:to|from) ${side}, set 2"`));
+});
+
+
+test('batch OCR offers all-division scanning and opt-in rereading, with no automatic payment confirmation',()=>{
+ const html=renderToStaticMarkup(React.createElement(ReceiptBatchReview,{registrations:state.registrations,pin:'private-test-value'}));
+ assert.match(html,/Read all payment screenshots/);assert.match(html,/across all divisions/);assert.match(html,/Tesseract.js on this device/);
+ assert.match(html,/Also read screenshots with saved details/);assert.doesNotMatch(html,/<input[^>]*checked/);
+ assert.match(html,/no payment is confirmed automatically/);assert.doesNotMatch(html,/private-test-value/);
+ const locked=renderToStaticMarkup(React.createElement(ReceiptBatchReview,{registrations:state.registrations,pin:'test',locked:true}));
+ assert.match(locked,/<button[^>]*disabled=""[^>]*>Read all payment screenshots/);
+});
+
+test('a staged batch result retains its editable OCR fields, screenshot preview action and explicit review save',()=>{
+ const reading={record:{groupId:'g',revision:0,proofVersion:'photo-v1',details:null,stale:false,reviewedAt:null,duplicateReference:false},details:{amount:'1250.00',reference:'001234567890',provider:'GCash',date:''},warnings:['Check every field']};
+ const html=renderToStaticMarkup(React.createElement(ReceiptReview,{registrationId:'one',pin:'private-test-value',initialReading:reading}));
+ assert.match(html,/Unsaved changes/);assert.match(html,/value="001234567890"/);assert.match(html,/value="1250.00"/);
+ assert.match(html,/View screenshot for review/);assert.match(html,/Check every field/);assert.match(html,/<button[^>]*class="primary"[^>]*>Save reviewed details/);
+ assert.doesNotMatch(html,/private-test-value/);assert.match(html,/Confirm payment received separately/);
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { SyncStatus } from "../../lib/sync-status";
 import { Circle } from "@phosphor-icons/react/dist/csr/Circle";
 import { DotsThree } from "@phosphor-icons/react/dist/csr/DotsThree";
 import { HandWaving } from "@phosphor-icons/react/dist/csr/HandWaving";
@@ -9,7 +10,7 @@ import { Plus } from "@phosphor-icons/react/dist/csr/Plus";
 import { displayName, isMatchUsingCourt, isSetWon, matchScoreLimit, matchResultSets, matchWinner, scoringRule, type Match, type TournamentState } from "../../lib/tournament";
 
 type Props = {
-  match: Match; state: TournamentState; sync: "saved" | "saving" | "offline"; focused: boolean;
+  match: Match; state: TournamentState; sync: SyncStatus; focused: boolean;
   helpRequested: boolean; helpBusy: boolean; helpMessage: string;
   onToggleHelp: () => void; onToggleFocus: () => void; onPrint: () => void; onExit: () => void; onRetry: () => void;
   onScoreStep: (index: number, side: "a" | "b", delta: number) => void;
@@ -39,7 +40,7 @@ export function UmpireScorecard({ match, state, sync, focused, helpRequested, he
   const action = (callback: () => void) => { if (menu.current) menu.current.open = false; callback(); };
   return <section className="umpire-console" aria-label="Umpire scorecard">
     <header className="umpire-console-header"><div><h2>{match.court ? `Court ${match.court}` : "Court not assigned"}</h2><p>{match.label}{division ? ` · ${division.name}` : ""}</p></div><details className="umpire-more" ref={menu}><summary><DotsThree size={27} weight="bold" aria-hidden="true" /><span>More</span></summary><div className="umpire-more-actions"><button type="button" onClick={() => action(onToggleFocus)}>{focused ? "Show full site" : "Focus scorecard"}</button><button type="button" onClick={() => action(onPrint)}>Print manual card</button><button type="button" disabled={sync !== "saved"} onClick={() => action(onExit)}>Exit match</button></div></details></header>
-    <div className={`umpire-console-sync ${sync}`} role="status"><Circle size={14} weight="fill" aria-hidden="true" /><span>{sync === "saved" ? "All scores saved" : sync === "saving" ? "Saving score… Keep this page open." : "Score not saved. Check your connection."}</span>{sync === "offline" && <button type="button" className="secondary" onClick={onRetry}>Retry save</button>}</div>
+    <div className={`umpire-console-sync ${sync}`} role="status"><Circle size={14} weight="fill" aria-hidden="true" /><span>{sync === "connecting" ? "Connecting…" : sync === "saved" ? "All scores saved" : sync === "saving" ? "Saving score… Keep this page open." : "Score not saved. Check your connection."}</span>{sync === "offline" && <button type="button" className="secondary" onClick={onRetry}>Retry save</button>}</div>
     <div className="umpire-console-court" aria-label="Court status"><div><strong className="umpire-court-badge">{!match.court ? "Awaiting court" : isMatchUsingCourt(match) ? "In use" : "Available"}</strong>{helpRequested && <small>Help requested · organizers notified</small>}</div><button type="button" className="court-help-button" disabled={!match.court || helpBusy} aria-pressed={helpRequested} onClick={onToggleHelp}><HandWaving size={23} aria-hidden="true" />{helpBusy ? "Updating…" : helpRequested ? "Cancel help request" : "Request help"}</button>{helpMessage && <p className="court-help-error" role="alert">{helpMessage}</p>}</div>
     {setCount > 1 && <div className="umpire-set-selector"><label>Set to display<select value={index} onChange={event => setChosenSet(Number(event.target.value))}>{sets.map((item, position) => <option key={position} value={position}>Set {position + 1} · {item.a}–{item.b}{item.complete ? " · Complete" : ""}</option>)}</select></label><button className="ghost" type="button" onClick={() => setChosenSet(null)}>Show current set</button></div>}
     <div className="umpire-console-pairs">{(["a", "b"] as const).map(side => { const name = displayName(division?.entries.find(entry => entry.id === (side === "a" ? match.entryAId : match.entryBId))); const locked = Boolean(match.hold || match.forfeit) || match.validated || set.complete || Boolean(winner); return <article className="umpire-pair" key={side}><h3>{name}</h3><div className="umpire-point-controls"><button type="button" className="umpire-minus" disabled={locked || set[side] === 0} aria-label={`Subtract one point from ${name}, set ${index + 1}`} onClick={() => onScoreStep(index, side, -1)}><Minus size={34} weight="bold" aria-hidden="true" /></button><output aria-label={`${name} set ${index + 1} score`}><small>Set {index + 1}</small><strong>{set[side]}</strong></output><button type="button" className="umpire-plus" disabled={locked || isSetWon(set, match.stage, match.format, match.scoring) || set[side] >= matchScoreLimit(match, set, side)} aria-label={`Add one point to ${name}, set ${index + 1}`} onClick={() => onScoreStep(index, side, 1)}><Plus size={40} weight="bold" aria-hidden="true" /></button></div></article>; })}</div>

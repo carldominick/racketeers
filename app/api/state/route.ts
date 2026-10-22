@@ -1,6 +1,7 @@
 import { appendStaffNotification, recordCourtCompletions } from "../../../lib/staff-events";
 import { courtOccupant, gameDayAction, type GameDayAction } from "../../../lib/game-day";
 import { normalizeProjectorSettings } from "../../../lib/projector-settings";
+import { organizerPinMatches } from "../../../lib/organizer-auth";
 import { matchWinner, isMatchUsingCourt, courtInUseAfterScore, tournamentEditingLocked, setupConfiguration, contactError, syncPlayerContacts, resetRegistrations, hydrateTournament, initialTournament, isSetWon, scoringRule, matchScoreLimit, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "../../../lib/tournament";
 
 const ROW_ID = "racketeers";
@@ -64,7 +65,7 @@ function publicState(state: TournamentState, staff = false) {
 }
 
 async function authorized(pin: string | null, state: TournamentState) {
-  return Boolean(pin && state.organizerPinHash && (await sha(pin)) === state.organizerPinHash);
+  return organizerPinMatches(pin, state.organizerPinHash);
 }
 
 async function umpireAuthorized(request: Request, state: TournamentState) {
@@ -216,6 +217,7 @@ export async function POST(request: Request) {
   }
   if (body.action === "registerPlayer") {
     const isOrganizer = await authorized(request.headers.get("x-organizer-pin"), state);
+    if (request.headers.has("x-organizer-pin") && !isOrganizer) return Response.json({ error: "Organizer PIN did not match." }, { status: 401 });
     if (tournamentEditingLocked(state.status) || (!isOrganizer && state.status !== "registration")) return Response.json({ error: "Player registration is not currently open." }, { status: 423 });
     const form = body.registration ?? {};
     const division = state.divisions.find((item) => item.id === form.divisionId);

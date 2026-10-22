@@ -1,6 +1,32 @@
-# Projector court overview and settings QA — 2026-10-03
+# Live Venue court window and receipt OCR QA — 2026-10-22
 
-final result: passed (local browser and available Windows checks; Linux release verification runs separately)
+final result: blocked
+
+The implementation is local and has not been deployed. The Product Design image-to-code gate requires a fresh same-state screenshot comparison and responsive/interaction review before visual handoff.
+
+## Selected reference and implementation
+
+Selected option #3 is `outputs/product-design-2026-10-18/court-window/refined-alternatives/03-live-venue.png` (1672 × 936). It was inspected during implementation: four-by-three badminton courts, selected-court player artwork, flat status/name/score plates, bottom selected-match scoreboard and rotate/zoom/reset controls. Code retains this structure using real state, metric badminton geometry and generated `public/court-player-white.png` / `court-player-navy.png` cutouts. Both images were inspected before consumption. Positions are illustrative, not tracking.
+
+Initial browser review found overlapping projected labels. This was corrected with independently fitted cell views using one WebGL renderer and fixed labels; a subsequent browser view showed all 12 courts. Latest player cutouts, linked-review refresh and popup fallback still require a fresh comparison.
+
+## Current blocker and remaining checks
+
+On reconnecting to the local organizer preview, the browser tool rejected access: “The browser URL policy blocks this action” and authority to observe page content was not granted. No alternate browser or indirect capture was used. A current screenshot and combined reference/prototype comparison are unavailable, so the visual gate remains blocked.
+
+Earlier browser work in this task exercised actual local OCR on a synthetic receipt: PHP 1250.00, reference 001234567890, provider GCash, date 2026-10-22. Explicit save succeeded and Paid remained 0 for both linked players. That predates latest shared-summary updates.
+
+Automated tests cover organizer-only review, linked groups, stale/replaced images, concurrent saves, duplicates, preservation of tournament/payment state, public API phase gating even with staff headers, and badminton geometry. Built-Worker tests verify the route and same-origin OCR/artwork asset delivery. These do not establish visual fidelity or native fullscreen behavior.
+
+Pending: current reference comparison at 1920 × 1080; light/dark/pure-black; 360/390/834/1440 widths; full names, focus and overflow; court selection/rotate/zoom/reset; 2D/WebGL fallback; parent/child updates and popup-blocked link; shared receipt summaries, manual corrections and unsaved navigation. Native popup/fullscreen needs a normal browser/device check: earlier IAB popup behavior did not expose the new window through its tab inventory. No final visual pass is claimed.
+
+The earlier projector QA below is historical and does not certify this implementation.
+
+---
+
+# Historical projector court overview and settings QA — 2026-10-03
+
+Historical result: passed (local browser and available Windows checks; Linux release verification runs separately)
 
 ## Source and evidence
 

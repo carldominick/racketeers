@@ -1,12 +1,13 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
-import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
+import { handleImageOptimization, isImageOptimizationPath, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import { protectedRequest, securityHeaders } from "../lib/request-security";
 import handler from "vinext/server/app-router-entry";
 
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
-  IMAGES: {
+  PAYMENT_PROOFS?: R2Bucket;
+  IMAGES?: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
         output(options: { format: string; quality: number }): Promise<{ response(): Response }>;
@@ -30,19 +31,20 @@ const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if ((request.method === "GET" || request.method === "HEAD") && (url.pathname.startsWith("/assets/") || ["/favicon.svg", "/file.svg", "/globe.svg", "/window.svg"].includes(url.pathname))) {
+    if ((request.method === "GET" || request.method === "HEAD") && (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/_next/static/") || ["/favicon.svg", "/file.svg", "/globe.svg", "/window.svg"].includes(url.pathname))) {
       return securityHeaders(await env.ASSETS.fetch(request), false);
     }
 
-    if (url.pathname === "/_vinext/image") {
+    if (isImageOptimizationPath(url.pathname)) {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
-      return handleImageOptimization(request, {
+      const response = await handleImageOptimization(request, {
         fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
-        transformImage: async (body, { width, format, quality }) => {
-          const result = await env.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
+        transformImage: env.IMAGES ? async (body, { width, format, quality }) => {
+          const result = await env.IMAGES!.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
           return result.response();
-        },
+        } : undefined,
       }, allowedWidths);
+      return securityHeaders(response, false);
     }
 
     return protectedRequest(request, env.DB, secured => handler.fetch(secured, env, ctx));

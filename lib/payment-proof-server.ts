@@ -1,7 +1,7 @@
 import type { TournamentState } from "./tournament";
 
 export const MAX_PROOF_BYTES = 2 * 1024 * 1024;
-type StoredProof = { body?: ReadableStream; size: number; uploaded: Date };
+type StoredProof = { body?: ReadableStream; size: number; uploaded: Date; etag?: string };
 export type ProofEnvironment = {
   DB: { prepare(sql: string): { bind(...values: unknown[]): { first<T>(): Promise<T | null>; run(): Promise<unknown> }; run(): Promise<unknown> } };
   PAYMENT_PROOFS?: {
@@ -149,7 +149,7 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
       const selected = available.filter(item => item.metadata).sort((a, b) => b.metadata!.uploaded.getTime() - a.metadata!.uploaded.getTime())[0];
       const object = selected && (metadataOnly ? selected.metadata : await env.PAYMENT_PROOFS.get(selected.key));
       if (!object) return reply({ error: "No payment screenshot uploaded." }, 404);
-      if (metadataOnly) return reply({ filename, size: object.size, uploadedAt: object.uploaded.toISOString(), linkedRegistrationIds });
+      if (metadataOnly) return reply({ filename, size: object.size, uploadedAt: object.uploaded.toISOString(), linkedRegistrationIds, receiptGroupId: registration.paymentGroupId || linkedRegistrationIds[0], proofVersion: await hash(`${selected!.key}:${object.etag || `${object.uploaded.toISOString()}:${object.size}`}`) });
       return new Response(object.body, { headers: { ...headers, "Content-Type": "image/png", "Content-Disposition": `inline; filename="${filename}"`, "Content-Security-Policy": "default-src 'none'; sandbox" } });
     }
     if (!organizer && state.status !== "registration") return reply({ error: "Payment uploads are locked outside the Registration phase." }, 423);
