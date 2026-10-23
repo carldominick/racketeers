@@ -33,4 +33,10 @@ test('CSV export includes validation fields and neutralizes spreadsheet formulas
   assert.match(csv, /"https:\/\/test\/api\/payment-proof\?share=signed"/);
 });
 
+test('review exports preserve leading zeros, status, shared group and stale-image warnings as text',()=>{
+ const sheet={name:'Open',rows:[{name:'Alex',id:'a',divisionName:'Open',paid:false,receiptGroupId:'shared-group',receipt:{amount:'1900.00',reference:'0012345678901',provider:'=unsafe',date:'2026-10-23',transferStatus:'pending'},reviewStatus:'Screenshot changed - re-review',reviewedAt:'2026-10-23',duplicateReference:true,proofVersion:'photo-2'}]};
+ const csv=registrationSheetCsv(sheet);for(const text of ['0012345678901','shared-group','Screenshot changed - re-review','pending','Check duplicate','photo-2'])assert.ok(csv.includes(text));assert.ok(csv.includes("'=unsafe"));
+ const xml=new TextDecoder().decode(unzipSync(buildRegistrationWorkbook([sheet]))['xl/worksheets/sheet1.xml']);assert.match(xml,/t="inlineStr"><is><t xml:space="preserve">0012345678901/);assert.ok(xml.includes('1900.00'));assert.ok(xml.includes('Screenshot changed - re-review'));
+});
+
 test.after(() => rm(dir, { recursive: true, force: true }));

@@ -1,0 +1,37 @@
+.registration-steps { scroll-margin-top: 150px; }
+.registration-review-actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:16px; }
+.registration-review-actions button { min-height:44px; padding:10px 14px; border:1px solid var(--line); border-radius:8px; }
+.division-choice small { display:block; grid-column:2; line-height:1.5; color:var(--muted); overflow-wrap:anywhere; }
+.division-pricing { grid-column:1/-1; border:1px solid var(--line); padding:18px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.division-pricing legend { font-weight:700; }
+.division-pricing p { grid-column:1/-1; }
+.registration-charges dl { display:grid; gap:10px; }
+.registration-charges dl>div { display:flex; justify-content:space-between; gap:16px; padding-bottom:10px; border-bottom:1px solid var(--line); }
+.registration-charges dt { overflow-wrap:anywhere; }
+.registration-charges dd { margin:0; flex-shrink:0; }
+.payment-instructions .payment-qr img { width:auto; max-width:100%; max-height:220px; }
+.payment-qr a { display:inline-flex; min-height:44px; align-items:center; }
+.receipt-comparison.has-image { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:24px; align-items:start; margin-top:18px; }
+.receipt-comparison>div,.receipt-comparison fieldset { min-width:0; }
+.receipt-comparison .receipt-review-image { width:100%; max-height:650px; }
+.receipt-comparison select { width:100%; min-height:44px; font-size:16px; background:var(--card); color:var(--ink); border:1px solid var(--line); border-radius:6px; }
+.receipt-comparison label { display:grid; gap:8px; }
+.payment-review-queue article { border-top:1px solid var(--line); padding:18px 0; overflow-wrap:anywhere; }
+.payment-review-queue button,.payment-review-queue select,.payment-review-queue input { min-height:44px; }
+.payment-review-queue .action-row { align-items:end; flex-wrap:wrap; gap:12px; }
+.payment-review-queue .action-row label { display:grid; gap:8px; min-width:0; }
+.readiness-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:16px 0; }
+.readiness-grid details { border:1px solid var(--line); border-radius:8px; padding:12px; overflow-wrap:anywhere; }
+.readiness-grid summary { cursor:pointer; min-height:44px; font-weight:700; }
+.readiness-grid button { min-height:44px; }
+.readiness-grid details>div { padding:12px 0; border-top:1px solid var(--line); }
+.regeneration-review { width:100%; }
+.regeneration-review .card { display:grid; gap:16px; }
+.regeneration-review .card label { display:grid; gap:8px; }
+.regeneration-review input { min-height:44px; }
+.save-conflict { margin:24px; border:2px solid var(--red); }
+.save-conflict .action-row { gap:12px; flex-wrap:wrap; }
+@media(max-width:900px) { .readiness-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .receipt-comparison.has-image { grid-template-columns:1fr; } }
+@media(max-width:480px) { .division-pricing,.readiness-grid { grid-template-columns:1fr; } .registration-charges dl>div { display:grid; gap:4px; } .payment-review-queue .action-row { display:grid; } .guided-registration input,.guided-registration select { font-size:16px; } }
+@media(max-width:480px) { .clubhouse-registration .guided-entry-review .registration-shirt-row,.clubhouse-registration .guided-entry-review .registration-shirt-grid .registration-shirt-row { grid-template-columns:minmax(0,1fr) minmax(140px,.75fr); } .clubhouse-registration .guided-entry-review .registration-shirt-row>div:first-child { overflow-wrap:anywhere; } }
+@media(prefers-reduced-motion:reduce) { .registration-steps { scroll-behavior:auto; } }

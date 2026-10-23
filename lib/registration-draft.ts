@@ -59,7 +59,7 @@ export function partnerFields(draft: Partial<RegistrationDraft>): PartnerFields 
     partnerClub: draft.partnerClub || "",
     partnerFacebookProfile: draft.partnerFacebookProfile || "",
     partnerPhone: draft.partnerPhone || "",
-    partnerShirtSize: draft.partnerShirtSize || "M",
+    partnerShirtSize: draft.partnerShirtSize || "",
     partnerDesiredLevel: draft.partnerDesiredLevel || "",
     partnerSecondShirt: draft.partnerSecondShirt,
   };
@@ -110,4 +110,11 @@ export function entryDetailsError(draft: RegistrationDraft, mode: string | undef
   if (!draft.partnerClub?.trim()) return `${draft.partnerName.trim()}: Enter a club / group name.`;
   const partnerContactError = contactError(draft.partnerFacebookProfile, draft.partnerPhone);
   return partnerContactError ? `${draft.partnerName.trim()}: ${partnerContactError}` : null;
+}
+
+export function shirtDetailsError(draft: RegistrationDraft, mode?: string): string | null {
+  const sizes = ["XS", "S", "M", "L", "XL", "2XL", "3XL"];
+  if (!sizes.includes(draft.shirtSize)) return `Choose a shirt size for ${draft.name || "Player 1"}.`;
+  if (mode !== "singles" && !sizes.includes(draft.partnerShirtSize)) return `Choose a shirt size for ${draft.partnerName || "Player 2"}.`;
+  return null;
 }

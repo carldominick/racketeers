@@ -38,7 +38,7 @@ test('OCR identifies transferred amount rather than fee/balance, retaining leadi
 });
 test('ambiguous or unlabeled fields stay empty; malformed dates/references reject',()=>{
  const result=extractReceipt('Maya\nAmount 100.00\nAmount 200.00\nPhone 09123456789');
- assert.equal(result.details.amount,'');assert.equal(result.details.reference,'');assert.equal(result.warnings.length,2);
+ assert.equal(result.details.amount,'');assert.equal(result.details.reference,'');assert.match(result.warnings.join(' '),/Amount is ambiguous/);assert.match(result.warnings.join(' '),/Payment date could not be identified/);
  assert.equal(validReceipt({...details,date:'2026-02-30'}),false);assert.equal(validReceipt({...details,reference:'<script>'}),false);
 });
 test('receipt review requires organizer access, not registration ownership or a share parameter',async()=>{
@@ -60,6 +60,18 @@ test('duplicate references flag unrelated groups, not partners sharing a proof',
  const f=await fixture();await f.save(await f.get());const other=await f.get('c');
  const saved=await f.save(other,'c',{details:{...details,reference:'0012 3456 7890'}});assert.equal(saved.status,200);assert.equal((await saved.json()).duplicateReference,true);
  assert.equal((await f.get('b')).duplicateReference,true);f.db.close();
+});
+
+test('reviewed screenshot status persists across linked players without confirming payment',async()=>{
+ const f=await fixture(),before=f.db.prepare('SELECT * FROM tournament_state').get();
+ for(const transferStatus of ['pending','completed','unknown']){
+  const response=await f.save(await f.get(),'a',{details:{...details,transferStatus}});
+  assert.equal(response.status,200);assert.equal((await f.get('b')).details.transferStatus,transferStatus);
+ }
+ for(const transferStatus of ['paid','<script>',null]){
+  const response=await f.save(await f.get(),'a',{details:{...details,transferStatus}});assert.equal(response.status,400);
+ }
+ assert.deepEqual(f.db.prepare('SELECT * FROM tournament_state').get(),before);f.db.close();
 });
 test('replacement invalidates old OCR and rejects saving against the old screenshot',async()=>{
  const f=await fixture(), initial=await f.get();await f.save(initial);

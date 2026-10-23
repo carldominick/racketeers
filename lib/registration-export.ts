@@ -1,8 +1,10 @@
+import type { ReceiptDetails } from "./receipt-details";
 import { zipSync } from "fflate";
 
 export const REGISTRATION_EXPORT_COLUMNS = [
   "Player name", "Registration ID", "Phone / mobile", "Facebook profile", "Club / group",
   "Partner", "Division", "Shirt size", "Payment status", "Payment proof",
+  "Payment group", "Reviewed amount (PHP, per group)", "Reference number", "Receipt bank / app", "Payment date", "Transfer status on screenshot", "Review status", "Reviewed at", "Duplicate reference", "Screenshot version",
 ] as const;
 
 export type RegistrationExportRow = {
@@ -16,7 +18,12 @@ export type RegistrationExportRow = {
   shirtSize?: string;
   paid: boolean;
   paymentProofUrl?: string;
+  receiptGroupId?: string; receipt?: ReceiptDetails; reviewStatus?: string; reviewedAt?: string; duplicateReference?: boolean; proofVersion?: string;
 };
+
+function receiptCells(row: RegistrationExportRow) {
+  return [row.receiptGroupId || "", row.receipt?.amount || "", row.receipt?.reference || "", row.receipt?.provider || "", row.receipt?.date || "", row.receipt?.transferStatus || "unknown", row.reviewStatus || "", row.reviewedAt || "", row.duplicateReference ? "Check duplicate" : "", row.proofVersion || ""];
+}
 
 export type RegistrationExportSheet = { name: string; rows: RegistrationExportRow[] };
 
@@ -31,7 +38,7 @@ export function registrationSheetCsv(sheet: RegistrationExportSheet) {
     [...REGISTRATION_EXPORT_COLUMNS],
     ...sheet.rows.map(row => [
       row.name, row.id, row.phone, row.facebookProfile, row.club, row.partnerName,
-      row.divisionName, row.shirtSize, row.paid ? "Validated" : "Pending", row.paymentProofUrl || "",
+      row.divisionName, row.shirtSize, row.paid ? "Validated" : "Pending", row.paymentProofUrl || "", ...receiptCells(row),
     ]),
   ];
   return "\uFEFF" + records.map(record => record.map(csvCell).join(",")).join("\r\n");
@@ -68,12 +75,12 @@ export function buildRegistrationWorkbook(sheets: RegistrationExportSheet[]) {
 
   selected.forEach((sheet, sheetIndex) => {
     const sheetId = sheetIndex + 1;
-    const rows = [
+    const rows: { value: string; column: number; link?: string }[][] = [
       REGISTRATION_EXPORT_COLUMNS.map((header, column) => ({ value: header, column })),
       ...sheet.rows.map(row => [
         row.name, row.id, row.phone || "", row.facebookProfile || "", row.club || "",
         row.partnerName || "", row.divisionName, row.shirtSize || "", row.paid ? "Validated" : "Pending",
-        row.paymentProofUrl ? "View payment proof" : "No payment proof uploaded",
+        row.paymentProofUrl ? "View payment proof" : "No payment proof uploaded", ...receiptCells(row),
       ].map((value, column) => ({ value, column, link: column === 9 ? row.paymentProofUrl : undefined }))),
     ];
     const relationships: string[] = [];

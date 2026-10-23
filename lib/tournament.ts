@@ -1,3 +1,4 @@
+import { normalizePricing } from "./registration-pricing";
 import { normalizeProjectorSettings, type ProjectorSettings } from "./projector-settings";
 import { normalizeTheme, type TournamentTheme } from "./theme";
 
@@ -67,6 +68,8 @@ export function registrationLevels(division?: Division): string[] {
 }
 
 export type Division = {
+  eligibilityHint?: string;
+  registrationPricing?: import("./registration-pricing").RegistrationPricing;
   allowedDesiredLevels?: string[];
   customDesiredLevels?: string[];
   id: string;
@@ -667,6 +670,8 @@ export function hydrateTournament(input: TournamentState): TournamentState {
   }
   const divisions = (input.divisions ?? []).map((division) => ({
     ...division,
+    eligibilityHint: typeof division.eligibilityHint === "string" ? division.eligibilityHint.trim().slice(0, 300) : undefined,
+    registrationPricing: division.registrationPricing ? normalizePricing(division.registrationPricing) : undefined,
     entries: (division.entries ?? []).map((entry) => ({ ...entry, playerLevels: entry.playerLevels ?? entry.players.map(() => ""), desiredLevels: entry.desiredLevels ?? entry.players.map(() => ""), shirtSizes: entry.shirtSizes ?? entry.players.map(() => "M"), poolOverride: entry.poolOverride ?? null })),
     playerCount: division.playerCount ?? (division.mode === "singles" ? division.entries.length : division.entries.reduce((sum, entry) => sum + entry.players.length, 0)),
     pairCount: division.pairCount ?? (division.mode === "doubles" ? division.entries.length : Math.ceil(division.entries.reduce((sum, entry) => sum + entry.players.length, 0) / Math.max(1, division.playersPerPair ?? 2))),
