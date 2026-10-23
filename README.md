@@ -48,6 +48,10 @@ Development/build scripts prepare ignored `public/ocr/` assets from locked npm d
 
 ## Deploy from the connected GitHub repository
 
+The existing deployment already has D1 and R2 bindings in `wrangler.json`. Preserve those resources when continuing development; creating a new database starts a separate tournament. The setup instructions below apply only to a separately authorized new deployment.
+
+Pushing or merging to `main` runs `.github/workflows/deploy-cloudflare.yml` and deploys automatically, including documentation-only changes. Its tests/build steps omit lint and built-Worker rendering and bypass the `npm run deploy` preflight. Complete the [development workflow](docs/development-workflow.md) checks and obtain explicit release authorization before deployment.
+
 1. In Cloudflare, create a D1 database named `racketeers-db`.
 2. Copy its database ID into `wrangler.json`, replacing the placeholder `database_id`. Keep the binding name `DB`.
 3. In Workers & Pages, connect this repository with these settings:
@@ -67,6 +71,8 @@ The deploy command deliberately refuses deployment while the database ID is stil
 This repository contains source code only. It does not include current player records, registration PINs, payment details, or scores from the existing site. A new D1 database begins with a new tournament. Keep using the existing site until a separate data migration has been completed and verified. Do not enter the same event independently on both sites.
 
 ## Local development and checks
+
+Follow [Development workflow](docs/development-workflow.md) for branch setup, Issue/spec handoffs, verification and release boundaries.
 
 The locked runtime uses Vinext 1.3.0, React/React DOM/RSC 19.3.1 and `@vitejs/plugin-rsc` 0.5.37. The existing Cloudflare Worker entry and bindings are retained. Client assets now use `/_next/static/`; both `/_next/image` and the legacy `/_vinext/image` are supported. Without an Images binding, image requests return the original file. The interface uses its existing Arial stack; unused Geist downloads and tracked generated font caches have been removed.
 
@@ -97,11 +103,13 @@ Cloudflare documentation:
 
 ## Payment screenshots (optional)
 
-Players can select a payment screenshot during registration or upload/replace it later with their registration PIN while registration is open. Organizers can view and download proofs from each player card in Registration. For a pair registered together, the proof belongs to the primary registration ID. Proofs do not automatically mark either player as paid.
+Players can select a payment screenshot during registration or upload/replace it later with their registration PIN while registration is open. Organizers can view and download proofs from each player card in Registration. Linked players and entries share proof ownership through their payment group, with compatibility for legacy reciprocal pairs and individual registrations. Proofs do not automatically mark any player as paid.
 
-PNG/JPG/WebP input is limited to 2 MB and converted in the browser to a PNG (maximum 2000 pixels on the longest side). The private storage key is `payments/<registration-ID>.png`. A replacement overwrites that key. PIN authorization is required to read screenshots; no public bucket URL is used. Screenshot storage is separate from tournament JSON saves to avoid sync conflicts.
+PNG/JPG/WebP input is limited to 2 MB and converted in the browser to a PNG (maximum 2000 pixels on the longest side). Current private keys use `payments/groups/<paymentGroupId>/<paymentGroupId>.png`; legacy pair and individual keys remain readable. Receipts require owner/organizer authorization or a time-limited signed export link; no public bucket URL is used. Screenshot storage is separate from tournament JSON saves to avoid sync conflicts.
 
 ### Enable storage
+
+The existing `PAYMENT_PROOFS` binding already names `racketeers-payments`. Do not recreate the bucket or replace the binding as part of local setup. The following instructions are for a separately authorized new deployment.
 
 1. Enable Cloudflare R2 under Storage & databases → R2. Standard storage includes a free monthly allowance; billing setup is required and excess usage is billable. See https://developers.cloudflare.com/r2/pricing/.
 2. Create a **private Standard** bucket named `racketeers-payments`. Leave public access disabled.
