@@ -90,7 +90,7 @@ test('restoring partner snapshots preserves non-partner fields and supports immu
  assert.equal(sizeChanged.partnerName,'Enzo Garcia');assert.equal(sizeChanged.partnerPhone,saved.partnerPhone);assert.equal(sizeChanged.partnerShirtSize,'XL');
  assert.equal(restored.partnerShirtSize,'S');assert.equal(original.partnerShirtSize,'L');
  const empty=partnerFields({});
- assert.equal(empty.partnerName,'');assert.equal(empty.partnerPhone,'');assert.equal(empty.partnerClub,'');assert.equal(empty.partnerShirtSize,'M');
+ assert.equal(empty.partnerName,'');assert.equal(empty.partnerPhone,'');assert.equal(empty.partnerClub,'');assert.equal(empty.partnerShirtSize,'');
 });
 
 test('second-entry owner projection preserves Player 1 and reverses all participating Player 2 details immutably',()=>{

@@ -32,8 +32,8 @@ export async function handlePaymentDetails(request: Request, env: ProofEnvironme
     if (!body || !validReceipt(body.details)) return reply({ error: "Check the amount, reference, provider and date." }, 400);
     if (body.proofVersion !== proof.proofVersion) return reply({ error: "The screenshot changed. Reload and review it again." }, 409);
     if (!Number.isInteger(body.expectedRevision) || body.expectedRevision !== (current?.revision || 0)) return reply({ error: "Another organizer changed these details. Reload before saving." }, 409);
-    const { amount, reference, provider, date } = body.details;
-    const details: ReceiptDetails = { amount, reference, provider, date };
+    const { amount, reference, provider, date, transferStatus } = body.details;
+    const details: ReceiptDetails = { amount, reference, provider, date, ...(transferStatus ? { transferStatus } : {}) };
     const updatedAt = new Date().toISOString();
     const revision = (current?.revision || 0) + 1;
     const statement = current

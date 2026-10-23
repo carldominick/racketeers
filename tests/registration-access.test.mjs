@@ -20,6 +20,38 @@ const post=(body,headers)=>api.POST(request(body,headers));
 const org={'x-organizer-pin':'12345678'};
 const create=(divisionId,extra={})=>({action:'registerPlayer',registration:{divisionId,name:'Alex',partnerName:'Sam',club:'Cebu Club',partnerClub:'Rackets',facebookProfile:'https://www.facebook.com/alex.test',phone:'09123456789',partnerFacebookProfile:'https://www.facebook.com/sam.test',partnerPhone:'+639123456780',...extra}});
 
+test('state recovery export is organizer-only, complete and digest-bound to one stored revision',async()=>{
+ const state=await reset();state.registrations=[{...logic.makeRegistration(state.divisions[0].id),id:'test-registration',name:'Alex',registrationPinRecovery:'fictional-recovery'}];saved.payload=JSON.stringify(state);
+ for(const headers of [{},{'x-umpire-pin':'87654321'},{'x-organizer-pin':'wrong'}])assert.equal((await api.GET(new Request('https://test/api/state?backup=1',{headers}))).status,401);
+ const response=await api.GET(new Request('https://test/api/state?backup=1',{headers:org}));assert.match(response.headers.get('cache-control'),/private, no-store/);
+ const backup=await response.json();assert.equal(backup.payload,saved.payload);assert.equal(backup.digest,await hash(saved.payload));assert.equal(backup.revision,1);
+ const publicData=await (await api.GET(new Request('https://test/api/state'))).json();assert.equal(publicData.payload,undefined);assert.deepEqual(publicData.state.registrations,[]);
+});
+test('bracket replacement requires authorization, current backup, explicit confirmation and unstarted games',async()=>{
+ let state=await reset();state.divisions[0].registrationManaged=false;state.divisions[0].entries=[logic.makeEntry(0,'doubles'),logic.makeEntry(1,'doubles')];state=logic.regenerateMatches(state);saved.payload=JSON.stringify(state);
+ const digest=await hash(saved.payload),body={action:'regenerateBrackets',expectedRevision:1,backupDigest:digest,confirmation:'REGENERATE'};
+ assert.equal((await post(body)).status,401);assert.equal((await post({...body,backupDigest:'bad'},org)).status,400);assert.equal((await post({...body,confirmation:''},org)).status,400);assert.equal((await post({...body,expectedRevision:0},org)).status,409);assert.equal(saved.revision,1);
+ const beforeIds=state.matches.map(match=>match.id);assert.equal((await post(body,org)).status,200);assert.equal(saved.revision,2);assert.ok(JSON.parse(saved.payload).matches.every(match=>!beforeIds.includes(match.id)));assert.equal((await post(body,org)).status,409);
+ state=JSON.parse(saved.payload);state.matches[0].sets[0].a=1;saved.payload=JSON.stringify(state);
+ assert.equal((await post({...body,expectedRevision:2,backupDigest:await hash(saved.payload)},org)).status,423);
+ const replaced=logic.regenerateMatches(state);assert.equal((await api.PUT(request({state:replaced,expectedRevision:2},org,'PUT'))).status,409);assert.equal(saved.revision,2);
+});
+test('concurrent public registration and two organizer drafts cannot overwrite a newer saved snapshot',async()=>{
+ const state=await reset();const draft={...state,tournamentName:'Desk A title'};
+ assert.equal((await post(create(state.divisions[0].id))).status,200);const registered=structuredClone(saved);
+ const stale=await api.PUT(request({state:draft,expectedRevision:1},org,'PUT'));assert.equal(stale.status,409);assert.deepEqual(saved,registered);
+ const latest=await stale.json();assert.equal(latest.state.registrations.length,2);
+ const a={...latest.state,tournamentName:'Desk A title'},b={...latest.state,venue:'Desk B venue'};
+ assert.equal((await api.PUT(request({state:a,expectedRevision:latest.revision},org,'PUT'))).status,200);
+ assert.equal((await api.PUT(request({state:b,expectedRevision:latest.revision},org,'PUT'))).status,409);
+ const final=JSON.parse(saved.payload);assert.equal(final.tournamentName,'Desk A title');assert.equal(final.registrations.length,2);assert.notEqual(final.venue,'Desk B venue');
+});
+test('a racing bracket save fails compare-and-swap without replacing the saved tournament',async()=>{
+ await reset();const before=structuredClone(saved);rejectNextWrite=true;
+ const response=await post({action:'regenerateBrackets',expectedRevision:1,backupDigest:await hash(saved.payload),confirmation:'REGENERATE'},org);
+ assert.equal(response.status,409);assert.deepEqual(saved,before);
+});
+
 test('projector preferences are organizer-only, revision guarded and do not replace scores or registrations',async()=>{
  const state=await reset();state.status='live';state.umpirePinHash=await hash('87654321');saved.payload=JSON.stringify(state);
  const before=JSON.parse(saved.payload);

@@ -41,7 +41,8 @@ test('division selection and player details occupy the same first step of a visi
  assert.match(firstStep,/Open Doubles/);assert.match(firstStep,/Full name/);assert.match(firstStep,/Partner/);
  assert.match(firstStep,/<fieldset[^>]*class="registration-division-options"[^>]*>/);
  assert.match(firstStep,/<legend>Choose (?:your |a )?division<\/legend>/);
- assert.match(firstStep,/<input(?=[^>]*type="radio")(?=[^>]*checked="")[^>]*>/);
+ assert.doesNotMatch(firstStep,/<input(?=[^>]*type="radio")(?=[^>]*checked="")[^>]*>/);
+ assert.match(html,/<option value="" selected="">Choose size<\/option>/);
 });
 
 test('later-linked second entry requires an explicit partner choice before showing new partner fields',()=>{
