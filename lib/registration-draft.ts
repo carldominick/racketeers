@@ -12,8 +12,8 @@ export type RegistrationDraft = {
   sourceRegistrationId?: string;
   samePartner?: boolean;
   owner?: SecondEntryOwner;
-  secondShirt?: "black" | "tournament";
-  partnerSecondShirt?: "black" | "tournament";
+  secondShirt?: "black" | "tournament" | "none";
+  partnerSecondShirt?: "black" | "tournament" | "none";
   entryCount?: number;
   id?: string;
   name: string;
@@ -114,7 +114,7 @@ export function entryDetailsError(draft: RegistrationDraft, mode: string | undef
 
 export function shirtDetailsError(draft: RegistrationDraft, mode?: string): string | null {
   const sizes = ["XS", "S", "M", "L", "XL", "2XL", "3XL"];
-  if (!sizes.includes(draft.shirtSize)) return `Choose a shirt size for ${draft.name || "Player 1"}.`;
-  if (mode !== "singles" && !sizes.includes(draft.partnerShirtSize)) return `Choose a shirt size for ${draft.partnerName || "Player 2"}.`;
+  if (draft.secondShirt !== "none" && !sizes.includes(draft.shirtSize)) return `Choose a shirt size for ${draft.name || "Player 1"}.`;
+  if (mode !== "singles" && draft.partnerSecondShirt !== "none" && !sizes.includes(draft.partnerShirtSize)) return `Choose a shirt size for ${draft.partnerName || "Player 2"}.`;
   return null;
 }

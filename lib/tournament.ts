@@ -47,7 +47,7 @@ export type PlayerRegistration = {
   selfRegistered?: boolean;
   club?: string;
   personId?: string;
-  secondShirt?: "black" | "tournament";
+  secondShirt?: "black" | "tournament" | "none";
 };
 
 export const REGISTRATION_LEVELS = ["Beginner", "Intermediate", "Advanced", "Open"];
@@ -135,6 +135,7 @@ export type TournamentState = {
   status: TournamentPhase;
   tournamentName: string;
   venue?: string;
+  registrationContactUrl?: string;
   organizerPinHash?: string;
   umpirePinHash?: string;
   theme: TournamentTheme;
@@ -629,6 +630,11 @@ export function syncRegistrationsToEntries(state: TournamentState): TournamentSt
   return { ...state, divisions };
 }
 
+export function registrationContactUrl(value: unknown): string {
+  if (typeof value !== "string" || value.trim().length > 500) return "";
+  try { const url = new URL(value.trim()); return url.protocol === "https:" && !url.username && !url.password ? url.href : ""; } catch { return ""; }
+}
+
 export function hydrateTournament(input: TournamentState): TournamentState {
   const baseRegistrations = (input.registrations ?? []).map((registration) => ({ ...registration, partnerName: registration.partnerName ?? "", playerLevel: registration.playerLevel ?? "Beginner", desiredLevel: registration.desiredLevel ?? registration.playerLevel ?? "Beginner", poolOverride: registration.poolOverride ?? null }));
   const registrations: PlayerRegistration[] = [...baseRegistrations];
@@ -695,7 +701,7 @@ export function hydrateTournament(input: TournamentState): TournamentState {
     if (matchPin) usedPins.add(matchPin);
     return { ...match, scoring: scoringRule(match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21"), formatByDivision.get(match.divisionId)?.stageScoring?.[match.stage] ?? match.scoring), pin: matchPin, format: match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21") };
   });
-  return { ...input, theme: normalizeTheme(input.theme), gameDay: gameDaySettings(input), projector: normalizeProjectorSettings(input.projector), venue: typeof input.venue === "string" ? input.venue.trim().slice(0, 200) : "", version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
+  return { ...input, registrationContactUrl: registrationContactUrl(input.registrationContactUrl), theme: normalizeTheme(input.theme), gameDay: gameDaySettings(input), projector: normalizeProjectorSettings(input.projector), venue: typeof input.venue === "string" ? input.venue.trim().slice(0, 200) : "", version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
 }
 
 /** Operational settings remain editable while structural tournament setup is locked. */
@@ -820,7 +826,7 @@ export function tournamentStartTime(state: Pick<TournamentState, "startDate" | "
 /** Fields edited in Setup, excluding roster overrides used in the Players tab. */
 export function setupConfiguration(state: TournamentState) {
   return {
-    tournamentName: state.tournamentName, venue: state.venue || "", startDate: state.startDate, endDate: state.endDate,
+    tournamentName: state.tournamentName, venue: state.venue || "", registrationContactUrl: registrationContactUrl(state.registrationContactUrl), startDate: state.startDate, endDate: state.endDate,
     dayStart: state.dayStart, dayEnd: state.dayEnd, gameDuration: state.gameDuration, courts: state.courts,
     divisions: state.divisions.map(({ entries, ...configuration }) => { void entries; return configuration; }),
   };

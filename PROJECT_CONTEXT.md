@@ -1,5 +1,17 @@
 # Racketeers product and implementation context
 
+## Registration and Game Day review implementation — local, 2026-10-25
+
+The user approved the recommendations in `outputs/product-design-audit-20261023/report.md`, reviewed the local implementation and authorized release on 2026-10-25. The local review branch is `codex/registration-game-day-review`, based on `25aa427b191355c40ae722f5b14c7214e207b8cf`. The verification described here records the pre-release checkpoint. Release proceeds through a GitHub pull request, Linux verification and the existing main-branch Cloudflare workflow. Existing Cloudflare bindings and credentials are retained; approved fee settings are applied separately through organizer access.
+
+Registration has a compact mobile event summary, explicit second-division selection, named entry-count summaries, one unknown-pricing explanation with expandable detail, a copy-account action and a save-payment-image link. Setup adds an optional validated public HTTPS organizer contact link and a separate second-entry-without-shirt price. New shirt choices are tournament shirt or no shirt; legacy black selections are retained. No-shirt choices survive authorized creation/lookup/edits and hydration, skip shirt-size requirements and fulfillment, and export as “No shirt” without deleting the stored size.
+
+The approved per-person event prices are D/E first entry PHP 1,500 and second entry PHP 1,200 with or without a shirt; other divisions first entry PHP 950, second entry PHP 950 with a tournament shirt or PHP 800 without. The preview includes these prices with a zero included-shirt surcharge. Production settings are not automatically overwritten. Eligibility wording and an organizer contact URL remain unconfigured pending organizer content.
+
+The desk puts recommended games and direct assignment controls on available courts, collapses previous-result details, keeps zero-count checks compact, and moves court notifications into expandable page content. More groups infrequent actions. Queue, assignment and result jumps focus their destination headings; physical occupancy and validation remain distinct. Tournament algorithms, dispatch authorization/CAS, rotation, scoring, and print rendering are unchanged.
+
+Windows verification passed all 238 application tests, lint, production build, four built-Worker tests with disposable D1, and diff checks. Brave checks covered registration and desk at 360/390/834/1440px, registration themes, a 360px score dialog, landscape umpire scoring, spectator and projector views, dispatch/release and keyboard focus. Verification and exact files are recorded in `outputs/local-review-20261024/verification.md`. Local previews are disposable and mock authorization. No physical-device, printer, Linux CI or production staff interaction is claimed.
+
 ## Current source baseline — 2026-10-23
 
 The locally verified source baseline is `e83dc9c3343b854dfaaf1305809da7dd33031a8e`, the PR #9 merge, matching the locally recorded `origin/main`. Receipt recognition corrections and the site improvements described below are included in that commit. Remote references, current CI and the live deployment have not been refreshed or verified by this baseline review.

@@ -54,6 +54,26 @@ test('hydration bounds eligibility and preserves valid configured prices without
  const state=logic.initialTournament();state.divisions[0].eligibilityHint='x'.repeat(400);state.divisions[0].registrationPricing={...division.registrationPricing,entry:'-20'};
  const hydrated=logic.hydrateTournament(state);assert.equal(hydrated.divisions[0].eligibilityHint.length,300);assert.equal(hydrated.divisions[0].registrationPricing.entry,'');assert.equal(hydrated.divisions[0].registrationPricing.additionalEntry,'500');assert.equal(logic.hydrateTournament(logic.initialTournament()).divisions[0].registrationPricing,undefined);
 });
+test('public registration contact keeps only bounded HTTPS links without credentials',()=>{
+ const normalize=logic.registrationContactUrl;
+ assert.equal(normalize(' https://example.com/contact '),'https://example.com/contact');
+ for(const value of ['javascript:alert(1)','http://example.com','https://user:secret@example.com','https://example.com/'+ 'x'.repeat(500),null])assert.equal(normalize(value),'');
+ const state={...logic.initialTournament(),registrationContactUrl:'https://example.com/contact'};
+ assert.equal(logic.hydrateTournament(state).registrationContactUrl,state.registrationContactUrl);
+ assert.equal(logic.setupConfiguration(state).registrationContactUrl,state.registrationContactUrl);
+ assert.equal(logic.hydrateTournament({...state,registrationContactUrl:'javascript:alert(1)'}).registrationContactUrl,'');
+});
+test('approved second-entry prices distinguish no shirt and never discount D/E for opting out',()=>{
+ const divisions=[{id:'de',name:'D/E',registrationPricing:{entry:'1500',additionalEntry:'1200',additionalEntryNoShirt:'1200',tournamentShirt:'0',blackShirt:''}},{id:'other',name:'Other',registrationPricing:{entry:'950',additionalEntry:'950',additionalEntryNoShirt:'800',tournamentShirt:'0',blackShirt:''}}];
+ const total=(divisionId,secondShirt)=>pricing.registrationCharges(divisions,[{name:'Alex',divisionId,secondShirt}]).total;
+ assert.equal(total('de'),150000);assert.equal(total('other'),95000);
+ assert.equal(total('de','tournament'),120000);assert.equal(total('de','none'),120000);
+ assert.equal(total('other','tournament'),95000);assert.equal(total('other','none'),80000);
+ assert.equal(pricing.registrationCharges([{id:'other',registrationPricing:{additionalEntry:'950'}}],[{name:'Alex',divisionId:'other',secondShirt:'none'}]).total,null);
+ const draft={name:'Alex',partnerName:'Sam',shirtSize:'',partnerShirtSize:'',secondShirt:'none',partnerSecondShirt:'none'};
+ assert.equal(modules['registration-draft'].shirtDetailsError(draft,'doubles'),null);
+ assert.match(modules['registration-draft'].shirtDetailsError({...draft,partnerSecondShirt:'tournament'},'doubles'),/Sam/);
+});
 const players=[{id:'a',name:'Alex',divisionId:'d',partnerId:'b',paymentGroupId:'g',paid:false},{id:'b',name:'Sam',divisionId:'d',partnerId:'a',paymentGroupId:'g',paid:false}];
 const record={groupId:'g',details:{amount:'1900.50',reference:'00123',provider:'Bank',date:'2026-10-23',transferStatus:'pending'},revision:1,proofVersion:'p1',stale:false,reviewedAt:'2026-10-23',duplicateReference:false,linkedRegistrationIds:['a','b']};
 test('payment filters distinguish missing proof, pending transfers, stale reviews, mismatches and duplicates',()=>{

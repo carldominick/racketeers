@@ -32,6 +32,22 @@ Private D1 table `payment_receipt_details` is created lazily after authorization
 
 ## Registration and organizer improvements
 
+Mobile registration uses a compact event summary. Second entries require an explicit division, show a per-player entry summary, and offer a second tournament shirt or **No shirt**. Existing black-shirt selections remain readable and editable; black shirts are not offered for new choices. No-shirt entries retain their stored size for compatibility, skip size validation/fulfillment, and export as “No shirt.”
+
+Setup includes a separate **Second entry without shirt** price and an optional public HTTPS organizer contact link. Unknown prices remain unknown; payment review gives one explanation and an expandable breakdown. Known totals remain itemized. Players can copy the payment account and save an available payment image. These controls do not confirm payment.
+
+Approved prices for the current event are below. They are configured in the disposable preview; this source change does not overwrite live tournament settings. Enter `0` for the included tournament-shirt surcharge. Eligibility text and the organizer contact link still need organizer-approved content.
+
+| Per person | Level D/E | Other divisions |
+| --- | ---: | ---: |
+| First entry, tournament shirt included | PHP 1,500 | PHP 950 |
+| Second entry with tournament shirt | PHP 1,200 | PHP 950 |
+| Second entry without shirt | PHP 1,200 | PHP 800 |
+
+Game Day places next-game recommendations on available courts. Previous results remain separate from physical availability. Compact checks and expandable court updates occupy page space instead of covering controls. Infrequent actions are under **More**; result/queue/assignment jumps move keyboard focus to their destination. Existing dispatch eligibility, rotation, validation, confirmations and authorization remain in effect.
+
+For local review, run one preview with `$env:RACKETEERS_PREVIEW_REGISTRATION = '1'` for registration and a second with that variable set to `'0'` for the live Game Day fixture. For example, use ports 5180 and 5181 with `npm run dev -- --host 127.0.0.1 --port <port> --strictPort`. All preview payment details and records are disposable. The preview still mocks staff access and is not production authorization evidence.
+
 New public registrations require an explicit division and shirt-size choice. Organizer Setup supports short division eligibility hints and per-player prices for first/additional entries, tournament shirts and black shirts. Leave an unknown price blank; enter `0` for an included/free item. Review & payment shows an itemized total only when every applicable price is configured. It uses current prices for the displayed entries, not historical invoices, and does not deduct previous payments. Changing divisions retains player details; the named second-entry owner and same/different-partner choices remain explicit. The left event sidebar and rules/waiver links remain available.
 
 The **Payment review desk** groups linked players and filters missing screenshots, incomplete/stale reviews, pending transfers, missing dates, amount discrepancies, duplicate references and unconfirmed payments. Refresh checks saved metadata; it does not run OCR. Open a review to read the screenshot locally or compare it beside editable fields. Closing/filtering retains unsaved queue reviews; save or explicitly reload them before refreshing. Screenshot transfer status is an organizer-reviewed statement about the image, not verification that money arrived. Read screenshot, Save reviewed details and Confirm payment received remain separate actions. The existing batch reader is still available.
