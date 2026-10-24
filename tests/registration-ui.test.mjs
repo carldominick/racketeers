@@ -10,9 +10,19 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const require=createRequire(import.meta.url);
 const dir=await mkdtemp(path.join(tmpdir(),'registration-ui-'));
-await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf8'))+'\nexport { PublicRegistration, RegistrationSecondEntryOwner, TournamentCountdown, UmpireScorecard, ReceiptBatchReview };\nexport {ReceiptReview} from "./components/receipt-review";',resolveDir:path.resolve('app'),loader:'tsx'},outfile:path.join(dir,'page.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
-const {default:Home,PublicRegistration,RegistrationSecondEntryOwner,TournamentCountdown,UmpireScorecard,ReceiptBatchReview,ReceiptReview}=await import(pathToFileURL(path.join(dir,'page.mjs')));
+await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf8'))+'\nexport { PublicRegistration, RegistrationSecondEntryOwner, TournamentCountdown, UmpireScorecard, ReceiptBatchReview, RegistrationCharges };\nexport {ReceiptReview} from "./components/receipt-review";',resolveDir:path.resolve('app'),loader:'tsx'},outfile:path.join(dir,'page.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
+const {default:Home,PublicRegistration,RegistrationSecondEntryOwner,TournamentCountdown,UmpireScorecard,ReceiptBatchReview,ReceiptReview,RegistrationCharges}=await import(pathToFileURL(path.join(dir,'page.mjs')));
 const state={status:'registration',divisions:[{id:'d',name:'Open Doubles',mode:'doubles'}],registrations:[{id:'one',name:'Alex',facebookProfile:'https://facebook.com/alex.test',phone:'09123456789',divisionId:'d',partnerId:'two',club:'Cebu Club',shirtSize:'L',desiredLevel:'Intermediate'},{id:'two',name:'Sam',facebookProfile:'https://facebook.com/sam.test',phone:'09123456780',divisionId:'d',partnerId:'one',club:'Rackets',shirtSize:'S',desiredLevel:'Advanced'}]};
+test('payment review never presents a partial amount as the total and keeps unknown prices behind one explanation',()=>{
+ const people=[{name:'Alex',divisionId:'d'},{name:'Sam',divisionId:'d'}];
+ const divisions=[{id:'d',name:'Open',registrationPricing:{entry:'900',additionalEntry:'500',tournamentShirt:'',blackShirt:'0'}}];
+ const html=renderToStaticMarkup(React.createElement(RegistrationCharges,{divisions,people,contactUrl:'https://example.com/contact'}));
+ assert.match(html,/Confirm the total with the organizer before paying/);assert.doesNotMatch(html,/Total: PHP/);
+ assert.equal((html.match(/Some entry or shirt prices are not set/g)||[]).length,1);
+ assert.match(html,/<details><summary>View entry and shirt prices/);assert.match(html,/href="https:\/\/example.com\/contact"/);
+ const configured=renderToStaticMarkup(React.createElement(RegistrationCharges,{divisions:[{...divisions[0],registrationPricing:{...divisions[0].registrationPricing,tournamentShirt:'0'}}],people}));
+ assert.match(configured,/Total: PHP 1,800.00/);assert.match(configured,/PHP 0.00/);assert.doesNotMatch(configured,/<details>/);
+});
 test('opening page shows registration without a PIN dialog and offers staff access',()=>{
  const html=renderToStaticMarkup(React.createElement(Home));
  assert.match(html,/Connecting/);assert.doesNotMatch(html,/>● Synced</);
@@ -55,7 +65,7 @@ test('later-linked second entry requires an explicit partner choice before showi
  assert.doesNotMatch(html,/<input[^>]*value="(?:Sam|Rackets|09123456780|https:\/\/facebook.com\/sam.test)"/);
  assert.equal((html.match(/<label>Club \/ group/g)||[]).length,1);
  assert.equal((html.match(/Facebook profile link/g)||[]).length,1);
- assert.match(html,/<option value="black">Black shirt<\/option>/);
+ assert.match(html,/<option value="none">No shirt<\/option>/);assert.doesNotMatch(html,/<option value="black">/);
  assert.match(html,/<option value="tournament"[^>]*>Second tournament shirt<\/option>/);
 });
 

@@ -40,3 +40,9 @@ test('review exports preserve leading zeros, status, shared group and stale-imag
 });
 
 test.after(() => rm(dir, { recursive: true, force: true }));
+test('no-shirt entries export their choice rather than a retained size in both formats',()=>{
+ const sheet={name:'Open',rows:[{name:'Alex',id:'no-shirt',divisionName:'Open',shirtSize:'XL',secondShirt:'none',paid:false}]};
+ assert.match(registrationSheetCsv(sheet),/"Open","No shirt","Pending"/);
+ const xml=new TextDecoder().decode(unzipSync(buildRegistrationWorkbook([sheet]))['xl/worksheets/sheet1.xml']);
+ assert.match(xml,/No shirt/);assert.doesNotMatch(xml,/>XL</);
+});

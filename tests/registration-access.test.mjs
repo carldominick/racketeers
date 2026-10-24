@@ -19,6 +19,21 @@ const request=(body,headers={},method='POST')=>new Request('https://test/api/sta
 const post=(body,headers)=>api.POST(request(body,headers));
 const org={'x-organizer-pin':'12345678'};
 const create=(divisionId,extra={})=>({action:'registerPlayer',registration:{divisionId,name:'Alex',partnerName:'Sam',club:'Cebu Club',partnerClub:'Rackets',facebookProfile:'https://www.facebook.com/alex.test',phone:'09123456789',partnerFacebookProfile:'https://www.facebook.com/sam.test',partnerPhone:'+639123456780',...extra}});
+test('no-shirt second entries survive authorized lookup and edits without changing first-entry shirt records',async()=>{
+ let state=await reset();state=logic.addDivision(state,'Second division');saved.payload=JSON.stringify(state);
+ const response=await post(create(state.divisions[0].id,{shirtSize:'S',partnerShirtSize:'XL',secondEntry:{owner:'partner',divisionId:state.divisions[1].id,samePartner:true,secondShirt:'none',partnerSecondShirt:'none'}}));
+ assert.equal(response.status,200);const result=await response.json();
+ const second=result.registrations.find(r=>r.divisionId===state.divisions[1].id);
+ let records=JSON.parse(saved.payload).registrations;
+ assert.equal(second.secondShirt,'none');assert.equal(records.find(r=>r.id===second.partnerId).secondShirt,'none');
+ const first=records.filter(r=>r.divisionId===state.divisions[0].id);assert.ok(first.every(r=>r.secondShirt===undefined));assert.deepEqual(first.map(r=>r.shirtSize),['S','XL']);
+ const body={action:'updateRegistration',registrationId:second.id,pin:result.editPin,registration:{secondShirt:'none',partnerSecondShirt:'none'}};
+ assert.equal((await post({...body,pin:'00000000'})).status,401);
+ assert.equal((await post(body)).status,200);assert.equal((await post({...body,registration:{phone:'09111222333'}})).status,200);
+ const lookup=await (await post({action:'lookupRegistration',registrationId:second.id,pin:result.editPin})).json();assert.equal(lookup.registration.secondShirt,'none');assert.equal(lookup.registration.partnerSecondShirt,'none');
+ const snapshot=structuredClone(saved);assert.equal((await post({...body,registration:{secondShirt:'invalid'}})).status,400);assert.deepEqual(saved,snapshot);
+ records=JSON.parse(saved.payload).registrations;assert.ok(records.filter(r=>r.divisionId===state.divisions[0].id).every(r=>r.secondShirt===undefined));
+});
 
 test('state recovery export is organizer-only, complete and digest-bound to one stored revision',async()=>{
  const state=await reset();state.registrations=[{...logic.makeRegistration(state.divisions[0].id),id:'test-registration',name:'Alex',registrationPinRecovery:'fictional-recovery'}];saved.payload=JSON.stringify(state);

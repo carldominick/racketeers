@@ -17,6 +17,7 @@ const previewPin = '00000000';
 const sponsors = new Map<string, { id: string; name: string; bytes: Buffer }>();
 let revision=1;
 let state: ReturnType<typeof initialTournament>=process.env.RACKETEERS_PREVIEW_COURTS === '1' ? projectorFixture() : gameDayFixture();
+if(process.env.RACKETEERS_PREVIEW_REGISTRATION === '1')state={...state,status:'registration'};
 const previewPayments=previewPaymentHandler(()=>state);
 export default defineConfig({root:'preview',publicDir:'../public',server:{host:'0.0.0.0',allowedHosts:['terminal.local'],fs:{allow:['..']}},plugins:[react(),{name:'isolated-design-data',enforce:'pre',transform(code,id){
  if(!id.split('?')[0].endsWith('/app/page.tsx'))return;
@@ -44,6 +45,7 @@ export default defineConfig({root:'preview',publicDir:'../public',server:{host:'
  }
  if(req.method==='GET' && req.url?.startsWith('/state') && req.url.includes('backup=1')){if(req.headers['x-organizer-pin']!=='demo-only'){res.statusCode=401;res.end('{}');return;}const payload=JSON.stringify(state);res.end(JSON.stringify({format:'racketeers-state-backup-v1',payload,revision,digest:createHash('sha256').update(payload).digest('hex')}));return;}
  if(req.method==='GET' && req.url?.includes('staffUpdates')){res.end(JSON.stringify({courtHelp:state.courtHelp??{},notifications:req.headers['x-organizer-pin']?state.staffNotifications??[]:[],revision}));return;}
+ if(req.method==='GET' && req.url?.startsWith('/payment-settings')){res.end(JSON.stringify({bankName:'Demo Bank',accountNumber:'0000 0000 0000',accountName:'Local preview only',instructions:'Fictional payment details for local review. Do not send a payment.',imageAvailable:false,uploadsEnabled:true}));return;}
  if(req.method==='GET'){res.end(JSON.stringify(req.url?.startsWith('/state')?{state,revision,organizer:Boolean(req.headers['x-organizer-pin'])}:req.url?.includes('capabilities')?{enabled:false}:{}));return;}
  let body = ''; for await (const chunk of req) body += chunk;
  let data; try { data = JSON.parse(body); } catch { res.statusCode=400;res.end(JSON.stringify({error:'Invalid request.'}));return; }

@@ -8,7 +8,7 @@ import { matchWinner, isMatchUsingCourt, courtInUseAfterScore, tournamentEditing
 
 const ROW_ID = "racketeers";
 const comparable = (value: unknown) => JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
-type EntryForm = Partial<PlayerRegistration> & { partnerFacebookProfile?: string; partnerPhone?: string; partnerShirtSize?: string; partnerDesiredLevel?: string; partnerClub?: string; sourceRegistrationId?: string; samePartner?: boolean; partnerSecondShirt?: "black" | "tournament" };
+type EntryForm = Partial<PlayerRegistration> & { partnerFacebookProfile?: string; partnerPhone?: string; partnerShirtSize?: string; partnerDesiredLevel?: string; partnerClub?: string; sourceRegistrationId?: string; samePartner?: boolean; partnerSecondShirt?: "black" | "tournament" | "none" };
 type RegistrationForm = EntryForm & { secondEntry?: EntryForm & { owner?: "primary" | "partner" } };
 function organizerState(state: TournamentState) {
   return { ...state, registrations: state.registrations.map(({ registrationPinRecovery: secret, ...registration }) => { void secret; return registration; }) };
@@ -245,17 +245,17 @@ export async function POST(request: Request) {
     for (const person of [source, sourcePartner]) {
       if (person && state.registrations.filter(r => (r.personId || r.id) === (person.personId || person.id)).length >= 2) return Response.json({ error: "This player already has two entries." }, { status: 409 });
     }
-    if (source && !["black", "tournament"].includes(form.secondShirt || "")) return Response.json({ error: "Choose a black shirt or second tournament shirt." }, { status: 400 });
-    if (sourcePartner && !["black", "tournament"].includes(form.partnerSecondShirt || "")) return Response.json({ error: "Choose the second shirt for the partner." }, { status: 400 });
+    if (source && !["black", "tournament", "none"].includes(form.secondShirt || "")) return Response.json({ error: "Choose a second tournament shirt or no shirt." }, { status: 400 });
+    if (sourcePartner && !["black", "tournament", "none"].includes(form.partnerSecondShirt || "")) return Response.json({ error: "Choose the second shirt for the partner." }, { status: 400 });
     const second = form.secondEntry;
     const secondDivision = second && state.divisions.find(d => d.id === second.divisionId);
     if (second && (source || !secondDivision || typeof second !== "object" || Array.isArray(second))) return Response.json({ error: "Choose a valid division for the second entry. Only two entries are allowed." }, { status: 400 });
     if (second?.owner !== undefined && second.owner !== "primary" && second.owner !== "partner") return Response.json({ error: "Choose which player will have the second entry." }, { status: 400 });
     if (second?.owner === "partner" && (division.mode === "singles" || !clean(form.partnerName))) return Response.json({ error: "The first entry has no second player to select." }, { status: 400 });
-    if (second && !["black", "tournament"].includes(second.secondShirt || "")) return Response.json({ error: "Choose the second-entry shirt." }, { status: 400 });
+    if (second && !["black", "tournament", "none"].includes(second.secondShirt || "")) return Response.json({ error: "Choose the second-entry shirt." }, { status: 400 });
     if (second && secondDivision?.mode === "doubles" && !clean(second.samePartner ? form.partnerName : second.partnerName)) return Response.json({ error: "Enter a partner for the second entry." }, { status: 400 });
     if (second?.samePartner && (!clean(form.partnerName) || division.mode === "singles")) return Response.json({ error: "The first entry has no partner to reuse." }, { status: 400 });
-    if (second?.samePartner && secondDivision?.mode !== "singles" && !["black", "tournament"].includes(second.partnerSecondShirt || "")) return Response.json({ error: "Choose the partner’s second-entry shirt." }, { status: 400 });
+    if (second?.samePartner && secondDivision?.mode !== "singles" && !["black", "tournament", "none"].includes(second.partnerSecondShirt || "")) return Response.json({ error: "Choose the partner’s second-entry shirt." }, { status: 400 });
     let editPin = "";
     let registrationPinHash = "";
     for (let attempt = 0; attempt < 20; attempt++) {
@@ -311,12 +311,13 @@ export async function POST(request: Request) {
     if (!division || !clean(form.name ?? existing.name)) return Response.json({ error: "A player name and division are required." }, { status: 400 });
     if (division.mode === "doubles" && !clean(form.partnerName ?? state.registrations.find(r => r.id === existing.partnerId)?.name)) return Response.json({ error: "Both player names are required." }, { status: 400 });
     const registeredLevel = existing.desiredLevel;
+    if ([form.secondShirt, form.partnerSecondShirt].some(choice => choice !== undefined && !["black", "tournament", "none"].includes(choice))) return Response.json({ error: "Choose a valid second-entry shirt option." }, { status: 400 });
     const existingPartner = state.registrations.find((candidate) => candidate.id === existing.partnerId);
     const partnerRegisteredLevel = existingPartner?.desiredLevel || "";
     const partnerName = division.mode === "singles" ? "" : clean(form.partnerName ?? existingPartner?.name);
-    let updatedPartner: PlayerRegistration | null = existingPartner && partnerName ? { ...existingPartner, facebookProfile: clean(form.partnerFacebookProfile ?? existingPartner.facebookProfile, 500), phone: clean(form.partnerPhone ?? existingPartner.phone, 30), divisionId, name: partnerName, club: clean(form.partnerClub ?? existingPartner.club), secondShirt: existingPartner.secondShirt ? ((form.partnerSecondShirt ?? existingPartner.secondShirt) === "black" ? "black" as const : "tournament" as const) : undefined, shirtSize: clean(form.partnerShirtSize ?? existingPartner.shirtSize, 8) || "M", desiredLevel: partnerRegisteredLevel, teamName: clean(form.teamName ?? existingPartner.teamName) } : null;
+    let updatedPartner: PlayerRegistration | null = existingPartner && partnerName ? { ...existingPartner, facebookProfile: clean(form.partnerFacebookProfile ?? existingPartner.facebookProfile, 500), phone: clean(form.partnerPhone ?? existingPartner.phone, 30), divisionId, name: partnerName, club: clean(form.partnerClub ?? existingPartner.club), secondShirt: existingPartner.secondShirt ? ((form.partnerSecondShirt ?? existingPartner.secondShirt) === "black" ? "black" as const : (form.partnerSecondShirt ?? existingPartner.secondShirt) === "none" ? "none" as const : "tournament" as const) : undefined, shirtSize: clean(form.partnerShirtSize ?? existingPartner.shirtSize, 8) || "M", desiredLevel: partnerRegisteredLevel, teamName: clean(form.teamName ?? existingPartner.teamName) } : null;
     if (!updatedPartner && partnerName) updatedPartner = { ...makeRegistration(divisionId, state.registrations.length), facebookProfile: clean(form.partnerFacebookProfile, 500), phone: clean(form.partnerPhone, 30), name: partnerName, club: clean(form.partnerClub), shirtSize: clean(form.partnerShirtSize, 8) || "M", desiredLevel: partnerRegisteredLevel, playerLevel: partnerRegisteredLevel, teamName: clean(form.teamName), partnerId: existing.id, paymentGroupId: existing.paymentGroupId, selfRegistered: true };
-    const updated: PlayerRegistration = { ...existing, facebookProfile: clean(form.facebookProfile ?? existing.facebookProfile, 500), phone: clean(form.phone ?? existing.phone, 30), divisionId, name: clean(form.name ?? existing.name), club: clean(form.club ?? existing.club), secondShirt: existing.secondShirt ? ((form.secondShirt ?? existing.secondShirt) === "black" ? "black" : "tournament") : undefined, partnerName: "", partnerId: updatedPartner?.id ?? null, shirtSize: clean(form.shirtSize ?? existing.shirtSize, 8), desiredLevel: registeredLevel, teamName: clean(form.teamName ?? existing.teamName) };
+    const updated: PlayerRegistration = { ...existing, facebookProfile: clean(form.facebookProfile ?? existing.facebookProfile, 500), phone: clean(form.phone ?? existing.phone, 30), divisionId, name: clean(form.name ?? existing.name), club: clean(form.club ?? existing.club), secondShirt: existing.secondShirt ? ((form.secondShirt ?? existing.secondShirt) === "black" ? "black" : (form.secondShirt ?? existing.secondShirt) === "none" ? "none" : "tournament") : undefined, partnerName: "", partnerId: updatedPartner?.id ?? null, shirtSize: clean(form.shirtSize ?? existing.shirtSize, 8), desiredLevel: registeredLevel, teamName: clean(form.teamName ?? existing.teamName) };
     for (const player of [updated, ...(updatedPartner ? [updatedPartner] : [])]) {
       const error = !player.club?.trim() ? "Enter a club / group name." : contactError(player.facebookProfile, player.phone);
       if (error) return Response.json({ error: player.name + ": " + error }, { status: 400 });
