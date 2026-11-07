@@ -1,5 +1,11 @@
 # Racketeers product and implementation context
 
+## Four payment screenshots and UI source review — local, 2026-11-07
+
+Registration supports up to four optional screenshots per shared payment group, with selection/removal before submission and later PIN-authorized addition/replacement. Individual input and converted PNG limits remain 2 MiB. Primary receipt keys and legacy retrieval remain compatible; additional slots are nested at `<primary-key>/photos/2.png` through `4.png`. No schema migration or binding change is required. Organizers can view/download all photos, and signed exports show a gallery for multiple photos. The existing confirmed delete action removes all group photos. Aggregate proof versions invalidate saved reviews when any photo changes. OCR still reads only the primary screenshot and saves one group review; this limitation is stated in the UI. Uploads never change paid status. Sequential failures may retain already uploaded photos and report the completed count.
+
+The user subsequently approved applying the unslop polish suggestions to the live site. Screen-only rules reduce action/status label weights, use sentence-case status badges, align registration progress spacing and field heights, and remove the scoreboard circle/live-card ring. Mobile progress retains compact spacing, and umpire score sizes, print styles, projector scaling, themes and the navy/lime palette remain intact. Submission guidance is shorter. See `docs/ui-review-2026-11-07.md` for exact values, verification and limitations. A fresh private state recovery copy was downloaded and its digest verified before release; production data edits are unnecessary.
+
 ## Registration and Game Day review implementation — local, 2026-10-25
 
 The user approved the recommendations in `outputs/product-design-audit-20261023/report.md`, reviewed the local implementation and authorized release on 2026-10-25. The local review branch is `codex/registration-game-day-review`, based on `25aa427b191355c40ae722f5b14c7214e207b8cf`. The verification described here records the pre-release checkpoint. Release proceeds through a GitHub pull request, Linux verification and the existing main-branch Cloudflare workflow. Existing Cloudflare bindings and credentials are retained; approved fee settings are applied separately through organizer access.
