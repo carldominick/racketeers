@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch as fetch } from "../../lib/client-request";
+
 import { useState } from "react";
 
 export function RegistrationPin({ registrationId, organizerPin, disabled, onChanged }: { registrationId: string; organizerPin: string; disabled: boolean; onChanged: () => void }) {

@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "./client-request";
 import type { TournamentState } from "./tournament";
 export type OrganizerSaveResult = { kind: "saved"; state: TournamentState; revision: number } | { kind: "conflict"; state: TournamentState; revision: number; error: string };
 /** A conflict is terminal for this attempt. Never resubmit an old snapshot at a newer revision. */

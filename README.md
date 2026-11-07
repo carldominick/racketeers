@@ -165,6 +165,10 @@ New registration IDs use REG followed by a cryptographically generated UUID with
 
 ## Clubhouse Clarity design preview
 
+### Organizer practice mode
+
+Organizer → Prepare → Setup → **Open organizer demo** opens an organizer-PIN-protected practice tab. It uses fictional players, matches and sample receipts, including a group with three photos and one available slot. Changes/images stay in the tab's memory and reset on reload, exit or 30-minute expiry. The real tournament and storage are separate. See [Demo mode](docs/demo-mode.md) for supported workflows, initial fictional PINs and limitations.
+
 The November UI polish retains the navy/lime palette and themes, with lighter action labels, sentence-case status badges, consistent registration progress spacing and 48px registration fields. Live scores retain their existing sizes; surrounding score cards use quieter borders without decorative rings. Print layout and projector scaling are unchanged.
 
 `npm run dev` opens an isolated frontend preview using the production UI components and demo tournament data. Demo submissions and payment storage stay in memory; production storage and staff access are not connected. `npm run dev:worker` starts the actual Cloudflare/Vinext development runtime using local bindings. `npm run build` and `npm run deploy` still build and deploy the production Worker and its real APIs.

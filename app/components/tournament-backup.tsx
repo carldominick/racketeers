@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch as fetch } from "../../lib/client-request";
+
 import { useState } from "react";
 import { downloadJson } from "../../lib/download";
 export function TournamentBackup({ pin, disabled }: { pin: string; disabled: boolean }) {

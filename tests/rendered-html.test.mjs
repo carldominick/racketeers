@@ -26,6 +26,15 @@ const runtime = new Miniflare({
   bindings:{INITIAL_ORGANIZER_PIN:'12345678'},
 });
 test.after(()=>runtime.dispose());
+test('built demo entry requires the real organizer and preview query parameters do not unlock it',async()=>{
+ await runtime.dispatchFetch('https://racketeers.example/api/state');
+ const request=pin=>runtime.dispatchFetch('https://racketeers.example/api/demo',{method:'POST',headers:pin?{'x-organizer-pin':pin}:{}});
+ assert.equal((await request()).status,401);assert.equal((await request('98765432')).status,401);
+ assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/demo',{method:'POST',headers:{'x-umpire-pin':'12345678'}})).status,401);
+ const authorized=await request('12345678');assert.equal(authorized.status,200);assert.equal((await authorized.json()).authorized,true);
+ const gate=await runtime.dispatchFetch('https://racketeers.example/demo?role=organizer');const html=await gate.text();assert.match(html,/Start demo/);assert.doesNotMatch(html,/Practice guide|DEMO-PLAYER/);
+ const ordinary=await runtime.dispatchFetch('https://racketeers.example/?role=organizer&demo=true');assert.doesNotMatch(await ordinary.text(),/Open organizer demo|Practice guide/);
+});
 const fetchWorker = request => runtime.dispatchFetch(request.url,{method:request.method,headers:request.headers,cf:request.cf});
 const fetchPage = pathname => fetchWorker(new Request('https://racketeers.example'+pathname, {headers:{accept:'text/html'}}));
 

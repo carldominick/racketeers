@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { handlePaymentProof, type ProofEnvironment } from "../lib/payment-proof-server";
+import { authorizeDemo } from "../lib/demo-access";
 import { handlePaymentDetails } from "../lib/payment-details-server";
 import type { TournamentState } from "../lib/tournament";
 const digest = async (value: string) => Buffer.from(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value))).toString("hex");
@@ -25,11 +26,11 @@ export function previewPaymentHandler(getState: () => TournamentState) {
       delete:async key=>{objects.delete(key);},
     }};
     const headers=new Headers();
-    if(req.headers['x-organizer-pin']==='demo-only')headers.set('x-organizer-pin','98765432');
+    if(req.headers['x-organizer-pin'])headers.set('x-organizer-pin',req.headers['x-organizer-pin']==='demo-only'?'98765432':String(req.headers['x-organizer-pin']));
     if(req.headers['content-type'])headers.set('content-type',String(req.headers['content-type']));
     const parts:Buffer[]=[];for await(const chunk of req)parts.push(Buffer.from(chunk));
     const request=new Request(new URL(`/api${req.url}`,"http://preview.test"),{method:req.method,headers,...(!['GET','HEAD'].includes(req.method||'GET')?{body:Buffer.concat(parts)}:{})});
-    const response=await (req.url?.startsWith('/payment-details')?handlePaymentDetails(request,env):handlePaymentProof(request,env));
+    const response=await (req.url?.startsWith('/demo')?authorizeDemo(request,env):req.url?.startsWith('/payment-details')?handlePaymentDetails(request,env):handlePaymentProof(request,env));
     res.statusCode=response.status;response.headers.forEach((value,key)=>res.setHeader(key,value));res.end(Buffer.from(await response.arrayBuffer()));
   };
 }

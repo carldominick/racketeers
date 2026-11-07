@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "./client-request";
 import { readReceiptRecord, ReceiptRequestError } from "./receipt-batch";
 import type { ReceiptRecord } from "./receipt-details";
 import type { Division, PlayerRegistration } from "./tournament";

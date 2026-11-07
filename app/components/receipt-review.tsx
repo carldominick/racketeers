@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch as fetch } from "../../lib/client-request";
+
 /* eslint-disable @next/next/no-img-element -- Private receipts use authenticated blob previews, never image proxies. */
 import { useEffect, useId, useRef, useState } from "react";
 import { emptyReceipt, receiptAmount, type ReceiptDetails, type ReceiptRecord, type ReceiptReading } from "../../lib/receipt-details";
