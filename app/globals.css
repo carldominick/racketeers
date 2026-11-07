@@ -1275,3 +1275,10 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
  .clubhouse-site .sets input {font-size:18px}
 }
 @media print {.demo-banner {display:none}}
+
+@media screen {
+ .clubhouse-site .brand {min-width:0;max-width:100%}
+ .clubhouse-site .brand>div:last-child {min-width:0}
+ .clubhouse-site .brand p {text-transform:none;letter-spacing:0;font-size:clamp(15px,2vw,19px);line-height:1.25;overflow-wrap:break-word}
+ .clubhouse-site .mark {flex-shrink:0}
+}

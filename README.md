@@ -1,6 +1,8 @@
-# Racketeers Badminton Tournament Tracker
+# Racketeers Badminton Club
 
 Standalone Cloudflare deployment of the Racketeers application. Includes tournament setup, individual registrations and pairing, pools and knockout draws, umpire scoring, organizer PIN controls, schedules, projector views, and printable scorecards.
+
+Organizer → Prepare → Registration can download CSV for all divisions or a selected division, and Excel with one sheet per division. Downloads use the entries shown, including unsaved changes when indicated. A connection or receipt-service failure does not block the roster file; unavailable payment fields are marked explicitly. When connected and saved, exports include organizer-authorized private proof links and reviewed receipt fields. These group amounts repeat across linked rows and must not be summed twice.
 
 ## Dedicated court window and receipt review
 

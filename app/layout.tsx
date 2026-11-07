@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Racketeers Badminton Tournament Tracker",
+  title: "Racketeers Badminton Club",
   description: "Live badminton tournament scoring, scheduling, brackets, and standings.",
   icons: {
     icon: "/favicon.svg",

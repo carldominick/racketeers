@@ -81,7 +81,7 @@ export function buildRegistrationWorkbook(sheets: RegistrationExportSheet[]) {
       ...sheet.rows.map(row => [
         row.name, row.id, row.phone || "", row.facebookProfile || "", row.club || "",
         row.partnerName || "", row.divisionName, row.secondShirt === "none" ? "No shirt" : row.shirtSize || "", row.paid ? "Validated" : "Pending",
-        row.paymentProofUrl ? "View payment proof" : "No payment proof uploaded", ...receiptCells(row),
+        row.paymentProofUrl ? "View payment proof" : row.reviewStatus?.startsWith("Unavailable") ? "Payment proof unavailable" : "No payment proof uploaded", ...receiptCells(row),
       ].map((value, column) => ({ value, column, link: column === 9 ? row.paymentProofUrl : undefined }))),
     ];
     const relationships: string[] = [];
