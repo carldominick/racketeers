@@ -1186,3 +1186,34 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
  .game-day-desk .desk-select {min-height:44px!important}
  .desk-assignment,.desk-review,.desk-queue {scroll-margin-top:16px}
 }
+
+/* Multi-photo receipt controls retain the Clubhouse palette. */
+.payment-photo-picker {display:grid;gap:12px;min-width:0;margin:16px 0}
+.payment-photo-picker label {display:grid;gap:8px}
+.payment-photo-picker input {width:100%;min-width:0;min-height:44px;font-size:16px}
+.payment-photo-picker>div,.payment-photo-row {display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.payment-photo-picker span {overflow-wrap:anywhere;min-width:0;flex:1 1 160px}
+.payment-photo-picker button,.payment-photo-row button {min-height:44px}
+
+/* UI review polish: quieter controls and a consistent registration rhythm.
+   Based on unslop by Damir Sokolovsky (heydamir.design/unslop), CC BY 4.0. */
+@media screen {
+ .clubhouse-site button:is(.primary,.secondary,.ghost,.danger) {font-weight:600}
+ .clubhouse-site .status {font-weight:500;text-transform:none;letter-spacing:0}
+ .clubhouse-registration .registration-steps {gap:16px;margin-bottom:32px}
+ .clubhouse-registration .registration-steps span {width:40px;height:40px;flex-basis:40px}
+ .clubhouse-registration .registration-steps [aria-current=step] button {font-weight:600}
+ .clubhouse-registration .registration-shirt-row>strong,
+ .clubhouse-registration .registration-shirt-row>div:first-child {font-weight:500}
+ .clubhouse-registration input:not([type=checkbox]):not([type=radio]):not([type=file]),
+ .clubhouse-registration select {min-height:48px}
+ .clubhouse-site .live-card {border-color:var(--line);box-shadow:var(--shadow)}
+ .clubhouse-site .scoreboard-hero::after {display:none}
+ @media(min-width:1280px) {
+  .clubhouse-registration:has(.guided-entry-review:not([hidden])) .registration-steps {margin-bottom:24px}
+ }
+ @media(max-width:1000px) {
+  .clubhouse-registration .registration-steps {gap:12px;margin-bottom:16px}
+  .clubhouse-registration .registration-steps span {width:36px;height:36px;flex-basis:36px}
+ }
+}

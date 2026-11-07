@@ -119,9 +119,9 @@ Cloudflare documentation:
 
 ## Payment screenshots (optional)
 
-Players can select a payment screenshot during registration or upload/replace it later with their registration PIN while registration is open. Organizers can view and download proofs from each player card in Registration. Linked players and entries share proof ownership through their payment group, with compatibility for legacy reciprocal pairs and individual registrations. Proofs do not automatically mark any player as paid.
+Players can select up to four payment screenshots during registration or add/replace photos later with their registration PIN while registration is open. The four-photo allowance is shared by linked players and entries in a payment group. Organizers can view and download each photo from Registration. Signed export links show a gallery when multiple photos exist. Legacy reciprocal pairs and individual registrations remain supported. Proofs do not automatically mark any player as paid. OCR reads the primary screenshot only; organizers must inspect every photo before confirming payment. Any photo change invalidates the prior group review.
 
-PNG/JPG/WebP input is limited to 2 MB and converted in the browser to a PNG (maximum 2000 pixels on the longest side). Current private keys use `payments/groups/<paymentGroupId>/<paymentGroupId>.png`; legacy pair and individual keys remain readable. Receipts require owner/organizer authorization or a time-limited signed export link; no public bucket URL is used. Screenshot storage is separate from tournament JSON saves to avoid sync conflicts.
+Each PNG/JPG/WebP input is limited to 2 MB and converted in the browser to a PNG (maximum 2000 pixels on the longest side), also capped at 2 MB. The primary private key remains `payments/groups/<paymentGroupId>/<paymentGroupId>.png`; extra photos use `<primary-key>/photos/2.png` through `4.png`. Legacy pair and individual primary keys remain readable. Uploads run sequentially; if some fail, check saved photos before retrying. Receipts require owner/organizer authorization or a time-limited signed export link; no public bucket URL is used. Screenshot storage is separate from tournament JSON saves to avoid sync conflicts.
 
 ### Enable storage
 
@@ -164,6 +164,8 @@ New registration IDs use REG followed by a cryptographically generated UUID with
 
 
 ## Clubhouse Clarity design preview
+
+The November UI polish retains the navy/lime palette and themes, with lighter action labels, sentence-case status badges, consistent registration progress spacing and 48px registration fields. Live scores retain their existing sizes; surrounding score cards use quieter borders without decorative rings. Print layout and projector scaling are unchanged.
 
 `npm run dev` opens an isolated frontend preview using the production UI components and demo tournament data. Demo submissions and payment storage stay in memory; production storage and staff access are not connected. `npm run dev:worker` starts the actual Cloudflare/Vinext development runtime using local bindings. `npm run build` and `npm run deploy` still build and deploy the production Worker and its real APIs.
 

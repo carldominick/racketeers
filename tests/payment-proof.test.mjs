@@ -8,12 +8,51 @@ import { pathToFileURL } from 'node:url';
 const dir = await mkdtemp(path.join(tmpdir(), 'payment-proof-'));
 await build({entryPoints:['lib/payment-proof-server.ts'],outfile:path.join(dir,'server.mjs'),bundle:true,platform:'node',format:'esm'});
 const {handlePaymentProof,handlePaymentSettings,MAX_PROOF_BYTES} = await import(pathToFileURL(path.join(dir,'server.mjs')));
+await build({entryPoints:['app/components/payment-proof.tsx'],outfile:path.join(dir,'client.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic'});
+const {uploadPaymentImages}=await import(pathToFileURL(path.join(dir,'client.mjs')));
+test('multi-photo client fills only empty slots, blocks excess and reports partial failure',async()=>{
+ const png=new Blob(['synthetic upload']);
+ const original=globalThis.fetch;const calls=[];let fail=false;
+ globalThis.fetch=async(url,options)=>{
+  if(url.includes('metadata=1'))return Response.json({photos:[{slot:1}]});
+  calls.push({url,options});
+  return fail && calls.length===2?Response.json({error:'Connection interrupted'},{status:503}):Response.json({ok:true});
+ };
+ try {
+  await assert.rejects(uploadPaymentImages('linked-entry','12345678',[png,png,png,png]),/Only 3 photo slots remain/);assert.equal(calls.length,0);
+  await uploadPaymentImages('linked-entry','12345678',[png,png]);assert.match(calls[0].url,/slot=2/);assert.match(calls[1].url,/slot=3/);assert.equal(calls[0].options.headers['x-registration-pin'],'12345678');
+  calls.length=0;fail=true;
+  await assert.rejects(uploadPaymentImages('linked-entry','876543',[png,png,png],true),/1 of 3 photos uploaded/);assert.equal(calls.length,2);assert.equal(calls[0].options.headers['x-organizer-pin'],'876543');
+ }finally{globalThis.fetch=original;}
+});
 const hash = async pin => Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pin))).toString('hex');
 const state = {status:'registration',organizerPinHash:await hash('876543'),registrations:[{id:'player-test',registrationPinHash:await hash('12345678'),paid:false},{id:'player-other',registrationPinHash:await hash('87654321')}]};
 const objects=new Map(); let writes=0;
 const env={DB:{prepare:()=>({bind:()=>({first:async()=>({payload:JSON.stringify(state)})})})},PAYMENT_PROOFS:{head:async key=>objects.get(key)??null,get:async key=>{const value=objects.get(key);return value?{...value,body:new Blob([value.bytes]).stream()}:null;},put:async(key,bytes,options)=>{writes++;objects.set(key,{bytes,size:bytes.length,uploaded:new Date(),options});}}};
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=','base64');
 const req=(options={})=>new Request(`https://test/api/payment-proof?registrationId=${options.id??'player-test'}${options.metadata?'&metadata=1':''}`,{method:options.method??'GET',headers:{...(options.organizer?{'x-organizer-pin':options.organizer}:{'x-registration-pin':options.pin??'12345678'}),...(options.method==='POST'?{'content-type':options.type??'image/png'}:{})},...(options.method==='POST'?{body:options.body??png}:{})});
+
+test('four photo slots preserve legacy proof, ownership, versions and signed galleries',async()=>{
+ const files=new Map();
+ const group={...state,registrations:state.registrations.map(r=>({...r,paymentGroupId:'linked-group'}))};
+ let sequence=0;
+ const fixture={DB:{prepare:()=>({bind:()=>({first:async()=>({payload:JSON.stringify(group)})})})},PAYMENT_PROOFS:{head:async key=>files.get(key)||null,get:async key=>{const value=files.get(key);return value?{...value,body:new Blob([png]).stream()}:null;},put:async(key)=>files.set(key,{size:png.length,uploaded:new Date(),etag:String(++sequence)}),delete:async key=>files.delete(key)}};
+ const request=(query='',method='GET',pin='12345678')=>new Request(`https://test/api/payment-proof?registrationId=player-test${query}`,{method,headers:{'x-registration-pin':pin,...(method==='POST'?{'content-type':'image/png'}:{})},...(method==='POST'?{body:png}:{})});
+ files.set('payments/player-test.png',{size:png.length,uploaded:new Date(0),etag:'legacy'});
+ const initial=await(await handlePaymentProof(request('&metadata=1'),fixture)).json();
+ for(const slot of [2,3,4])assert.equal((await handlePaymentProof(request(`&slot=${slot}`,'POST'),fixture)).status,200);
+ const meta=await(await handlePaymentProof(request('&metadata=1'),fixture)).json();
+ assert.deepEqual(meta.photos.map(p=>p.slot),[1,2,3,4]);assert.notEqual(meta.proofVersion,initial.proofVersion);
+ for(const slot of [1,2,3,4])assert.equal((await handlePaymentProof(request(`&slot=${slot}`,'GET','87654321'),fixture)).status,200);
+ assert.equal((await handlePaymentProof(request('&slot=2','GET','00000000'),fixture)).status,401);
+ for(const slot of ['0','5','-1','1.5','../../secret'])assert.equal((await handlePaymentProof(request(`&slot=${slot}`,'POST'),fixture)).status,400);
+ assert.equal(files.size,4);
+ const exported=await(await handlePaymentProof(new Request('https://test/api/payment-proof?export-links=1',{method:'POST',headers:{'x-organizer-pin':'876543','content-type':'application/json'},body:JSON.stringify({registrationIds:['player-test']})}),fixture)).json();
+ const gallery=await handlePaymentProof(new Request(exported.links['player-test']),fixture);
+ assert.match(gallery.headers.get('content-type'),/text\/html/);assert.match(await gallery.text(),/Photo 4/);
+ const photo=new URL(exported.links['player-test']);photo.searchParams.set('slot','4');assert.equal((await handlePaymentProof(new Request(photo),fixture)).headers.get('content-type'),'image/png');
+ const deleted=await handlePaymentProof(new Request('https://test/api/payment-proof?registrationId=player-test',{method:'DELETE',headers:{'x-organizer-pin':'876543'}}),fixture);assert.equal(deleted.status,200);assert.equal(files.size,0);
+});
 test('payment screenshots stay private and use registration ID filenames',async()=>{
  assert.equal((await handlePaymentProof(req({pin:''}),env)).status,401);
  assert.equal((await handlePaymentProof(req({pin:'87654321'}),env)).status,401);

@@ -36,7 +36,8 @@ test('public and organizer registration share required player fields and preserv
   assert.equal((html.match(/<label>Club \/ group/g)||[]).length,2);
   assert.equal((html.match(/Facebook profile link/g)||[]).length,2);assert.equal((html.match(/Phone \/ mobile number/g)||[]).length,2);
   assert.doesNotMatch(html,/Registered level|Allowed registration levels/);assert.match(html,/Player 1/);assert.match(html,/Player 2 \/ Partner/);
-  assert.match(html,/Submit Registration/);assert.match(html,/Upload payment photo/);
+  assert.match(html,/Submit Registration/);assert.match(html,/Add payment screenshots/);
+  assert.match(html,/<input[^>]*type="file"[^>]*multiple=""/);assert.match(html,/0 of 4 selected/);assert.match(html,/2 MB per photo/);
   assert.match(html,/<aside class="clubhouse-sidebar"/);assert.match(html,/aria-label="Tournament documents"/);
   assert.match(html,/Tournament rules &amp; regulations/);assert.match(html,/Disclaimer &amp; waiver/);
  }

@@ -39,6 +39,7 @@ export function ReceiptBatchReview({ registrations, pin, locked = false }: { reg
     setResults([]); setProgress(null); setIssues([]);
   };
   return <section className="card receipt-batch" aria-labelledby="receipt-batch-heading">
+    <p>For groups with multiple photos, OCR reads only the primary screenshot. Review every photo on the player’s registration card before confirming payment.</p>
     <h2 id="receipt-batch-heading">Read payment screenshots together</h2>
     <p>Read uploads across all divisions, then open each result to check the screenshot and save reviewed details. Shared player and second-entry screenshots are read once.</p>
     <p>Uses Tesseract.js on this device. Keep this tab open. Readings stay here until you save them; no payment is confirmed automatically.</p>

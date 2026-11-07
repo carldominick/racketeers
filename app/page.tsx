@@ -27,7 +27,7 @@ import { Projector } from "./components/projector";
 import { ProjectorSettings } from "./components/projector-settings";
 import type { ProjectorSettings as ProjectorPreferences } from "../lib/projector-settings";
 import { RegistrationPin } from "./components/registration-pin";
-import { PhotoUploadButton, PaymentProof, preparePaymentImage, uploadPaymentImage } from "./components/payment-proof";
+import { PaymentPhotoPicker, PaymentProof, preparePaymentImage, uploadPaymentImages } from "./components/payment-proof";
 import { PaymentReviewQueue } from "./components/payment-review-queue";
 import { loadPaymentQueue } from "../lib/payment-review-queue";
 import { ReceiptBatchReview } from "./components/receipt-batch-review";
@@ -223,7 +223,7 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
   const [submittedPin, setSubmittedPin] = useState("");
   const [busy, setBusy] = useState(false);
   const submissionInFlight = useRef(false);
-  const [paymentFile, setPaymentFile] = useState<File | null>(null);
+  const [paymentFiles, setPaymentFiles] = useState<File[]>([]);
   const [paymentEnabled, setPaymentEnabled] = useState(false);
   const [savedRegistrationId, setSavedRegistrationId] = useState("");
   useEffect(() => {
@@ -263,7 +263,7 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
     setMessage("");
   };
   const startNewRegistration = () => {
-    setDraft(makeDraft()); setSecondEntry(null); setSecondEntryOwner(null); secondEntryDrafts.current = {}; setSecondPartnerChoice(null); setLinkedPartnerChoice(null); linkedDifferentPartner.current = partnerFields({}); linkedSamePartner.current = null; setSavedEntries([]); setPaymentFile(null);
+    setDraft(makeDraft()); setSecondEntry(null); setSecondEntryOwner(null); secondEntryDrafts.current = {}; setSecondPartnerChoice(null); setLinkedPartnerChoice(null); linkedDifferentPartner.current = partnerFields({}); linkedSamePartner.current = null; setSavedEntries([]); setPaymentFiles([]);
     setSavedRegistrationId(""); setPin(""); setSubmittedPin(""); setMessage(""); setStep(0); setMode("new");
   };
   const lookup = async (registrationId?: string) => {
@@ -300,7 +300,7 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
     setBusy(true); setMessage("");
     const action = mode === "edit" ? "updateRegistration" : "registerPlayer";
     try {
-      const preparedImage = paymentFile ? await preparePaymentImage(paymentFile) : null;
+      const preparedImages = await Promise.all(paymentFiles.map(preparePaymentImage));
       const response = await fetch("/api/state", { method: "POST", headers: { "content-type": "application/json", ...(organizerPin ? { "x-organizer-pin": organizerPin } : {}) }, body: JSON.stringify({ action, pin: mode === "edit" || draft.sourceRegistrationId ? pin : undefined, registrationId: mode === "edit" ? savedRegistrationId : undefined, registration: { ...registrationForSubmission(draft, division?.mode), ...(mode === "new" && !draft.sourceRegistrationId && activeSecondEntry ? { secondEntry: registrationForSubmission(activeSecondEntry, secondDivision?.mode) } : {}) } }) });
       const data = await response.json();
       if (!response.ok) return setMessage(data.error || "The registration could not be saved.");
@@ -310,13 +310,13 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
       setSavedRegistrationId(data.registration.id);
       setMessage(data.editPin ? "Your registration has been submitted." : "Your registration changes have been saved.");
       setMode("success");
-      if (preparedImage) {
+      if (preparedImages.length) {
         try {
-          await uploadPaymentImage(data.registration.id, organizerPin || data.editPin || pin, preparedImage, Boolean(organizerPin));
-          setMessage("Your registration and payment screenshot are saved. The organizer will verify the payment.");
+          await uploadPaymentImages(data.registration.id, organizerPin || data.editPin || pin, preparedImages, Boolean(organizerPin));
+          setMessage("Your registration and payment screenshots are saved. The organizer will verify the payment.");
           setPaymentFile(null);
         } catch (error) {
-          setMessage(`Your registration is saved, but the screenshot was not uploaded. ${error instanceof Error ? error.message : "Please try again."} Use the upload option below; do not register again.`);
+          setMessage(`Your registration is saved, but some photos may not have uploaded. ${error instanceof Error ? error.message : "Please try again."} Use the upload option below; do not register again.`);
         }
       }
       onSaved();
@@ -424,10 +424,10 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
           {activeSecondEntry && <div className="guided-summary-entry"><strong>Entry 2 · {secondDivision?.name || "Select division"}</strong><div className="summary-player"><strong>{activeSecondEntry.name}</strong><span>{activeSecondEntry.secondShirt === "none" ? "No shirt" : <>{activeSecondEntry.secondShirt === "black" ? "Black shirt" : "Second tournament shirt"} · Size {activeSecondEntry.shirtSize}</>}</span></div>{secondDivision?.mode !== "singles" && <div className="summary-player"><strong>{activeSecondEntry.partnerName}</strong><span>{activeSecondEntry.samePartner && activeSecondEntry.partnerSecondShirt === "none" ? "No shirt" : <>{activeSecondEntry.samePartner ? activeSecondEntry.partnerSecondShirt === "black" ? "Black shirt" : "Second tournament shirt" : "Tournament shirt"} · Size {activeSecondEntry.partnerShirtSize}</>}</span></div>}</div>}
           <p>{draft.sourceRegistrationId ? "Your second entry stays linked to your original registration." : secondEntry ? "Both entries will share one PIN and one payment proof." : (draft.entryCount || 1) >= 2 ? "This player has two linked entries." : "You can review your entries and player details before submitting."}</p><div className="registration-review-actions"><button type="button" disabled={busy} className="guided-text-button" onClick={() => goToStep(0)}>Review player details</button><button type="button" disabled={busy} className="guided-text-button" onClick={() => goToStep(1)}>Edit entries & shirts</button></div>
         </aside>
-        {draft.sourceRegistrationId && <p className="guided-note">This entry shares the payment proof from your first registration. Upload an updated photo only if you need to replace it.</p>}
+        {draft.sourceRegistrationId && <p className="guided-note">This entry shares the payment proof from your first registration. You can add photos up to the shared limit of four.</p>}
         <RegistrationCharges contactUrl={registrationContactUrl(state.registrationContactUrl)} divisions={state.divisions} people={[...draftChargePeople(draft, division?.mode), ...(activeSecondEntry ? draftChargePeople(activeSecondEntry, secondDivision?.mode) : [])]} /><PaymentSettings />
-        {mode === "new" ? <section className="payment-proof"><strong>Payment photo (optional)</strong><PhotoUploadButton label={paymentFile ? "Change selected payment photo" : "Upload payment photo"} disabled={!paymentEnabled || busy} selectedName={paymentFile?.name} onSelect={file => setPaymentFile(file)} /><p>The photo will upload after you click <strong>Submit Registration</strong> and your registration is saved.</p><small>{paymentEnabled ? "Uploading proof does not automatically confirm payment." : "Screenshot uploads are not available yet. You can register now and add proof later using your PIN."}</small>{paymentFile && <span>Selected: {paymentFile.name}</span>}</section> : <PaymentProof registrationId={savedRegistrationId} pin={pin} canUpload />}
-        <div className="guided-note"><strong>Before submitting</strong><p>Check every entry. After submitting, save your registration ID and private PIN to reopen your registration.</p></div>
+        {mode === "new" ? <section className="payment-proof"><strong>Payment screenshots (optional)</strong><PaymentPhotoPicker files={paymentFiles} disabled={!paymentEnabled || busy} onChange={setPaymentFiles} /><p>Selected photos upload after you click <strong>Submit Registration</strong> and your registration is saved</p><small>{paymentEnabled ? "Up to 4 photos per payment group. Uploading proof does not confirm payment." : "Uploads are unavailable. Register now and add proof later using your PIN."}</small></section> : <PaymentProof registrationId={savedRegistrationId} pin={pin} canUpload />}
+        <div className="guided-note"><strong>Before submitting</strong><p>Check player details and entries. Keep your registration ID and private PIN to make changes later.</p></div>
       </section>
       {message && <p role="alert" className="error">{message}</p>}
       <footer className="guided-footer"><button type="button" hidden={step === 0} className="guided-text-button" disabled={busy} onClick={() => goToStep(step - 1)}>Back to {step === 1 ? "division & players" : "entries & shirts"}</button>
