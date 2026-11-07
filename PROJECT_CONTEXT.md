@@ -1,5 +1,9 @@
 # Racketeers product and implementation context
 
+## Club title and registration exports — 2026-11-07
+
+The site header and browser title now read “Racketeers Badminton Club”; the configured tournament/event name is preserved. Branding wraps on narrow screens. Organizer CSV exports support all divisions in one file, with the division column retained; Excel keeps separate sheets. Downloading the visible roster no longer requires an idle/saved sync state. Offline or unsaved exports use the loaded snapshot, identify unavailable payment fields, and explicitly warn when unsaved changes are included. Connected exports still request organizer-authorized private payment links and reviewed fields; temporary service failures fall back to roster data with a warning, while expired organizer authorization remains an explicit error. Unavailable receipt data is not labeled as a missing screenshot. Exporting does not write tournament state or change the existing conflict/save safeguards.
+
 ## Audit fixes and organizer demo — local implementation, 2026-11-07
 
 The approved Hallmark audit corrections strengthen active field boundaries and theme-aware focus rings, enlarge the court-help Clear target, simplify status/heading styles, flatten nested player cards, normalize payment-panel padding and replace external-link glyphs with the existing icon family. The photo picker now receives remaining group capacity, rejects excess selections immediately and explains capacity changes. Three leftover single-photo reset callbacks were corrected to clear the multi-photo selection. Print geometry, large scoring controls, tournament rules and privacy contracts remain intact. Legacy style findings are not all removed; this is a focused correction, not a claim of full Hallmark compliance.
