@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch as fetch, demoModeActive } from "../../lib/client-request";
+
 import { useEffect, useRef, useState } from "react";
 import { courtViewSnapshot } from "../../lib/court-view";
 
@@ -15,6 +17,7 @@ export function useCourtWindow(organizerPin: string) {
   }, [organizerPin]);
   const open = () => {
     setError("");
+    if (demoModeActive()) { setError("Separate court windows are unavailable in demo mode. Use Projector to test the display in this tab."); return; }
     if (child.current && !child.current.closed) { child.current.focus(); return; }
     channel.current?.close();
     const nonce = crypto.randomUUID();

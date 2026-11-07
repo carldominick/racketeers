@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch as fetch } from "../../lib/client-request";
+
 import { useState } from "react";
 import type { TournamentState } from "../../lib/tournament";
 import { regenerationImpact, regenerationIssue } from "../../lib/organizer-safety";

@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from "./client-request";
 import type { ReceiptReader } from "./receipt-ocr";
 import { validReceipt, type ReceiptRecord, type ReceiptReading } from "./receipt-details";
 

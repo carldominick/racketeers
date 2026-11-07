@@ -9,7 +9,15 @@ const dir = await mkdtemp(path.join(tmpdir(), 'payment-proof-'));
 await build({entryPoints:['lib/payment-proof-server.ts'],outfile:path.join(dir,'server.mjs'),bundle:true,platform:'node',format:'esm'});
 const {handlePaymentProof,handlePaymentSettings,MAX_PROOF_BYTES} = await import(pathToFileURL(path.join(dir,'server.mjs')));
 await build({entryPoints:['app/components/payment-proof.tsx'],outfile:path.join(dir,'client.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic'});
-const {uploadPaymentImages}=await import(pathToFileURL(path.join(dir,'client.mjs')));
+const {uploadPaymentImages,paymentPhotoSelectionError}=await import(pathToFileURL(path.join(dir,'client.mjs')));
+test('picker validates the remaining capacity before accepting a selection',()=>{
+ const photo={size:1024,type:'image/png'};
+ assert.equal(paymentPhotoSelectionError([], [photo], 1),'');
+ assert.match(paymentPhotoSelectionError([], [photo,photo], 1),/Only 1 photo slot is available/);
+ assert.match(paymentPhotoSelectionError([photo], [photo], 1),/Only 1/);
+ assert.match(paymentPhotoSelectionError([], [photo], 0),/Only 0/);
+ assert.match(paymentPhotoSelectionError([], [{...photo,size:3*1024*1024}], 4),/2 MB/);
+});
 test('multi-photo client fills only empty slots, blocks excess and reports partial failure',async()=>{
  const png=new Blob(['synthetic upload']);
  const original=globalThis.fetch;const calls=[];let fail=false;

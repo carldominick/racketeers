@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch as fetch } from "../lib/client-request";
+
 
 import { courtOccupant, type GameDayAction } from "../lib/game-day";
 import { GameDayDesk } from "./components/game-day-desk";
@@ -7,6 +9,7 @@ import { readStateResponse, syncDisplayState, SYNC_LABELS, type SyncStatus } fro
 import { NextGameNotice } from "./components/next-game-notice";
 import { UmpireScorecard } from "./components/umpire-scorecard";
 import { PrintMatchCards } from "./components/print-match-card";
+import { ArrowSquareOut } from "@phosphor-icons/react/dist/csr/ArrowSquareOut";
 import { Key } from "@phosphor-icons/react/dist/csr/Key";
 import { Moon } from "@phosphor-icons/react/dist/csr/Moon";
 import { Sun } from "@phosphor-icons/react/dist/csr/Sun";
@@ -162,7 +165,7 @@ function PhaseTracker({ state, onChange }: { state: TournamentState; onChange?: 
 function ClubhouseSidebar({ state, onEdit }: { state: TournamentState; onEdit?: () => void }) {
   const scheduled = /^\d{4}-\d{2}-\d{2}$/.test(state.startDate || "") && /^\d{2}:\d{2}$/.test(state.dayStart || "");
   const start = scheduled ? new Date(`${state.startDate}T${state.dayStart}:00+08:00`) : null;
-  return <aside className="clubhouse-sidebar"><p className="eyebrow">Badminton tournament</p><h2>{state.tournamentName || "Racketeers tournament"}</h2>{start && <div className="clubhouse-date"><CalendarBlank size={25} aria-hidden="true" /><div><strong>{start.toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "long", month: "short", day: "numeric", year: "numeric" })}</strong><span>{start.toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })} · Philippine time</span></div></div>}{state.venue?.trim() && <div className="clubhouse-venue"><MapPin size={25} aria-hidden="true" /><div><span>Tournament venue</span><strong>{state.venue}</strong></div></div>}<nav className="clubhouse-documents" aria-label="Tournament documents"><a href="https://docs.google.com/document/d/17fEW8jrEkBXsY4cM4e0b3OtW8t_T4se1eX4KYiij2gg/edit?pli=1&tab=t.0#heading=h.x17xf19of1jz" target="_blank" rel="noopener noreferrer">Tournament rules & regulations ↗</a><a href="https://docs.google.com/document/d/1W8QjZB1wVHwNf01dlzP88nDRv1ED78fpgzHMCa96Xok/edit?usp=drivesdk" target="_blank" rel="noopener noreferrer">Disclaimer & waiver ↗</a>{registrationContactUrl(state.registrationContactUrl) && <a href={registrationContactUrl(state.registrationContactUrl)} target="_blank" rel="noopener noreferrer">Contact organizer ↗</a>}</nav><div className="clubhouse-intro"><strong>Up to two entries per player.</strong><p>Join a division with your pair. Add a second entry now or later, with one shared payment proof.</p></div>{onEdit && <button type="button" className="clubhouse-edit" onClick={onEdit}><PencilSimple size={23} aria-hidden="true" />Edit registration</button>}</aside>;
+  return <aside className="clubhouse-sidebar"><h2>{state.tournamentName || "Racketeers tournament"}</h2>{start && <div className="clubhouse-date"><CalendarBlank size={25} aria-hidden="true" /><div><strong>{start.toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "long", month: "short", day: "numeric", year: "numeric" })}</strong><span>{start.toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })} · Philippine time</span></div></div>}{state.venue?.trim() && <div className="clubhouse-venue"><MapPin size={25} aria-hidden="true" /><div><span>Tournament venue</span><strong>{state.venue}</strong></div></div>}<nav className="clubhouse-documents" aria-label="Tournament documents"><a href="https://docs.google.com/document/d/17fEW8jrEkBXsY4cM4e0b3OtW8t_T4se1eX4KYiij2gg/edit?pli=1&tab=t.0#heading=h.x17xf19of1jz" target="_blank" rel="noopener noreferrer">Tournament rules & regulations <ArrowSquareOut size={16} aria-hidden="true" /></a><a href="https://docs.google.com/document/d/1W8QjZB1wVHwNf01dlzP88nDRv1ED78fpgzHMCa96Xok/edit?usp=drivesdk" target="_blank" rel="noopener noreferrer">Disclaimer & waiver <ArrowSquareOut size={16} aria-hidden="true" /></a>{registrationContactUrl(state.registrationContactUrl) && <a href={registrationContactUrl(state.registrationContactUrl)} target="_blank" rel="noopener noreferrer">Contact organizer <ArrowSquareOut size={16} aria-hidden="true" /></a>}</nav><div className="clubhouse-intro"><strong>Up to two entries per player.</strong><p>Join a division with your pair. Add a second entry now or later, with one shared payment proof.</p></div>{onEdit && <button type="button" className="clubhouse-edit" onClick={onEdit}><PencilSimple size={23} aria-hidden="true" />Edit registration</button>}</aside>;
 }
 
 function RegistrationPartnerChoice({ name, choice, playerName, reuseName, canReuse, busy, onChoose }: { name: string; choice: PartnerChoice; playerName: string; reuseName: string; canReuse: boolean; busy: boolean; onChoose: (choice: Exclude<PartnerChoice, null>) => void }) {
@@ -272,7 +275,7 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
     const data = await response.json(); setBusy(false);
     if (!response.ok || !data.registration) return setMessage(data.error || "Registration PIN did not match an entry.");
     setSecondEntry(null); setSecondEntryOwner(null); secondEntryDrafts.current = {}; setSecondPartnerChoice(null); setLinkedPartnerChoice(null); linkedDifferentPartner.current = partnerFields({}); linkedSamePartner.current = null; setSavedEntries(data.registrations || [data.registration]);
-    setDraft({ ...makeDraft(), ...data.registration }); setSubmittedPin(""); setSavedRegistrationId(data.registration.id); setPaymentFile(null); setMode("edit"); setStep(0);
+    setDraft({ ...makeDraft(), ...data.registration }); setSubmittedPin(""); setSavedRegistrationId(data.registration.id); setPaymentFiles([]); setMode("edit"); setStep(0);
   };
   const beginSecondEntry = (partner = false) => {
     const sourceId = partner ? draft.partnerId : savedRegistrationId;
@@ -287,7 +290,7 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
       shirtSize: partner ? draft.partnerShirtSize : draft.shirtSize, partnerShirtSize: partner ? draft.shirtSize : draft.partnerShirtSize,
       desiredLevel: partner ? draft.partnerDesiredLevel : draft.desiredLevel, partnerDesiredLevel: partner ? draft.desiredLevel : draft.partnerDesiredLevel,
       secondShirt: "tournament", partnerSecondShirt: "tournament" });
-    setPin(submittedPin || pin); setPaymentFile(null); setMode("new"); setStep(0); setMessage("");
+    setPin(submittedPin || pin); setPaymentFiles([]); setMode("new"); setStep(0); setMessage("");
   };
   const submit = async () => {
     if (submissionInFlight.current || busy || mode === "success") return;
@@ -314,7 +317,7 @@ function PublicRegistration({ state, onSaved, organizerPin = "", initialDivision
         try {
           await uploadPaymentImages(data.registration.id, organizerPin || data.editPin || pin, preparedImages, Boolean(organizerPin));
           setMessage("Your registration and payment screenshots are saved. The organizer will verify the payment.");
-          setPaymentFile(null);
+          setPaymentFiles([]);
         } catch (error) {
           setMessage(`Your registration is saved, but some photos may not have uploaded. ${error instanceof Error ? error.message : "Please try again."} Use the upload option below; do not register again.`);
         }
@@ -517,12 +520,12 @@ function MatchCard({ match, state, organizer = false, scoreEditable = false, onC
   </article>;
 }
 
-export default function Home() {
+export default function Home({ demo = false }: { demo?: boolean } = {}) {
   const [state, setState] = useState<TournamentState>(() => initialTournament());
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState("");
   const [revision, setRevision] = useState(1);
-  const [view, setView] = useState<View>("register");
+  const [view, setView] = useState<View>(demo ? "organizer" : "register");
   const [accessOpen, setAccessOpen] = useState(false);
   const [accessPin, setAccessPin] = useState("");
   const [accessMessage, setAccessMessage] = useState("");
@@ -536,13 +539,13 @@ export default function Home() {
   const [registrationDivisionFilter, setRegistrationDivisionFilter] = useState("all");
   const [registrationExportBusy, setRegistrationExportBusy] = useState(false);
   const [registrationExportMessage, setRegistrationExportMessage] = useState("");
-  const [organizerPin, setOrganizerPin] = useState("");
+  const [organizerPin, setOrganizerPin] = useState(demo ? "98765432" : "");
   const courtWindow = useCourtWindow(organizerPin);
   const [newOrganizerPin, setNewOrganizerPin] = useState("");
   const [confirmOrganizerPin, setConfirmOrganizerPin] = useState("");
   const [pinChangeMessage, setPinChangeMessage] = useState("");
   const [pinChangeBusy, setPinChangeBusy] = useState(false);
-  const [unlocked, setUnlocked] = useState(false);
+  const [unlocked, setUnlocked] = useState(demo);
   const [sync, setSync] = useState<SyncStatus>("connecting");
   const [lastConfirmedAt, setLastConfirmedAt] = useState(0);
   const [syncClock, setSyncClock] = useState(0);
@@ -971,7 +974,7 @@ export default function Home() {
   const renderStandings = () => <div className="stack">{state.divisions.map((division) => <section className="card standings-card" key={division.id}><div className="section-head"><div><p className="eyebrow">Regular stage</p><h2>{division.name} Standings</h2></div><span className="tie-note">Wins → Point Difference → Points For</span></div><StandingsTable state={state} division={division} /></section>)}</div>;
 
   const organizerContent = !unlocked ? <PinGate onUnlock={unlock} title={tab === "scores" ? "Group Scores & PINs" : "Organizer access"} /> : <>
-    {tab === "setup" && <div className="stack"><TournamentBackup pin={organizerPin} disabled={dirty || sync !== "saved"} /><PhaseTracker state={state} onChange={(status) => commit((current) => ({ ...current, status }))} />{tournamentEditingLocked(state.status) && <p className="phase-lock-note">Tournament setup is read-only during Live and Completed. Move the tracker back to Setup or Registration to make changes.</p>}<section className="card game-day-settings"><div className="section-head"><div><p className="eyebrow">Game day operations</p><h2>Queue & player notifications</h2><p>Keep players ready while each court approaches the end of a match.</p></div></div><div className="form-grid"><label className="check-field"><input type="checkbox" checked={gameDaySettings(state).evenRotation} onChange={e => updateGameDaySettings({ evenRotation: e.target.checked })} />Rotate evenly across brackets</label><label>Minimum player rest (minutes)<DraftNumberInput min={0} max={120} value={gameDaySettings(state).restMinutes} onCommit={restMinutes => updateGameDaySettings({ restMinutes })} /></label><label className="check-field"><input type="checkbox" checked={gameDaySettings(state).nearCapEnabled} onChange={e => updateGameDaySettings({ nearCapEnabled: e.target.checked })} />Notify next players near the cap</label><label>Notify when X points from cap<DraftNumberInput min={1} max={99} value={gameDaySettings(state).nearCapPoints} onCommit={nearCapPoints => updateGameDaySettings({ nearCapPoints })} /></label></div><p className="desk-settings-help">Warnings appear on the organizer board, Spectator and Projector views. Uses the current stage’s score cap (the target for first-to-score games). Multi-set warnings appear only when the set could finish the match. Rest is tracked from newly completed games.</p><details><summary>Advanced game controls</summary><button className="danger" onClick={() => void resetAll()}>Reset all game scores</button></details></section><fieldset className="phase-fieldset" disabled={tournamentEditingLocked(state.status)}><div className="stack"><section className="card"><div className="section-head"><div><p className="eyebrow">Tournament controls</p><h2>Badminton Setup</h2></div><span className="rule-pill">Badminton only</span></div>
+    {tab === "setup" && <div className="stack">{!demo && <section className="card organizer-demo-link"><h2>Practice in demo mode</h2><p>Try features with fictional data in a separate tab. Sign in with your organizer PIN; the real tournament is kept separate.</p><a className="secondary" href="/demo" target="_blank" rel="noopener noreferrer">Open organizer demo</a></section>}<TournamentBackup pin={organizerPin} disabled={dirty || sync !== "saved"} /><PhaseTracker state={state} onChange={(status) => commit((current) => ({ ...current, status }))} />{tournamentEditingLocked(state.status) && <p className="phase-lock-note">Tournament setup is read-only during Live and Completed. Move the tracker back to Setup or Registration to make changes.</p>}<section className="card game-day-settings"><div className="section-head"><div><p className="eyebrow">Game day operations</p><h2>Queue & player notifications</h2><p>Keep players ready while each court approaches the end of a match.</p></div></div><div className="form-grid"><label className="check-field"><input type="checkbox" checked={gameDaySettings(state).evenRotation} onChange={e => updateGameDaySettings({ evenRotation: e.target.checked })} />Rotate evenly across brackets</label><label>Minimum player rest (minutes)<DraftNumberInput min={0} max={120} value={gameDaySettings(state).restMinutes} onCommit={restMinutes => updateGameDaySettings({ restMinutes })} /></label><label className="check-field"><input type="checkbox" checked={gameDaySettings(state).nearCapEnabled} onChange={e => updateGameDaySettings({ nearCapEnabled: e.target.checked })} />Notify next players near the cap</label><label>Notify when X points from cap<DraftNumberInput min={1} max={99} value={gameDaySettings(state).nearCapPoints} onCommit={nearCapPoints => updateGameDaySettings({ nearCapPoints })} /></label></div><p className="desk-settings-help">Warnings appear on the organizer board, Spectator and Projector views. Uses the current stage’s score cap (the target for first-to-score games). Multi-set warnings appear only when the set could finish the match. Rest is tracked from newly completed games.</p><details><summary>Advanced game controls</summary><button className="danger" onClick={() => void resetAll()}>Reset all game scores</button></details></section><fieldset className="phase-fieldset" disabled={tournamentEditingLocked(state.status)}><div className="stack"><section className="card"><div className="section-head"><div><p className="eyebrow">Tournament controls</p><h2>Badminton Setup</h2></div><span className="rule-pill">Badminton only</span></div>
       <div className="form-grid"><label>Tournament name<input value={state.tournamentName} onChange={(event) => commit({ ...state, tournamentName: event.target.value })} /></label><label className="venue-field">Location / venue<input maxLength={200} placeholder="Venue name and address" value={state.venue || ""} onChange={event => commit({ ...state, venue: event.target.value })} /></label><RegistrationContactInput value={state.registrationContactUrl || ""} onCommit={value => commit({ ...state, registrationContactUrl: value })} /><label>Number of courts<DraftNumberInput min={1} max={20} value={state.courts} onCommit={(value) => commit({ ...state, courts: value })} /></label><label>Start date<input type="date" value={state.startDate} onChange={(event) => commit({ ...state, startDate: event.target.value })} /></label><label>End date<input type="date" value={state.endDate} onChange={(event) => commit({ ...state, endDate: event.target.value })} /></label><label>Daily start (Philippine time)<input type="time" value={state.dayStart} onChange={(event) => commit({ ...state, dayStart: event.target.value })} /></label><label>Daily end<input type="time" value={state.dayEnd} onChange={(event) => commit({ ...state, dayEnd: event.target.value })} /></label><label>Estimated game duration<DraftNumberInput min={5} value={state.gameDuration} onCommit={(value) => commit({ ...state, gameDuration: value })} /></label></div>
       <div className="info-strip"><b>Badminton presets</b><span>Regular: 1 game to 31, win by 2, cap 35</span><span>Medal rounds: best of 3 to 21, win by 2, cap 30</span></div></section>
       <section className="division-toolbar"><div><p className="eyebrow">Custom competition structure</p><h2>Divisions</h2><p>Add as many divisions as the event needs. Every division can use a different name, competition type, bracket, and scoring format.</p></div><button className="primary" onClick={addNewDivision}>Add Division</button></section>

@@ -1,4 +1,6 @@
 "use client";
+import { apiFetch as fetch } from "../../lib/client-request";
+
 /* eslint-disable @next/next/no-img-element -- Sponsor images are served directly from the public sponsor API. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MAX_SPONSOR_BYTES, type SponsorLibrary } from "../../lib/sponsors";

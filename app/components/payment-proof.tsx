@@ -1,19 +1,26 @@
 "use client";
+import { apiFetch as fetch } from "../../lib/client-request";
+
 /* eslint-disable @next/next/no-img-element -- Authenticated blob previews must not pass through an image proxy. */
 import { useEffect, useRef, useState } from "react";
 import { ReceiptReview } from "./receipt-review";
 
 const MAX_BYTES = 2 * 1024 * 1024;
-export function PaymentPhotoPicker({ files, disabled, onChange }: { files: File[]; disabled?: boolean; onChange: (files: File[]) => void }) {
-  const [error, setError] = useState("");
-  return <div className="payment-photo-picker"><label>Add payment screenshots<input type="file" multiple accept="image/png,image/jpeg,image/webp" disabled={disabled || files.length >= 4} onChange={event => {
-    const selected = Array.from(event.target.files || []); event.target.value = "";
-    if (files.length + selected.length > 4) { setError("Choose up to 4 photos in total."); return; }
-    if (selected.some(file => file.size > MAX_BYTES || !["image/png", "image/jpeg", "image/webp"].includes(file.type))) { setError("Each photo must be PNG, JPG, or WebP and 2 MB or less."); return; }
-    setError(""); onChange([...files, ...selected]);
-  }} /></label><small>{files.length} of 4 selected · PNG, JPG, or WebP · 2 MB per photo</small>{files.map((file, index) => <div key={index}><span>{file.name}</span><button type="button" className="secondary" disabled={disabled} onClick={() => { setError(""); onChange(files.filter((_, i) => i !== index)); }}>Remove photo {index + 1}</button></div>)}{error && <p role="alert" className="error">{error}</p>}</div>;
+export function paymentPhotoSelectionError(files: File[], selected: File[], maximum = 4) {
+  if (files.length + selected.length > maximum) return `Only ${maximum} photo slot${maximum === 1 ? " is" : "s are"} available. Remove a selection or choose fewer photos.`;
+  if (selected.some(file => file.size > MAX_BYTES || !["image/png", "image/jpeg", "image/webp"].includes(file.type))) return "Each photo must be PNG, JPG, or WebP and 2 MB or less.";
+  return "";
 }
-export function PhotoUploadButton({ label, disabled = false, onSelect, selectedName = "" }: { label: string; disabled?: boolean; onSelect: (file: File) => void; selectedName?: string }) {
+export function PaymentPhotoPicker({ files, disabled, onChange, maximum = 4 }: { files: File[]; disabled?: boolean; onChange: (files: File[]) => void; maximum?: number }) {
+  const [error, setError] = useState("");
+  return <div className="payment-photo-picker"><label>Add payment screenshots<input type="file" multiple accept="image/png,image/jpeg,image/webp" disabled={disabled || files.length >= maximum} onChange={event => {
+    const selected = Array.from(event.target.files || []); event.target.value = "";
+    const issue = paymentPhotoSelectionError(files, selected, maximum);
+    if (issue) { setError(issue); return; }
+    setError(""); onChange([...files, ...selected]);
+  }} /></label><span role="status">{`${files.length} of ${maximum} selected`}</span><small>PNG, JPG, or WebP. Maximum 2 MB per photo</small>{files.map((file, index) => <div key={index}><span>{file.name}</span><button type="button" className="secondary" disabled={disabled} onClick={() => { setError(""); onChange(files.filter((_, i) => i !== index)); }}>Remove photo {index + 1}</button></div>)}{(error || files.length > maximum) && <p role="alert" className="error">{error || "Available slots changed. Remove the excess selected photos before uploading."}</p>}</div>;
+}
+export function PhotoUploadButton({ label, disabled = false, onSelect, selectedName = "", variant = "primary" }: { label: string; disabled?: boolean; onSelect: (file: File) => void; selectedName?: string; variant?: "primary" | "secondary" }) {
   const input = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
   return <div className="photo-upload-control"><input ref={input} type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={event => {
@@ -22,7 +29,7 @@ export function PhotoUploadButton({ label, disabled = false, onSelect, selectedN
     if (file.size > MAX_BYTES) { setError("Please choose a photo of 2 MB or less."); return; }
     if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) { setError("Please choose a PNG, JPG, or WebP photo."); return; }
     setError(""); onSelect(file);
-  }} /><button type="button" className="primary upload-photo-button" disabled={disabled} onClick={() => input.current?.click()}>{label}</button><small>PNG, JPG, or WebP · maximum 2 MB</small>{selectedName && <span role="status">Selected: {selectedName}</span>}{error && <p role="alert" className="error">{error}</p>}</div>;
+  }} /><button type="button" className={`${variant} upload-photo-button`} disabled={disabled} onClick={() => input.current?.click()}>{label}</button><small>PNG, JPG, or WebP · maximum 2 MB</small>{selectedName && <span role="status">Selected: {selectedName}</span>}{error && <p role="alert" className="error">{error}</p>}</div>;
 }
 
 export async function preparePaymentImage(file: File): Promise<Blob> {
@@ -122,5 +129,5 @@ export function PaymentProof({ registrationId, pin, organizer = false, canUpload
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to load screenshot."); }
     finally { setBusy(false); }
   };
-  return <section className="payment-proof"><strong>Payment screenshots · {photos.length} of 4</strong><div className="registration-id-display"><span>Registration ID</span><code>{registrationId}</code></div>{linkedIds.length > 1 && <small>Shared by linked players and entries</small>}{photos.map(photo => <div className="payment-photo-row" key={photo.slot}><button type="button" className="secondary" disabled={busy} onClick={() => void view(photo.slot, photo.filename)}>View photo {photo.slot}</button>{canUpload && enabled && <PhotoUploadButton label={`Replace photo ${photo.slot}`} disabled={busy} onSelect={file => { if (inFlight.current) return; inFlight.current = true; setBusy(true); void preparePaymentImage(file).then(image => uploadPaymentImage(registrationId, pin, image, organizer, photo.slot)).then(() => { setMessage("Photo replaced. Payment confirmation is unchanged."); }).catch(error => setMessage(error.message)).finally(() => { window.dispatchEvent(new Event("payment-proof-updated")); setBusy(false); inFlight.current = false; }); }} />}</div>)}{!filename && <span>{enabled ? "No screenshots uploaded" : "Screenshot uploads are not available yet"}</span>}{organizer && filename && <button type="button" className="danger" disabled={busy} onClick={() => void removePhoto()}>Delete all payment photos</button>}{canUpload && enabled && photos.length < 4 && <><PaymentPhotoPicker files={files} disabled={busy} onChange={setFiles} /><button type="button" className="primary" disabled={busy || !files.length || files.length + photos.length > 4} onClick={() => void upload()}>Upload selected photos</button><small>{4 - photos.length} photo slots available</small></>}{busy && <p role="status">Processing screenshots…</p>}{message && <p role="status">{message}</p>}{organizer && filename && <><p>OCR reads the primary screenshot only. Review every photo above before confirming payment.</p><ReceiptReview key={revision} registrationId={registrationId} pin={pin} /></>}{preview && <div className="payment-proof-preview"><button type="button" className="ghost" onClick={() => setPreview("")}>Close screenshot</button><img src={preview} alt="Uploaded payment screenshot" /><a href={preview} download={previewName}>Download {previewName}</a></div>}</section>;
+  return <section className="payment-proof"><strong>Payment screenshots · {photos.length} of 4</strong><div className="registration-id-display"><span>Registration ID</span><code>{registrationId}</code></div>{linkedIds.length > 1 && <small>Shared by linked players and entries</small>}{photos.map(photo => <div className="payment-photo-row" key={photo.slot}><button type="button" className="secondary" disabled={busy} onClick={() => void view(photo.slot, photo.filename)}>View photo {photo.slot}</button>{canUpload && enabled && <PhotoUploadButton variant="secondary" label={`Replace photo ${photo.slot}`} disabled={busy} onSelect={file => { if (inFlight.current) return; inFlight.current = true; setBusy(true); void preparePaymentImage(file).then(image => uploadPaymentImage(registrationId, pin, image, organizer, photo.slot)).then(() => { setMessage("Photo replaced. Payment confirmation is unchanged."); }).catch(error => setMessage(error.message)).finally(() => { window.dispatchEvent(new Event("payment-proof-updated")); setBusy(false); inFlight.current = false; }); }} />}</div>)}{!filename && <span>{enabled ? "No screenshots uploaded" : "Screenshot uploads are not available yet"}</span>}{organizer && filename && <button type="button" className="danger" disabled={busy} onClick={() => void removePhoto()}>Delete all payment photos</button>}{canUpload && enabled && photos.length < 4 && <><PaymentPhotoPicker files={files} maximum={Math.max(0, 4 - photos.length)} disabled={busy} onChange={setFiles} /><button type="button" className="primary" disabled={busy || !files.length || files.length + photos.length > 4} onClick={() => void upload()}>Upload selected photos</button><small>{4 - photos.length} photo slots available</small></>}{busy && <p role="status">Processing screenshots…</p>}{message && <p role="status">{message}</p>}{organizer && filename && <><p>OCR reads the primary screenshot only. Review every photo above before confirming payment.</p><ReceiptReview key={revision} registrationId={registrationId} pin={pin} /></>}{preview && <div className="payment-proof-preview"><button type="button" className="ghost" onClick={() => setPreview("")}>Close screenshot</button><img src={preview} alt="Uploaded payment screenshot" /><a href={preview} download={previewName}>Download {previewName}</a></div>}</section>;
 }
