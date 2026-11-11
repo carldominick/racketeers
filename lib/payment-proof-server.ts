@@ -1,3 +1,4 @@
+import { organizerRequestMatches } from "./organizer-accounts";
 import type { TournamentState } from "./tournament";
 
 export const MAX_PROOF_BYTES = 2 * 1024 * 1024;
@@ -52,17 +53,20 @@ async function proofShareSignature(secret: string, payload: string) {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 async function makeProofShareToken(state: TournamentState, registrationId: string) {
+  const secret = state.organizerAccountsEnabled ? state.paymentProofShareKey : state.organizerPinHash;
+  if (!secret) throw new Error("Payment link signing is unavailable.");
   const expires = Date.now() + 7 * 24 * 60 * 60 * 1000;
   const payload = base64UrlEncode(JSON.stringify({ registrationId, expires }));
-  const signature = await proofShareSignature(state.organizerPinHash || "", payload);
+  const signature = await proofShareSignature(secret, payload);
   return `${payload}.${signature}`;
 }
 async function verifyProofShareToken(state: TournamentState, token: string) {
-  if (!state.organizerPinHash || token.length > 1024) return "";
+  const secret = state.organizerAccountsEnabled ? state.paymentProofShareKey : state.organizerPinHash;
+  if (!secret || token.length > 1024) return "";
   const [payload, signature, extra] = token.split(".");
   if (!payload || !signature || extra) return "";
   try {
-    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(state.organizerPinHash), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
     const binary = atob(signature.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - signature.length % 4) % 4));
     const signatureBytes = Uint8Array.from(binary, character => character.charCodeAt(0));
     if (!await crypto.subtle.verify("HMAC", key, signatureBytes, new TextEncoder().encode(payload))) return "";
@@ -88,7 +92,7 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
     const state: TournamentState = JSON.parse(row.payload);
     const organizerPin = request.headers.get("x-organizer-pin") ?? "";
     const registrationPin = request.headers.get("x-registration-pin") ?? "";
-    const organizer = /^\d{4,10}$/.test(organizerPin) && await hash(organizerPin) === state.organizerPinHash;
+    const organizer = await organizerRequestMatches(request, env.DB, state, organizerPin);
     if (exportLinkRequest) {
       if (!organizer) return reply({ error: "Organizer access is required to export payment links." }, 401);
       if (!env.PAYMENT_PROOFS) return reply({ error: "Payment screenshot storage is not available." }, 503);
@@ -194,9 +198,8 @@ export async function handlePaymentSettings(request: Request, env: ProofEnvironm
     }
     if (request.method !== "GET") {
       const pin = request.headers.get("x-organizer-pin") ?? "";
-      if (!/^\d{4,10}$/.test(pin)) return reply({ error: "Organizer access is required." }, 401);
       const row = await env.DB.prepare("SELECT payload FROM tournament_state WHERE id = ?").bind("racketeers").first<{ payload: string }>();
-      if (!row || await hash(pin) !== JSON.parse(row.payload).organizerPinHash) return reply({ error: "Organizer PIN did not match." }, 401);
+      if (!row || !await organizerRequestMatches(request, env.DB, JSON.parse(row.payload), pin)) return reply({ error: "Organizer PIN did not match." }, 401);
     }
     if (imageRequest && request.method === "DELETE") {
       if (!env.PAYMENT_PROOFS) return reply({ error: "Image storage has not been connected." }, 503);

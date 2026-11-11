@@ -26,6 +26,8 @@ Use a full database backup to retain additional operational tables such as rate-
 
 ## Verify before relying on a backup
 
+When named organizer accounts are activated, a full D1 backup must also retain `organizer_accounts`, `organizer_sessions`, `organizer_login_limits` and `organizer_audit`. Tournament JSON alone cannot restore account credentials or history. Restore account and tournament activation state together in an isolated environment, and revoke restored sessions as part of an authorized recovery plan. Never publish the account/password hashes or session-token hashes. See [organizer accounts](organizer-accounts.md).
+
 Check that the downloaded files exist and can be parsed, and that the state payload digest matches its wrapper. Confirm database table counts and the object manifest against the captured environment. Restore a copy into isolated disposable D1/R2 first, using test access controls and without publishing receipt images. Verify linked-player ownership, receipt access, reviewed fields, sponsor images, payment QR, scores and schedule. Screenshot versions can change after restoring objects; require a fresh review where the saved version no longer matches. A download success message or matching hash alone does not establish that the whole site is recoverable.
 
 ## Authorized recovery

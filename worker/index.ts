@@ -1,5 +1,6 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, isImageOptimizationPath, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
+import { auditedOrganizerRequest } from "../lib/organizer-accounts";
 import { protectedRequest, securityHeaders } from "../lib/request-security";
 import handler from "vinext/server/app-router-entry";
 
@@ -47,7 +48,7 @@ const worker = {
       return securityHeaders(response, false);
     }
 
-    return protectedRequest(request, env.DB, secured => handler.fetch(secured, env, ctx));
+    return protectedRequest(request, env.DB, secured => auditedOrganizerRequest(secured, env.DB, audited => handler.fetch(audited, env, ctx)));
   },
 };
 

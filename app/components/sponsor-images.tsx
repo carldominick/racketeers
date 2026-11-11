@@ -3,7 +3,7 @@ import { apiFetch as fetch } from "../../lib/client-request";
 
 /* eslint-disable @next/next/no-img-element -- Sponsor images are served directly from the public sponsor API. */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MAX_SPONSOR_BYTES, type SponsorLibrary } from "../../lib/sponsors";
+import type { SponsorLibrary } from "../../lib/sponsors";
 
 export function useSponsorImages(enabled = true) {
   const [library, setLibrary] = useState<SponsorLibrary>({ images: [], enabled: false });
@@ -33,7 +33,6 @@ export function useSponsorImages(enabled = true) {
 
 async function prepareSponsorImage(file: File): Promise<Blob> {
   if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) throw new Error("Choose a PNG, JPG, or WebP image.");
-  if (file.size > MAX_SPONSOR_BYTES) throw new Error("Choose an image of 2 MB or less.");
   const image = await createImageBitmap(file);
   try {
     const scale = Math.min(1, 2000 / Math.max(image.width, image.height));
@@ -43,7 +42,6 @@ async function prepareSponsorImage(file: File): Promise<Blob> {
     if (!context) throw new Error("Unable to prepare this image.");
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
     const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Unable to read this image.")), "image/png"));
-    if (png.size > MAX_SPONSOR_BYTES) throw new Error("Image is too large after preparation. Resize it and try again.");
     return png;
   } finally { image.close(); }
 }
@@ -62,7 +60,8 @@ export function SponsorImages({ organizerPin, data }: { organizerPin: string; da
     try {
       for (const item of pending) {
         const png = await prepareSponsorImage(item.file);
-        const response = await fetch("/api/sponsors", { method: "POST", headers: { "content-type": "image/png", "x-organizer-pin": organizerPin, "x-sponsor-name": encodeURIComponent(item.name.trim()) }, body: png });
+        const response = await fetch("/api/sponsors", { method: "POST", headers: { "content-type": "image/png", "x-organizer-pin": organizerPin, "x-sponsor-name": encodeURIComponent(item.name.trim()), "x-sponsor-size": String(png.size) }, body: png });
+        if (response.status === 413) throw new Error("The hosting service could not accept this upload. Resize the image and try again.");
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Upload failed. Please try again.");
         count++; setPending(current => current.filter(image => image.id !== item.id));
@@ -91,10 +90,10 @@ export function SponsorImages({ organizerPin, data }: { organizerPin: string; da
       <fieldset disabled={busy || !data.library.enabled}><legend className="sr-only">Upload sponsor images</legend>
         <label className="sponsor-file-input">Add sponsor images<input type="file" multiple accept="image/png,image/jpeg,image/webp" onChange={event => {
           const files = Array.from(event.target.files || []); event.target.value = ""; setFailure("");
-          const valid = files.filter(file => file.size <= MAX_SPONSOR_BYTES && ["image/png", "image/jpeg", "image/webp"].includes(file.type));
-          if (valid.length !== files.length) setFailure("Some files were skipped. Choose PNG, JPG, or WebP images of 2 MB or less.");
+          const valid = files.filter(file => ["image/png", "image/jpeg", "image/webp"].includes(file.type));
+          if (valid.length !== files.length) setFailure("Some files were skipped. Choose PNG, JPG, or WebP images.");
           setPending(current => [...current, ...valid.map(file => ({ id: crypto.randomUUID(), file, name: file.name.replace(/\.[^.]+$/, "").slice(0, 100) || "Sponsor" }))]);
-        }} /></label><small>PNG, JPG, or WebP · up to 2 MB each · select several files at once</small>
+        }} /></label><small>Select one or more PNG, JPG, or WebP files. Images are resized for the projector.</small>
         {pending.length > 0 && <><ul className="sponsor-pending">{pending.map(item => <li key={item.id}><label>Public sponsor name<input value={item.name} maxLength={100} onChange={event => setPending(current => current.map(image => image.id === item.id ? { ...image, name: event.target.value } : image))} /></label><span>{item.file.name}</span><button type="button" className="ghost" onClick={() => setPending(current => current.filter(image => image.id !== item.id))}>Cancel selection</button></li>)}</ul><button type="button" className="primary" disabled={pending.some(item => !item.name.trim())} onClick={() => void upload()}>{busy ? "Uploading…" : `Upload ${pending.length} image${pending.length === 1 ? "" : "s"}`}</button></>}
         <div className="sponsor-library-grid">{data.library.images.map(image => <article key={image.id}><img src={image.url} alt={image.name} /><strong>{image.name}</strong><button type="button" className="ghost" onClick={() => void remove(image.id, image.name)}>Remove image</button></article>)}</div>
       </fieldset>

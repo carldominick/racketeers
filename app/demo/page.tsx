@@ -20,7 +20,7 @@ export default function DemoPage() {
     event.preventDefault(); if(busy)return;setBusy(true);setMessage("");
     try {
       // This is the only live API call made by the demo page. The real PIN is not retained.
-      const response = await globalThis.fetch("/api/demo",{method:"POST",headers:{"x-organizer-pin":pin}});
+      const response = await globalThis.fetch("/api/demo",{method:"POST",headers:{"x-organizer-pin":pin || 'session'}});
       const grant = await response.json();
       if(!response.ok || !grant.authorized)throw new Error(grant.error||"Organizer access is required.");
       setPin("");
@@ -31,6 +31,6 @@ export default function DemoPage() {
     } catch(error){setMessage(error instanceof Error?error.message:"Unable to start the demo.");}
     finally{setBusy(false);}
   }
-  if(!expiresAt)return <main className="clubhouse-site demo-entry"><section className="card gate"><h1>Organizer demo</h1><p>Practice with fictional players, scores and payment images. Changes stay in this tab and disappear when you reload or leave. Sessions last 30 minutes.</p><form onSubmit={event=>void start(event)}><label>Organizer PIN<input type="password" inputMode="numeric" autoComplete="off" value={pin} maxLength={10} onChange={event=>setPin(event.target.value.replace(/\D/g,""))} required /></label><button type="submit" className="primary" disabled={busy||pin.length<4}>{busy?"Starting…":"Start demo"}</button></form>{message&&<p role="alert">{message}</p>}<a href="/">Return to the tournament</a></section></main>;
+  if(!expiresAt)return <main className="clubhouse-site demo-entry"><section className="card gate"><h1>Organizer demo</h1><p>Practice with fictional players, scores and payment images. Changes stay in this tab and disappear when you reload or leave. Sessions last 30 minutes.</p><p>With a named organizer account, sign in on the tournament page first, then start this demo with the PIN field blank.</p><form onSubmit={event=>void start(event)}><label>Legacy organizer PIN (only before accounts are activated)<input type="password" inputMode="numeric" autoComplete="off" value={pin} maxLength={10} onChange={event=>setPin(event.target.value.replace(/\D/g,""))} /></label><button type="submit" className="primary" disabled={busy||Boolean(pin&&pin.length<4)}>{busy?"Starting…":"Start demo"}</button></form>{message&&<p role="alert">{message}</p>}<a href="/">Return to the tournament</a></section></main>;
   return <div className="demo-session"><aside className="demo-banner" aria-label="Demo session"><div><strong>Demo mode</strong><span>Fictional data. Changes stay in this tab; reload resets them. Never enter real payment or contact details.</span></div><button type="button" className="secondary" onClick={()=>{if(confirm("Discard all demo changes and start a fresh session?"))window.location.reload();}}>Reset demo</button><a href="/">Exit demo</a><details><summary>Practice guide</summary><p>Use Prepare to test registration and screenshots. Switch the phase to Live for court dispatch and scoring. All demo match PINs start as 4317; existing registration PINs are 12345678. Demo staff PIN is 98765432. Exported receipt links are temporary and only work while this demo tab stays open. Use Projector in this tab; separate court windows are unavailable.</p></details></aside><Home demo /></div>;
 }

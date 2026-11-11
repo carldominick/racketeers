@@ -1,5 +1,5 @@
 /** Shared Worker boundary: never log credentials or payment request bodies. */
-import { organizerPinMatches } from "./organizer-auth";
+import { organizerRequestMatches } from "./organizer-accounts";
 
 type Database = { prepare(sql: string): { bind(...values: unknown[]): { first<T>(): Promise<T | null>; run(): Promise<unknown> }; run(): Promise<unknown> } };
 type Limit = { count: number; expires: number };
@@ -64,7 +64,9 @@ export async function protectedRequest(request: Request, db: Database, next: (re
     if ((origin && origin !== url.origin) || request.headers.get("sec-fetch-site") === "cross-site") return finish(reject("Cross-site API requests are not allowed.", 403));
     let action = "", registrationCredential = false;
     const write = !["GET", "HEAD"].includes(request.method);
-    if (write) {
+    // Authenticated sponsor PNGs are validated and streamed by the sponsor handler.
+    const sponsorUpload = pathname === "/api/sponsors" && request.method === "POST" && request.headers.get("content-type") === "image/png";
+    if (write && !sponsorUpload) {
       const image = ["/api/payment-proof", "/api/payment-settings", "/api/sponsors"].includes(pathname) && request.headers.get("content-type") === "image/png";
       const limit = image || request.method === "PUT" ? 2 * 1024 * 1024 : 16 * 1024;
       if (Number(request.headers.get("content-length") || 0) > limit) return finish(reject("Request is too large.", 413));
@@ -107,7 +109,7 @@ export async function protectedRequest(request: Request, db: Database, next: (re
       let organizer = false;
       if (registering && request.headers.has("x-organizer-pin")) {
         const row = await db.prepare("SELECT payload FROM tournament_state WHERE id = ?").bind("racketeers").first<{ payload: string }>();
-        organizer = await organizerPinMatches(request.headers.get("x-organizer-pin"), row ? JSON.parse(row.payload).organizerPinHash : undefined);
+        organizer = await organizerRequestMatches(request, db, row ? JSON.parse(row.payload) : {});
         if (!organizer) { await recordFailure(db, authKey, now); return finish(reject("Organizer PIN did not match.", 401)); }
       }
       if (registering && !organizer) {

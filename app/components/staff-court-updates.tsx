@@ -8,10 +8,10 @@ import { X } from "@phosphor-icons/react/dist/csr/X";
 import { staffNotificationText } from "../../lib/staff-events";
 import type { CourtHelpRequest, StaffNotification } from "../../lib/tournament";
 
-type Props = { organizerPin: string; umpirePin: string; onStatus: (help: Record<string, CourtHelpRequest>) => void; onClearHelp: (court: number) => void; busyCourt: number | null };
+type Props = { organizerPin: string; umpirePin: string; onStatus: (help: Record<string, CourtHelpRequest>) => void; onClearHelp: (court: number) => void; busyCourt: number | null; onSessionExpired?: (expired: boolean) => void };
 
 /** Poll staff-only signals without replacing unsaved setup fields or queued umpire scores. */
-export function StaffCourtUpdates({ organizerPin, umpirePin, onStatus, onClearHelp, busyCourt }: Props) {
+export function StaffCourtUpdates({ organizerPin, umpirePin, onStatus, onClearHelp, busyCourt, onSessionExpired }: Props) {
   const [alerts, setAlerts] = useState<StaffNotification[]>([]);
   const [offline, setOffline] = useState(false);
   useEffect(() => {
@@ -19,10 +19,11 @@ export function StaffCourtUpdates({ organizerPin, umpirePin, onStatus, onClearHe
     let seen: Set<string> | null = null;
     const controller = new AbortController();
     const refresh = async () => {
-      if (inFlight || document.visibilityState === "hidden") return;
+      if (stopped || inFlight || document.visibilityState === "hidden") return;
       inFlight = true;
       try {
         const response = await fetch("/api/state?staffUpdates=1", { headers: organizerPin ? { "x-organizer-pin": organizerPin } : { "x-umpire-pin": umpirePin }, signal: controller.signal, cache: "no-store" });
+        if (organizerPin === 'session' && (response.status === 401 || response.status === 403)) { stopped=true; onSessionExpired?.(true); return; }
         if (!response.ok) throw new Error("Staff updates unavailable");
         const data = await response.json() as { courtHelp: Record<string, CourtHelpRequest>; notifications: StaffNotification[] };
         if (stopped) return;
@@ -41,7 +42,7 @@ export function StaffCourtUpdates({ organizerPin, umpirePin, onStatus, onClearHe
     const resume = () => { if (document.visibilityState !== "hidden") void refresh(); };
     document.addEventListener("visibilitychange", resume);
     return () => { stopped = true; controller.abort(); clearTimeout(initial); clearInterval(timer); document.removeEventListener("visibilitychange", resume); };
-  }, [organizerPin, umpirePin, onStatus]);
+  }, [organizerPin, umpirePin, onStatus, onSessionExpired]);
   const latest = [...alerts].reverse().find(event => event.kind === "help_requested") ?? alerts.at(-1);
   return <>{offline && <p className="staff-updates-warning" role="status">Court alerts are reconnecting…</p>}{organizerPin && alerts.length > 0 && <aside className="staff-notifications" aria-label="Organizer court notifications"><details className="staff-alerts-panel"><summary aria-label={`Court updates: ${alerts.length}. ${staffNotificationText(latest!)}`}><Bell size={20} aria-hidden="true" /><span role="status">{alerts.length} court updates · {staffNotificationText(latest!)}</span></summary><header><span>Court updates</span><button type="button" className="ghost" onClick={() => setAlerts([])}>Dismiss all</button></header><div className="staff-notification-list" aria-live="polite" aria-relevant="additions">{[...alerts].reverse().map(event => <article className={`staff-notification ${event.kind === "help_requested" ? "needs-help" : ""}`} key={event.id}><div><strong>{staffNotificationText(event)}</strong>{event.matchLabel && <p>{event.matchLabel}</p>}<small>{new Date(event.createdAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}</small>{event.kind === "help_requested" && <button type="button" className="secondary" disabled={busyCourt !== null} onClick={() => onClearHelp(event.court)}>{busyCourt === event.court ? "Updating…" : "Clear help request"}</button>}</div><button type="button" className="notification-dismiss" aria-label={`Dismiss ${staffNotificationText(event)}`} onClick={() => setAlerts(current => current.filter(item => item.id !== event.id))}><X size={20} aria-hidden="true" /></button></article>)}</div></details></aside>}</>;
 }
