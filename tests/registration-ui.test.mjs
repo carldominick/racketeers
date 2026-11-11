@@ -10,9 +10,44 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const require=createRequire(import.meta.url);
 const dir=await mkdtemp(path.join(tmpdir(),'registration-ui-'));
-await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf8'))+'\nexport { PublicRegistration, RegistrationSecondEntryOwner, TournamentCountdown, UmpireScorecard, ReceiptBatchReview, RegistrationCharges };\nexport {ReceiptReview} from "./components/receipt-review";',resolveDir:path.resolve('app'),loader:'tsx'},outfile:path.join(dir,'page.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
-const {default:Home,PublicRegistration,RegistrationSecondEntryOwner,TournamentCountdown,UmpireScorecard,ReceiptBatchReview,ReceiptReview,RegistrationCharges}=await import(pathToFileURL(path.join(dir,'page.mjs')));
+await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf8'))+'\nexport { PublicRegistration, RegistrationSecondEntryOwner, TournamentCountdown, UmpireScorecard, ReceiptBatchReview, RegistrationCharges, RegistrationRoster };\nexport {ReceiptReview} from "./components/receipt-review";',resolveDir:path.resolve('app'),loader:'tsx'},outfile:path.join(dir,'page.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
+const {default:Home,PublicRegistration,RegistrationSecondEntryOwner,TournamentCountdown,UmpireScorecard,ReceiptBatchReview,ReceiptReview,RegistrationCharges,RegistrationRoster}=await import(pathToFileURL(path.join(dir,'page.mjs')));
 const state={status:'registration',divisions:[{id:'d',name:'Open Doubles',mode:'doubles'}],registrations:[{id:'one',name:'Alex',facebookProfile:'https://facebook.com/alex.test',phone:'09123456789',divisionId:'d',partnerId:'two',club:'Cebu Club',shirtSize:'L',desiredLevel:'Intermediate'},{id:'two',name:'Sam',facebookProfile:'https://facebook.com/sam.test',phone:'09123456780',divisionId:'d',partnerId:'one',club:'Rackets',shirtSize:'S',desiredLevel:'Advanced'}]};
+
+test('organizer roster groups reciprocal partners within divisions and shows each player’s own payment and shirt status',()=>{
+ const divisions=[...state.divisions,{id:'s',name:'Open Singles',mode:'singles'},{id:'t',name:'Club Team',mode:'team'}];
+ const registrations=[
+  {...state.registrations[0],paid:true,shirtReceived:true},
+  {...state.registrations[1],paid:false,shirtReceived:false},
+  {id:'unpaired',name:'Nico',divisionId:'d',partnerId:'two',shirtSize:'XL'},
+  {id:'single',name:'Alex',divisionId:'s',partnerId:'one',secondShirt:'none',shirtReceived:true,shirtSize:'L'},
+  {id:'team1',name:'Adrian',divisionId:'t',partnerId:'team2',shirtSize:'M'},
+  {id:'team2',name:'Marco',divisionId:'t',partnerId:'team1',shirtSize:'S'},
+ ];
+ const html=renderToStaticMarkup(React.createElement(RegistrationRoster,{divisions,registrations,locked:false,canEdit:true,onShirtReceived(){}}));
+ const cards=[...html.matchAll(/<article class="registration-roster-pair">.*?<\/article>/gs)].map(match=>match[0]);
+ assert.equal(cards.length,4);
+ assert.match(cards[0],/Open Doubles, Alex and Sam/);
+ assert.match(cards[0],/scope="col">Shirt received<\/th>/);
+ assert.match(cards[0],/Shirt received for Alex[^>]*checked=""[^>]*>.*?>L<\/td>.*?>Paid<\/span>/s);
+ assert.match(cards[0],/Shirt received for Sam[^>]*>.*?>S<\/td>.*?>Not confirmed<\/span>/s);
+ assert.match(cards[1],/Nico.*Unpaired/s);
+ assert.match(cards[2],/Open Singles, Alex/);
+ assert.match(cards[2],/Shirt received for Alex[^>]*disabled=""[^>]*>.*?>No shirt<\/td>/s);
+ assert.doesNotMatch(cards[2],/Unpaired|checked=""/);
+ assert.match(cards[3],/Club Team, Adrian and Marco/);
+ assert.doesNotMatch(html,/09123456789|facebook\.com|Cebu Club/);
+});
+
+test('organizer roster disables handout updates for locked phases and view-only access',()=>{
+ for(const permissions of [{locked:true,canEdit:true},{locked:false,canEdit:false}]){
+  const html=renderToStaticMarkup(React.createElement(RegistrationRoster,{...state,...permissions,onShirtReceived(){}}));
+  const shirts=[...html.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)].map(match=>match[0]);
+  assert.equal(shirts.length,2);
+  assert.ok(shirts.every(input=>input.includes('disabled=""')));
+ }
+});
+
 test('payment review never presents a partial amount as the total and keeps unknown prices behind one explanation',()=>{
  const people=[{name:'Alex',divisionId:'d'},{name:'Sam',divisionId:'d'}];
  const divisions=[{id:'d',name:'Open',registrationPricing:{entry:'900',additionalEntry:'500',tournamentShirt:'',blackShirt:'0'}}];

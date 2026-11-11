@@ -1,0 +1,202 @@
+@media screen {
+  .registration-roster {
+    --roster-paid: #166534;
+    --roster-paid-background: #edf6ef;
+    --roster-unconfirmed: #92400e;
+    --roster-unconfirmed-background: #fff4dc;
+    --roster-check: var(--navy);
+    min-width: 0;
+    padding-top: 24px;
+  }
+
+  .clubhouse-site.dark .registration-roster {
+    --roster-paid: #a4dfb5;
+    --roster-paid-background: #183b2a;
+    --roster-unconfirmed: #f4d18a;
+    --roster-unconfirmed-background: #40331d;
+    --roster-check: var(--lime);
+  }
+
+  .registration-roster > header h2 {
+    margin: 0 0 8px;
+    font-size: clamp(26px, 3vw, 34px);
+    line-height: 1.15;
+  }
+
+  .registration-roster :is(header p, .registration-roster-division header span) {
+    margin: 0;
+    color: var(--muted);
+  }
+
+  .registration-roster-filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) repeat(2, minmax(160px, 210px));
+    gap: 12px;
+    margin: 20px 0 24px;
+  }
+
+  .registration-roster-filters label {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .registration-roster-filters :is(input, select) {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid var(--control-edge);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--ink);
+    font-size: 16px;
+    font-weight: 400;
+  }
+
+  .registration-roster-division + .registration-roster-division {
+    margin-top: 24px;
+  }
+
+  .registration-roster-division > header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 4px 16px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+
+  .registration-roster-division h3 {
+    display: inline;
+    margin: 0 8px 0 0;
+    color: var(--ink);
+    font-size: 22px;
+    overflow-wrap: anywhere;
+  }
+
+  .registration-roster-division > header strong { color: var(--ink); }
+
+  .registration-roster-pairs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .registration-roster-pair {
+    min-width: 0;
+    overflow: clip;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--ink);
+  }
+
+  .registration-roster-pair table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .roster-received-column { width: 96px; }
+  .roster-size-column { width: 52px; }
+  .roster-payment-column { width: 112px; }
+
+  .registration-roster-pair table :is(th, td) {
+    padding: 8px 0;
+    text-align: center;
+    line-height: 1.25;
+    vertical-align: middle;
+  }
+
+  .registration-roster-pair th {
+    text-transform: none;
+    letter-spacing: normal;
+  }
+
+  .registration-roster-pair tr > :first-child {
+    padding-inline: 12px 4px;
+    text-align: left;
+  }
+
+  .registration-roster-pair tr > :last-child:not([colspan]) {
+    padding-right: 12px;
+    text-align: right;
+  }
+
+  .registration-roster-pair thead th {
+    background: var(--paper);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .registration-roster-pair tbody th {
+    background: var(--card);
+    color: var(--ink);
+    font-size: 15px;
+    overflow-wrap: anywhere;
+  }
+
+  .registration-roster-pair tbody tr:last-child > * { border-bottom: 0; }
+  .registration-roster-pair .roster-received-cell { padding-block: 0; }
+  .roster-unpaired { color: var(--muted); }
+
+  .roster-received-cell label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    min-height: 44px;
+    cursor: pointer;
+  }
+
+  .roster-received-cell input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--roster-check);
+    cursor: inherit;
+  }
+
+  .roster-received-cell label:has(input:disabled) { cursor: not-allowed; }
+
+  .roster-payment-status {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: var(--roster-unconfirmed-background);
+    color: var(--roster-unconfirmed);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .roster-payment-status.paid {
+    background: var(--roster-paid-background);
+    color: var(--roster-paid);
+  }
+}
+
+@media screen and (max-width: 1150px) {
+  .registration-roster-pairs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media screen and (max-width: 850px) {
+  .roster-received-column { width: 64px; }
+  .roster-payment-column { width: 104px; }
+  .registration-roster-pair tr > :last-child:not([colspan]) { padding-right: 8px; }
+}
+
+@media screen and (max-width: 700px) {
+  .registration-roster { padding-top: 20px; }
+  .registration-roster-pairs { grid-template-columns: 1fr; gap: 8px; }
+  .registration-roster-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 16px 0 20px; }
+  .registration-roster-filters label:first-child { grid-column: 1 / -1; }
+}
