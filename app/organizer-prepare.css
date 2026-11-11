@@ -1,0 +1,117 @@
+@media screen {
+  .prepare-page { min-width: 0; }
+  .prepare-context, .prepare-actions, .prepare-detail-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .prepare-context {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    padding: 9px 0;
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+  }
+  .prepare-context label { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .prepare-context select { min-width: 0; width: auto; max-width: min(65vw, 410px); }
+  .prepare-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--line);
+    overflow: hidden;
+  }
+  .prepare-metrics span { background: var(--card); padding: 10px 13px; color: var(--muted); }
+  .prepare-metrics strong { color: var(--ink); padding-right: 4px; font-size: 19px; }
+  .prepare-workspace { display: grid; gap: 16px; align-items: start; min-width: 0; grid-template-columns: minmax(0, 1fr); }
+  .prepare-workspace:has(> aside.prepare-detail) { grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr); }
+  .registration-roster.prepare-roster {
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--card);
+  }
+  .prepare-roster > header h2 { font-size: 22px; }
+  .prepare-roster .registration-roster-filters { grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(100px, .75fr)); margin: 12px 0 16px; }
+  .prepare-roster .registration-roster-pairs { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .prepare-roster .registration-roster-pair th { padding-block: 4px; }
+  .prepare-roster .registration-roster-pair :is(th, td) { vertical-align: middle; }
+  .prepare-roster .prepare-selected > th { box-shadow: inset 3px 0 var(--lime-dark); }
+  .prepare-player-link {
+    min-height: 44px;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font-weight: 700;
+    text-align: left;
+    overflow-wrap: anywhere;
+    padding: 6px 4px;
+  }
+  .prepare-player-link:hover, .prepare-player-link[aria-pressed=true] { text-decoration: underline; text-underline-offset: 3px; }
+  .prepare-detail { min-width: 0; }
+  .prepare-detail-head { margin-bottom: 12px; align-items: start; }
+  .prepare-detail-head h2, .prepare-detail-head p { margin: 0; overflow-wrap: anywhere; }
+  .prepare-detail-head p { color: var(--muted); }
+  .prepare-segments { display: flex; flex-wrap: wrap; gap: 6px; }
+  .prepare-segments button {
+    min-height: 44px;
+    border: 1px solid var(--control-edge);
+    border-radius: 7px;
+    padding: 8px 12px;
+    background: var(--card);
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .prepare-segments button[aria-pressed=true] { border-color: var(--lime-dark); box-shadow: inset 0 -3px var(--lime-dark); }
+  .prepare-detail .prepare-segments { margin-bottom: 12px; }
+  .prepare-detail .prepare-segments button { flex: 1 1 auto; }
+  .prepare-detail-fields:not([hidden]), .prepare-match-detail { display: grid; gap: 12px; min-width: 0; }
+  .prepare-detail-fields label, .prepare-match-detail label { min-width: 0; }
+  .prepare-tools > summary { min-height: 44px; padding-block: 10px; cursor: pointer; font-weight: 700; }
+  .prepare-tools > fieldset { margin-top: 12px; }
+  .prepare-tools > .action-row { padding-bottom: 8px; }
+  .prepare-draw-board { min-width: 0; }
+  .prepare-draw-board .sub-bracket-rosters { margin-block: 12px; }
+  .prepare-draw-board .manual-toggle { margin-block: 12px; }
+  .prepare-draw-board .bracket-scroll { max-width: 100%; }
+  .prepare-match {
+    width: 100%;
+    min-height: 44px;
+    color: var(--ink);
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+  .prepare-match[aria-pressed=true] { outline: 2px solid var(--lime-dark); outline-offset: -2px; }
+  .prepare-match > span { display: flex; gap: 8px; justify-content: space-between; padding-block: 4px; }
+  .prepare-match > span + span { border-top: 1px solid var(--line); }
+  .prepare-match > span.winner { font-weight: 800; }
+  .clubhouse-site dialog.prepare-drawer {
+    position: fixed;
+    inset: 0 0 0 auto;
+    width: min(520px, 100vw);
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    overflow: auto;
+    border-radius: 0;
+    background: var(--card);
+    color: var(--ink);
+  }
+  dialog.prepare-drawer::backdrop { background: #12202e88; }
+  @media (max-width: 640px) {
+    .prepare-roster .registration-roster-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .prepare-roster .registration-roster-filters label:first-child { grid-column: 1 / -1; }
+    .prepare-roster .roster-received-column { width: 70px; }
+    .prepare-roster .roster-size-column { width: 38px; }
+    .prepare-roster .roster-payment-column { width: 81px; }
+    .prepare-roster .roster-payment-status { white-space: normal; padding-inline: 5px; }
+    .prepare-metrics span { font-size: 12px; }
+    .prepare-metrics strong { display: block; }
+  }
+}

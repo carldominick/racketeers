@@ -181,8 +181,12 @@ test('built named-account activation, password change, cookies, PIN retirement a
  assert.deepEqual(Buffer.from(await stored.arrayBuffer()),sponsor);
  for(const path of ['/api/state','/api/payment-settings','/api/sponsors','/api/demo']){const response=await runtime.dispatchFetch('https://racketeers.example'+path,{method:path==='/api/state'?'GET':'POST',headers:{'x-organizer-pin':'12345678','content-type':'application/json'},...(path==='/api/state'?{}:{body:'{}'})});assert.equal(response.status,401,path);}
  const registrationClosesAt='2026-11-29T08:30';
- const save=await runtime.dispatchFetch('https://racketeers.example/api/state',{method:'PUT',headers:{'content-type':'application/json',cookie,'x-organizer-pin':'session'},body:JSON.stringify({state:{...state.state,venue:'Fictional venue',registrationClosesAt,organizerAccountsEnabled:false},expectedRevision:state.revision})});assert.equal(save.status,200);
- const audit=await runtime.dispatchFetch('https://racketeers.example/api/organizers?audit=1',{headers:{cookie}});assert.equal(audit.status,200);const events=(await audit.json()).events;assert.ok(events.some(e=>e.username===c.username&&e.action.includes('venue')&&e.action.includes('registration deadline')&&e.outcome==='Succeeded'));
+ const paidIds=new Set([registration.id,registration.partnerId]);
+ const registrations=state.state.registrations.map(player=>paidIds.has(player.id)?{...player,paid:true}:player);
+ const save=await runtime.dispatchFetch('https://racketeers.example/api/state',{method:'PUT',headers:{'content-type':'application/json',cookie,'x-organizer-pin':'session'},body:JSON.stringify({state:{...state.state,registrations,venue:'Fictional venue',registrationClosesAt,organizerAccountsEnabled:false},expectedRevision:state.revision})});assert.equal(save.status,200);
+ assert.deepEqual((await save.json()).state.registrations.filter(player=>player.paid).map(player=>player.id),[...paidIds]);
+ const audit=await runtime.dispatchFetch('https://racketeers.example/api/organizers?audit=1',{headers:{cookie}});assert.equal(audit.status,200);const events=(await audit.json()).events;
+ assert.ok(events.some(e=>e.username===c.username&&e.action.includes('Confirm payment for 2 player entries')&&e.action.includes('venue')&&e.action.includes('registration deadline')&&e.outcome==='Succeeded'));
  const publicState=await runtime.dispatchFetch('https://racketeers.example/api/state');const publicData=await publicState.json();assert.equal(publicData.state.organizerAccountsEnabled,true);assert.equal(publicData.state.registrations.length,0);assert.equal(publicData.state.registrationClosesAt,registrationClosesAt);
  assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/demo',{method:'POST',headers:{cookie,'x-organizer-pin':'session'}})).status,200);
  assert.equal((await post({action:'logout'},cookie)).status,200);
