@@ -14,6 +14,22 @@ await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf
 const {default:Home,PublicRegistration,RegistrationSecondEntryOwner,TournamentCountdown,UmpireScorecard,ReceiptBatchReview,ReceiptReview,RegistrationCharges,RegistrationRoster}=await import(pathToFileURL(path.join(dir,'page.mjs')));
 const state={status:'registration',divisions:[{id:'d',name:'Open Doubles',mode:'doubles'}],registrations:[{id:'one',name:'Alex',facebookProfile:'https://facebook.com/alex.test',phone:'09123456789',divisionId:'d',partnerId:'two',club:'Cebu Club',shirtSize:'L',desiredLevel:'Intermediate'},{id:'two',name:'Sam',facebookProfile:'https://facebook.com/sam.test',phone:'09123456780',divisionId:'d',partnerId:'one',club:'Rackets',shirtSize:'S',desiredLevel:'Advanced'}]};
 
+test('payment confirmation follows shared reciprocal partners within one division', async () => {
+ await build({entryPoints:['lib/registration-payment.ts'],outfile:path.join(dir,'registration-payment.mjs'),bundle:true,platform:'node',format:'esm'});
+ const {registrationPaymentEntries} = await import(pathToFileURL(path.join(dir,'registration-payment.mjs')));
+ const [alex,sam] = state.registrations.map(player => ({...player,paymentGroupId:'shared'}));
+ const secondEntry = {...alex,id:'second-entry',divisionId:'second-division'};
+ const separate = {...sam,paymentGroupId:'separate'};
+ const unrelated = {...sam,partnerId:null};
+ assert.deepEqual(registrationPaymentEntries([alex,sam,secondEntry],alex,'doubles'),[alex,sam]);
+ assert.deepEqual(registrationPaymentEntries([alex,separate],alex,'doubles'),[alex]);
+ assert.deepEqual(registrationPaymentEntries([alex,unrelated],alex,'doubles'),[alex]);
+ assert.deepEqual(registrationPaymentEntries([alex,{...sam,divisionId:'second-division'}],alex,'doubles'),[alex]);
+ assert.deepEqual(registrationPaymentEntries([alex,sam],alex,'singles'),[alex]);
+ const [legacyAlex,legacySam] = state.registrations;
+ assert.deepEqual(registrationPaymentEntries([legacyAlex,legacySam],legacySam,'doubles'),[legacySam,legacyAlex]);
+});
+
 test('organizer roster groups reciprocal partners within divisions and shows each player’s own payment and shirt status',()=>{
  const divisions=[...state.divisions,{id:'s',name:'Open Singles',mode:'singles'},{id:'t',name:'Club Team',mode:'team'}];
  const registrations=[

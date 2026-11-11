@@ -1,4 +1,5 @@
 import { organizerPinMatches } from './organizer-auth';
+import { describeOrganizerRequest, readableAuditDescription } from './organizer-audit-description';
 
 export type AccountDB = { prepare(sql: string): { run(): Promise<unknown>; bind(...args: unknown[]): { first<T>(): Promise<T | null>; run(): Promise<unknown> } } };
 export type OrganizerAccount = { id: string; username: string; manager: number; read_only: number; must_change: number; version: number };
@@ -63,7 +64,8 @@ export async function handleAccounts(request: Request, db: AccountDB): Promise<R
         if ((!actor.manager && !actor.read_only) || actor.must_change) return reply({ error: 'Organizer history access required.' }, 403);
         const before = Number(url.searchParams.get('before') || Number.MAX_SAFE_INTEGER);
         const data = await db.prepare('SELECT json_group_array(json_object(\'id\',id,\'username\',username,\'at\',happened_at,\'action\',action,\'outcome\',outcome)) AS items FROM (SELECT * FROM organizer_audit WHERE id < ? ORDER BY id DESC LIMIT 100)').bind(Number.isSafeInteger(before) ? before : Number.MAX_SAFE_INTEGER).first<{ items: string }>();
-        return reply({ events: JSON.parse(data?.items || '[]') });
+        const events = JSON.parse(data?.items || '[]') as { action: string }[];
+        return reply({ events: events.map(event => ({ ...event, action: readableAuditDescription(event.action) })) });
       }
       const data = !actor.must_change ? await db.prepare("SELECT json_group_array(json_object('id',id,'username',username,'manager',manager,'read_only',read_only,'must_change',must_change)) AS items FROM organizer_accounts").bind().first<{ items: string }>() : null;
       return reply({ actor, users: data ? JSON.parse(data.items) : [actor] });
@@ -138,26 +140,17 @@ export async function auditedOrganizerRequest(request: Request, db: AccountDB, n
   if (!row || !JSON.parse(row.payload).organizerAccountsEnabled) return next(request);
   const actor = await accountActor(request, db);
   if (!actor) return next(request);
-  const path = new URL(request.url).pathname;
-  let action = `${request.method} ${path}`;
-  if (request.headers.get('content-type')?.startsWith('application/json')) {
-    const body = await request.clone().json() as {action?:unknown;state?:unknown};
-    const allowed = ['dispatchGame','releaseGameCourt','holdGame','resumeGame','forfeitGame','clearForfeit','updateProjectorSettings','regenerateBrackets','registerPlayer','updateRegistration','resetRegistrations','replaceRegistrationPin','viewRegistrationPin','courtHelp','update','reset','logout','changeUmpirePin','verifyOrganizer','verifyAccess','verifyMatch'];
-    if (typeof body.action === 'string' && allowed.includes(body.action)) action += `: ${body.action}`;
-    if (request.method === 'PUT' && body.state && typeof body.state === 'object') {
-      const previous = JSON.parse(row.payload);
-      const proposed = body.state as Record<string, unknown>;
-      const changed = ['tournamentName','venue','status','theme','divisions','registrations','matches','gameDay','projector','startDate','endDate','dayStart','dayEnd','courts','gameDuration'].filter(key => JSON.stringify(previous[key]) !== JSON.stringify(proposed[key]));
-      if (proposed.registrationClosesAt !== undefined && proposed.registrationClosesAt !== (previous.registrationClosesAt ?? '')) changed.push('registration deadline');
-      action += `: ${changed.join(', ') || 'save tournament'}`;
-    }
-  }
+  const url = new URL(request.url);
+  const body = request.headers.get('content-type')?.startsWith('application/json')
+    ? await request.clone().json() as { action?: unknown; state?: unknown; expectedRevision?: unknown } : {};
+  const details = request.method === 'PUT' && body?.expectedRevision !== row.revision ? {} : body || {};
+  const action = describeOrganizerRequest(request.method, url, details, JSON.parse(row.payload));
   const audit = await auditStart(db, actor, action);
   if (!audit) return reply({error:'Audit recording unavailable. No change was attempted.'},503);
   let allowed = true;
   if (actor.read_only) {
-    const body = request.headers.get('content-type')?.startsWith('application/json') ? await request.clone().json() as {action?:string} : {};
-    allowed = path === '/api/organizers' && ['login','logout','update'].includes(body.action || '') || path === '/api/state' && viewerStateActions.includes(body.action || '');
+    const requestedAction = typeof body?.action === 'string' ? body.action : '';
+    allowed = url.pathname === '/api/organizers' && ['login','logout','update'].includes(requestedAction) || url.pathname === '/api/state' && viewerStateActions.includes(requestedAction);
   }
   const response = allowed ? await next(request) : reply({error:'This organizer account is view-only.'},403);
   try { await db.prepare('UPDATE organizer_audit SET outcome=? WHERE id=?').bind(response.ok ? 'Succeeded' : `Rejected (${response.status})`, audit.id).run(); }

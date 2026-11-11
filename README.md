@@ -2,7 +2,7 @@
 
 Standalone Cloudflare deployment of the Racketeers application. Includes tournament setup, individual registrations and pairing, pools and knockout draws, umpire scoring, organizer PIN controls, schedules, projector views, and printable scorecards.
 
-Organizer → Prepare → Registration can download CSV for all divisions or a selected division, and Excel with one sheet per division. Downloads use the entries shown, including unsaved changes when indicated. A connection or receipt-service failure does not block the roster file; unavailable payment fields are marked explicitly. When connected and saved, exports include organizer-authorized private proof links and reviewed receipt fields. These group amounts repeat across linked rows and must not be summed twice.
+Organizer → Prepare → Registrations → Registration tools can download CSV for all divisions or a selected division, and Excel with one sheet per division. Downloads use the entries shown, including unsaved changes when indicated. A connection or receipt-service failure does not block the roster file; unavailable payment fields are marked explicitly. When connected and saved, exports include organizer-authorized private proof links and reviewed receipt fields. These group amounts repeat across linked rows and must not be summed twice.
 
 ## Dedicated court window and receipt review
 
@@ -10,7 +10,7 @@ Organizer → Run tournament → Game day desk → **Open court view** launches 
 
 Organizer credentials remain in the main window. A temporary random BroadcastChannel carries whitelisted display fields for pre-Live staff preview while that window remains open. Independently opened `/courts` uses public `/api/courts`, withholding courts until Live/Completed even when staff headers are supplied. Failed polling retains the last update with a reconnecting message. Assignments stay in the main desk.
 
-Organizer → Prepare → Registration shows **Amount & reference** beneath an uploaded screenshot. Choose **Read payment screenshot**, review/correct the amount, reference, provider and optional date, then **Save reviewed details**. Missing or ambiguous readings remain empty; manual entry is available. Saved amount/reference appears in the summary. Tesseract.js runs in a browser worker using same-origin WebAssembly and English language data, without sending receipts to an external OCR service. The first reading downloads engine/language files and can take longer on slow connections/devices.
+Organizer → Prepare → Registrations shows **Amount & reference** in **Payment & shirt** beneath an uploaded screenshot. Choose **Read payment screenshot**, review/correct the amount, reference, provider and optional date, then **Save reviewed details**. Missing or ambiguous readings remain empty; manual entry is available. Saved amount/reference appears in the summary. Tesseract.js runs in a browser worker using same-origin WebAssembly and English language data, without sending receipts to an external OCR service. The first reading downloads engine/language files and can take longer on slow connections/devices.
 
 Receipt parsing recognizes GCash, Maya, MariBank, SeaBank, BPI and GoTyme names, common amount/reference labels, standalone currency amounts and month-name dates. **Receipt bank / app** means the issuer, not the receiving wallet. Missing or ambiguous issuers remain blank. Dates normalize to `YYYY-MM-DD`; ambiguous numeric dates such as `10/11/2026` require manual entry rather than guessing the locale. Reference digits and leading zeroes are never repaired or invented.
 
@@ -24,7 +24,7 @@ Reviewed fields are organizer-only and shared across linked players/entries. Sep
 
 ### Read all registration screenshots
 
-In **Organizer → Prepare → Registration**, use **Read all payment screenshots** above the division/player list. It checks all divisions, reads each shared payment screenshot once, and skips registrations without an upload. Saved reviews are skipped unless their image changed; select **Also read screenshots with saved details** to reread them explicitly.
+In **Organizer → Prepare → Registrations → Registration tools**, use **Read all payment screenshots**. It checks all divisions, reads each shared payment screenshot once, and skips registrations without an upload. Saved reviews are skipped unless their image changed; select **Also read screenshots with saved details** to reread them explicitly.
 
 A single Tesseract.js worker processes images sequentially on this device, reusing its loaded English engine. Progress and **Stop reading** are shown. Completed readings remain available after stopping; **Read remaining payment screenshots** continues without replacing staged results. Keep the tab open: these readings stay in memory until saved. Clearing local results does not remove saved details or screenshots.
 
@@ -56,7 +56,9 @@ The **Payment review desk** groups linked players and filters missing screenshot
 
 In **Prepare → Setup → Registration deadline**, enter the closing date and time in Philippine time, then select **Apply deadline**. The public registration sidebar shows the deadline and countdown. New public entries, including second entries, close automatically at the deadline. PIN-based edits and payment uploads for existing entries stay available during the Registration phase. To return to manual closure, select **Clear date**, then **Apply deadline**.
 
-**Prepare → Registration roster** sits beside Registration. It groups registered partners into cards by division and shows each player's payment confirmation and shirt size. Search by either partner's name or filter by division and payment status. The **Shirt received** checkbox shares the Registration tab's saved field and follows the same phase and account permissions.
+**Prepare → Registrations** groups partners by division and shows each player's payment and shirt status. Search by either partner's name or filter by division, payment or shirt pickup. Select a player for **Payment & shirt** or **Player & pairing**. The details sit beside the roster on larger screens and open as a drawer on smaller screens. Find exports, receipt review, batch OCR and reset controls under **Registration tools**. Payment instructions and the QR image are in **Setup**.
+
+**Prepare → Draw** shows pools and group matchups together. **Championship** shows the bracket and opens details for the selected matchup, including manual assignment where enabled. The selected division carries between the two Prepare views. **User management** offers separate Accounts and Audit history views.
 
 Registration exports add reviewed payment fields and group coverage. Group amounts repeat across linked player rows and must not be summed without deduplicating. Missing proof and stale review status are identified; an unavailable/unauthorized review request stops the export instead of silently omitting details. Use XLSX for reference numbers with leading zeroes, or explicitly import CSV reference columns as text.
 
@@ -153,7 +155,7 @@ Removing a registration blocks its file from being retrieved through the applica
 
 The organizer Registration tab includes Player payment details: bank/provider, account number (stored as text to preserve leading zeroes), account holder, and instructions. These fields are stored in a separate D1 table and can be saved even before R2 is enabled. An optional QR/payment image is uploaded to the same private R2 bucket at `payment-instructions/qr.png` and served publicly through the payment-settings endpoint so registrants can see it. Receipt screenshots remain PIN-protected.
 
-Organizers use View payment screenshot and Confirm payment received on each registration card. Confirmation is reversible and uses the existing protected registration save flow. For a pair, review which players the payment covers and confirm each applicable individual record. Uploading or replacing a screenshot never changes the paid status automatically.
+Organizers review payment proof and confirm receipt from the registration card. When reciprocal partners in the same division share a receipt, confirming or undoing confirmation updates both players in one save. Separate payment records and entries in other divisions are confirmed independently. Uploading or replacing a screenshot never changes payment status automatically.
 
 New registration IDs use REG followed by a cryptographically generated UUID with no separators (35 alphanumeric characters). Public registration ignores supplied IDs and generates them on the server, checks current registration collisions, and retains the same ID during PIN-authorized edits. IDs are references, not passwords: matching registration PIN authorization is required for private receipts. Existing IDs are retained so existing pairings and screenshots continue working. Both receipt and QR uploads are capped at 2 MiB on the client and server, including images converted to PNG.
 
