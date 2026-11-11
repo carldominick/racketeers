@@ -1,13 +1,57 @@
 import { organizerRequestMatches } from "./organizer-accounts";
 import type { ProofEnvironment } from "./payment-proof-server";
-import { MAX_SPONSOR_BYTES, sponsorImageUrl } from "./sponsors";
+import { sponsorImageUrl } from "./sponsors";
 
 const headers = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 const reply = (body: unknown, status = 200) => Response.json(body, { status, headers });
 const validId = (id: string) => /^[a-f0-9-]{36}$/.test(id);
 type Row = { id: string; name: string; created_at: string };
+const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+declare const FixedLengthStream: new (length: number) => TransformStream<Uint8Array, Uint8Array>;
+
+function sponsorPngStream(length: number) {
+  const head = new Uint8Array(24);
+  const tail = new Uint8Array(12);
+  let received = 0;
+  let error = "";
+  const invalid = (message: string): never => {
+    error = message;
+    throw new Error(message);
+  };
+  const stream = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      if (received < head.length) {
+        head.set(chunk.subarray(0, head.length - received), received);
+        if (received + chunk.length >= head.length) {
+          if (!pngSignature.every((byte, index) => head[index] === byte) || String.fromCharCode(...head.subarray(12, 16)) !== "IHDR") invalid("Invalid PNG image.");
+          const view = new DataView(head.buffer);
+          const width = view.getUint32(16), height = view.getUint32(20);
+          if (!width || !height || width * height > 24_000_000) invalid("Image dimensions are too large.");
+        }
+      }
+      received += chunk.length;
+      if (received > length) invalid("The PNG did not match its declared size.");
+      if (chunk.length >= tail.length) tail.set(chunk.subarray(chunk.length - tail.length));
+      else {
+        tail.copyWithin(0, chunk.length);
+        tail.set(chunk, tail.length - chunk.length);
+      }
+      controller.enqueue(chunk);
+    },
+    flush() {
+      if (received !== length) invalid("The PNG did not match its declared size.");
+      if (received < 45 || String.fromCharCode(...tail.subarray(4, 8)) !== "IEND") invalid("Invalid PNG image.");
+    },
+  });
+  return { stream, get error() { return error; } };
+}
+
+type SponsorBucket = Omit<NonNullable<ProofEnvironment["PAYMENT_PROOFS"]>, "put"> & {
+  put(key: string, value: ReadableStream<Uint8Array>, options: { httpMetadata: { contentType: string; contentDisposition: string } }): Promise<unknown>;
+};
 // A separate append-only library avoids stale tournament/score saves replacing uploads.
-export type SponsorEnvironment = Omit<ProofEnvironment, "DB"> & {
+export type SponsorEnvironment = {
+  PAYMENT_PROOFS?: SponsorBucket;
   DB: { prepare(sql: string): {
     run(): Promise<unknown>;
     all<T>(): Promise<{ results: T[] }>;
@@ -48,24 +92,21 @@ export async function handleSponsors(request: Request, env: SponsorEnvironment):
     let name: string;
     try { name = decodeURIComponent(request.headers.get("x-sponsor-name") || "Sponsor").trim(); } catch { return reply({ error: "Invalid sponsor name." }, 400); }
     if (!name || name.length > 100 || /[\u0000-\u001f\u007f]/.test(name)) return reply({ error: "Use a sponsor name of 1–100 characters." }, 400);
-    if (Number(request.headers.get("content-length") || 0) > MAX_SPONSOR_BYTES) return reply({ error: "Image must be 2 MB or smaller." }, 413);
-    const reader = request.body?.getReader();
-    const chunks: Uint8Array[] = []; let length = 0;
-    if (reader) while (true) {
-      const { done, value } = await reader.read(); if (done) break;
-      length += value.length;
-      if (length > MAX_SPONSOR_BYTES) { await reader.cancel(); return reply({ error: "Image must be 2 MB or smaller." }, 413); }
-      chunks.push(value);
-    }
-    const bytes = new Uint8Array(length); let offset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-    const signature = [137, 80, 78, 71, 13, 10, 26, 10];
-    if (bytes.length < 45 || !signature.every((byte, index) => bytes[index] === byte) || String.fromCharCode(...bytes.slice(12, 16)) !== "IHDR" || String.fromCharCode(...bytes.slice(-8, -4)) !== "IEND") return reply({ error: "Invalid PNG image." }, 415);
-    const view = new DataView(bytes.buffer);
-    const width = view.getUint32(16), height = view.getUint32(20);
-    if (!width || !height || width * height > 24_000_000) return reply({ error: "Image dimensions are too large." }, 415);
+    const declared = request.headers.get("content-length") || request.headers.get("x-sponsor-size") || "";
+    const length = Number(declared);
+    if (!/^\d+$/.test(declared) || !Number.isSafeInteger(length)) return reply({ error: "The sponsor upload needs a declared byte length." }, 411);
+    if (!request.body || length < 45) return reply({ error: "Invalid PNG image." }, 415);
+    const validator = sponsorPngStream(length);
+    // R2 requires a known-length stream. Disposable browser/Node fixtures use ordinary streams.
+    const fixed = typeof FixedLengthStream === "undefined" ? new TransformStream<Uint8Array, Uint8Array>() : new FixedLengthStream(length);
     const newId = crypto.randomUUID();
-    await env.PAYMENT_PROOFS.put(`sponsors/${newId}.png`, bytes, { httpMetadata: { contentType: "image/png", contentDisposition: 'inline; filename="sponsor.png"' } });
+    const writing = request.body.pipeThrough(validator.stream).pipeTo(fixed.writable);
+    try {
+      await Promise.all([writing, env.PAYMENT_PROOFS.put(`sponsors/${newId}.png`, fixed.readable, { httpMetadata: { contentType: "image/png", contentDisposition: 'inline; filename="sponsor.png"' } })]);
+    } catch (error) {
+      if (validator.error) return reply({ error: validator.error }, 415);
+      throw error;
+    }
     await env.DB.prepare("INSERT INTO sponsor_images (id, name, created_at) VALUES (?, ?, ?)").bind(newId, name, new Date().toISOString()).run();
     return reply({ image: { id: newId, name, url: sponsorImageUrl(newId) } }, 201);
   } catch { return reply({ error: "Sponsor images could not be processed. Please try again." }, 500); }

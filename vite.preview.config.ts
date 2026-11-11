@@ -38,7 +38,7 @@ export default defineConfig({root:'preview',publicDir:'../public',server:{host:'
   if(req.method==='DELETE' && id){sponsors.delete(id);res.end(JSON.stringify({ok:true}));return;}
   if(req.method==='POST') {
    const chunks:Buffer[]=[];for await(const chunk of req)chunks.push(Buffer.from(chunk));
-   const bytes=Buffer.concat(chunks);if(bytes.length>2*1024*1024 || req.headers['content-type']!=='image/png'){res.statusCode=415;res.end(JSON.stringify({error:'Choose a PNG image of 2 MB or less.'}));return;}
+   const bytes=Buffer.concat(chunks);if(req.headers['content-type']!=='image/png'){res.statusCode=415;res.end(JSON.stringify({error:'Choose a PNG image.'}));return;}
    const image={id:crypto.randomUUID(),name:decodeURIComponent(String(req.headers['x-sponsor-name']||'Sponsor')),bytes};sponsors.set(image.id,image);res.statusCode=201;res.end(JSON.stringify({image:{id:image.id,name:image.name,url:`/api/sponsors?image=${image.id}`}}));return;
   }
   res.statusCode=405;res.end('{}');return;

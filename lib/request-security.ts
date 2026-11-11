@@ -64,7 +64,9 @@ export async function protectedRequest(request: Request, db: Database, next: (re
     if ((origin && origin !== url.origin) || request.headers.get("sec-fetch-site") === "cross-site") return finish(reject("Cross-site API requests are not allowed.", 403));
     let action = "", registrationCredential = false;
     const write = !["GET", "HEAD"].includes(request.method);
-    if (write) {
+    // Authenticated sponsor PNGs are validated and streamed by the sponsor handler.
+    const sponsorUpload = pathname === "/api/sponsors" && request.method === "POST" && request.headers.get("content-type") === "image/png";
+    if (write && !sponsorUpload) {
       const image = ["/api/payment-proof", "/api/payment-settings", "/api/sponsors"].includes(pathname) && request.headers.get("content-type") === "image/png";
       const limit = image || request.method === "PUT" ? 2 * 1024 * 1024 : 16 * 1024;
       if (Number(request.headers.get("content-length") || 0) > limit) return finish(reject("Request is too large.", 413));

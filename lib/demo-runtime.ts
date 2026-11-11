@@ -53,7 +53,10 @@ export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array)
   const bucket = {
     head: async (key: string) => { const value = objects.get(key); return value ? {size:value.bytes.length, uploaded:value.uploaded, etag:value.etag} : null; },
     get: async (key: string) => { const value = objects.get(key); return value ? {size:value.bytes.length, uploaded:value.uploaded, etag:value.etag, body:new Blob([Uint8Array.from(value.bytes)]).stream()} : null; },
-    put: async (key: string, bytes: Uint8Array) => { objects.set(key, {bytes:Uint8Array.from(bytes),uploaded:new Date(),etag:crypto.randomUUID()}); },
+    put: async (key: string, value: Uint8Array | ReadableStream<Uint8Array>) => {
+      const bytes = value instanceof Uint8Array ? Uint8Array.from(value) : new Uint8Array(await new Response(value).arrayBuffer());
+      objects.set(key, {bytes,uploaded:new Date(),etag:crypto.randomUUID()});
+    },
     delete: async (key: string) => { objects.delete(key); },
   };
   const env = { DB:db, PAYMENT_PROOFS:bucket };

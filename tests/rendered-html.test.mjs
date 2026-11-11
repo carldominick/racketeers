@@ -3,6 +3,7 @@ import test from "node:test";
 import {readFile, readdir} from "node:fs/promises";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
+import {crc32} from "node:zlib";
 import {Miniflare} from "miniflare";
 
 const client = fileURLToPath(new URL('../dist/client/', import.meta.url));
@@ -164,6 +165,20 @@ test('built named-account activation, password change, cookies, PIN retirement a
  assert.equal(state.state.organizerPinHash,undefined);
  assert.equal((await runtime.dispatchFetch(await exportLink('session',cookie))).status,200);
  assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/state?backup=1',{headers:{cookie,'x-organizer-pin':'session'}})).status,200);
+ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=','base64');
+ const text=Buffer.alloc(12*1024*1024,65);
+ text.write('tEXtFixture\0');
+ const size=Buffer.alloc(4), checksum=Buffer.alloc(4);
+ size.writeUInt32BE(text.length-4);checksum.writeUInt32BE(crc32(text));
+ const sponsor=Buffer.concat([png.subarray(0,-12),size,text,checksum,png.subarray(-12)]);
+ const uploaded=await runtime.dispatchFetch('https://racketeers.example/api/sponsors',{
+  method:'POST',headers:{cookie,'x-organizer-pin':'session','x-sponsor-size':String(sponsor.length),'content-type':'image/png'},body:sponsor,
+ });
+ assert.equal(uploaded.status,201);
+ const {image}=await uploaded.json();
+ const stored=await r2.get(`sponsors/${image.id}.png`);
+ assert.equal(stored.size,sponsor.length);
+ assert.deepEqual(Buffer.from(await stored.arrayBuffer()),sponsor);
  for(const path of ['/api/state','/api/payment-settings','/api/sponsors','/api/demo']){const response=await runtime.dispatchFetch('https://racketeers.example'+path,{method:path==='/api/state'?'GET':'POST',headers:{'x-organizer-pin':'12345678','content-type':'application/json'},...(path==='/api/state'?{}:{body:'{}'})});assert.equal(response.status,401,path);}
  const registrationClosesAt='2026-11-29T08:30';
  const save=await runtime.dispatchFetch('https://racketeers.example/api/state',{method:'PUT',headers:{'content-type':'application/json',cookie,'x-organizer-pin':'session'},body:JSON.stringify({state:{...state.state,venue:'Fictional venue',registrationClosesAt,organizerAccountsEnabled:false},expectedRevision:state.revision})});assert.equal(save.status,200);
