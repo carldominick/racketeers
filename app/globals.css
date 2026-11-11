@@ -1282,3 +1282,38 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
  .clubhouse-site .brand p {text-transform:none;letter-spacing:0;font-size:clamp(15px,2vw,19px);line-height:1.25;overflow-wrap:break-word}
  .clubhouse-site .mark {flex-shrink:0}
 }
+
+@media screen {
+  .registration-deadline-banner {
+    --deadline-surface:#243645;
+    --deadline-ink:#f5f8fa;
+    --deadline-muted:#c4ced7;
+    grid-column:1/-1;
+    margin:0 0 16px;
+    padding:12px;
+    border:1px solid var(--deadline-muted);
+    border-inline-start:3px solid var(--lime);
+    border-radius:8px;
+    background:var(--deadline-surface);
+    color:var(--deadline-ink);
+  }
+  .clubhouse-site.dark.oled .registration-deadline-banner {--deadline-surface:#000}
+  .registration-deadline-banner h3 {font-size:17px;margin:0 0 4px}
+  .clubhouse-site .clubhouse-sidebar .registration-deadline-banner p {display:grid;gap:2px;margin:0;color:var(--deadline-muted);font-size:13px}
+  .registration-deadline-clock {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-top:12px;text-align:center}
+  .registration-deadline-clock div {display:grid;gap:2px}
+  .registration-deadline-clock strong {font-size:clamp(16px,2vw,22px);line-height:1.15;font-variant-numeric:tabular-nums}
+  .registration-deadline-clock span {font-size:12px;color:var(--deadline-muted)}
+  .registration-deadline-setup > h2 {margin:0 0 8px}
+  .registration-deadline-setup > p {max-width:65ch;margin:0 0 16px;color:var(--muted)}
+  .registration-deadline-controls {display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+  .registration-deadline-controls label {flex:0 1 280px;min-width:0}
+  .registration-deadline-controls input {width:100%;min-width:0;min-height:44px;font-size:16px}
+  .registration-deadline-controls :is(input,button) {scroll-margin-block:100px}
+  .clubhouse-site.dark .registration-deadline-controls input {color-scheme:dark}
+  .clubhouse-edit-panel > .secondary {margin-top:16px}
+}
+
+@media screen and (max-width:1000px) {
+  .registration-deadline-banner {margin:0}
+}

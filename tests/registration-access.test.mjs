@@ -19,6 +19,48 @@ const request=(body,headers={},method='POST')=>new Request('https://test/api/sta
 const post=(body,headers)=>api.POST(request(body,headers));
 const org={'x-organizer-pin':'12345678'};
 const create=(divisionId,extra={})=>({action:'registerPlayer',registration:{divisionId,name:'Alex',partnerName:'Sam',club:'Cebu Club',partnerClub:'Rackets',facebookProfile:'https://www.facebook.com/alex.test',phone:'09123456789',partnerFacebookProfile:'https://www.facebook.com/sam.test',partnerPhone:'+639123456780',...extra}});
+
+test('the registration deadline closes new public entries at the Philippine cutoff and leaves existing entries editable',async t=>{
+ t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-11-29T00:29:59.999Z')});
+ let state=await reset();
+ state=logic.addDivision(state,'Second division');
+ saved.payload=JSON.stringify(state);
+ const put=(changes,headers=org)=>api.PUT(request({state:{...JSON.parse(saved.payload),...changes},expectedRevision:saved.revision},headers,'PUT'));
+ assert.equal((await put({registrationClosesAt:'2026-11-29T08:30'},{})).status,401);
+ assert.equal((await put({registrationClosesAt:'2026-02-30T08:30'})).status,400);
+ assert.equal((await put({registrationClosesAt:'2026-11-29T08:30'})).status,200);
+ const publicData=await (await api.GET(new Request('https://test/api/state'))).json();
+ assert.equal(publicData.state.registrationClosesAt,'2026-11-29T08:30');
+ assert.deepEqual(publicData.state.registrations,[]);
+ const response=await post(create(state.divisions[0].id));
+ assert.equal(response.status,200);
+ const entry=await response.json();
+
+ t.mock.timers.setTime(Date.parse('2026-11-29T00:30:00Z'));
+ const before=structuredClone(saved);
+ const closed=await post(create(state.divisions[0].id));
+ assert.equal(closed.status,423);
+ assert.match((await closed.json()).error,/deadline has passed/);
+ assert.equal((await post({...create(state.divisions[1].id,{sourceRegistrationId:entry.registration.id,samePartner:true,secondShirt:'tournament',partnerSecondShirt:'tournament'}),pin:entry.editPin})).status,423);
+ assert.deepEqual(saved,before);
+ assert.equal((await post({action:'updateRegistration',registrationId:entry.registration.id,pin:entry.editPin,registration:{club:'Cebu Open'}})).status,200);
+ assert.equal((await post(create(state.divisions[0].id),org)).status,200);
+
+ assert.equal((await put({status:'live'})).status,200);
+ assert.equal((await put({registrationClosesAt:''})).status,423);
+ assert.equal((await put({status:'registration'})).status,200);
+ assert.equal((await put({registrationClosesAt:''})).status,200);
+ assert.equal((await post(create(state.divisions[0].id))).status,200);
+});
+
+test('registration deadlines validate wall time and hydrate existing tournaments without a cutoff',()=>{
+ assert.equal(logic.hydrateTournament(logic.initialTournament()).registrationClosesAt,'');
+ assert.equal(logic.registrationDeadlineTime('2028-02-29T23:59'),Date.parse('2028-02-29T15:59:00Z'));
+ for(const invalid of ['',null,'2026-02-29T12:00','2026-11-29T24:00','2026-11-29T08:30Z']) {
+  assert.equal(logic.registrationDeadlineTime(invalid),null);
+ }
+});
+
 test('no-shirt second entries survive authorized lookup and edits without changing first-entry shirt records',async()=>{
  let state=await reset();state=logic.addDivision(state,'Second division');saved.payload=JSON.stringify(state);
  const response=await post(create(state.divisions[0].id,{shirtSize:'S',partnerShirtSize:'XL',secondEntry:{owner:'partner',divisionId:state.divisions[1].id,samePartner:true,secondShirt:'none',partnerSecondShirt:'none'}}));

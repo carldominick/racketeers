@@ -110,4 +110,17 @@ test('built Worker uses disposable D1 for venue registrations and enforces JSON 
   assert.equal(data.state.registrations.length, 70);
   const successes = await db.prepare("SELECT count FROM request_limits WHERE id LIKE 'registration-success:%'").first();
   assert.equal(successes.count, 35);
+
+  const registrationClosesAt = '2000-01-01T09:00';
+  const save = await runtime.dispatchFetch('https://racketeers.example/api/state', {
+    method:'PUT', headers:{'content-type':'application/json','x-organizer-pin':'12345678'},
+    body:JSON.stringify({state:{...data.state,registrationClosesAt},expectedRevision:data.revision}),
+  });
+  assert.equal(save.status, 200);
+  const closed = await create(36);
+  assert.equal(closed.status, 423);
+  assert.match((await closed.json()).error, /deadline has passed/);
+  const published = await (await runtime.dispatchFetch('https://racketeers.example/api/state')).json();
+  assert.equal(published.state.registrationClosesAt, registrationClosesAt);
+  assert.deepEqual(published.state.registrations, []);
 });

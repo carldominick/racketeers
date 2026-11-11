@@ -3,7 +3,7 @@ import { courtOccupant, gameDayAction, type GameDayAction } from "./game-day";
 import { normalizeProjectorSettings } from "./projector-settings";
 import { organizerPinMatches } from "./organizer-auth";
 import { regenerationIssue, gameHasStarted } from "./organizer-safety";
-import { regenerateMatches } from "./tournament";
+import { regenerateMatches, registrationDeadlineTime } from "./tournament";
 import { matchWinner, isMatchUsingCourt, courtInUseAfterScore, tournamentEditingLocked, setupConfiguration, contactError, syncPlayerContacts, resetRegistrations, hydrateTournament, initialTournament, isSetWon, scoringRule, matchScoreLimit, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "./tournament";
 
 export type StateDatabase = { prepare(sql: string): { run(): Promise<{meta: {changes: number}}>; bind(...values: unknown[]): { first<T>(): Promise<T | null>; run(): Promise<{meta: {changes: number}}> } } };
@@ -232,6 +232,8 @@ async function POST(request: Request) {
     const isOrganizer = await authorized(request.headers.get("x-organizer-pin"), state);
     if (request.headers.has("x-organizer-pin") && !isOrganizer) return Response.json({ error: "Organizer PIN did not match." }, { status: 401 });
     if (tournamentEditingLocked(state.status) || (!isOrganizer && state.status !== "registration")) return Response.json({ error: "Player registration is not currently open." }, { status: 423 });
+    const deadline = registrationDeadlineTime(state.registrationClosesAt);
+    if (!isOrganizer && deadline !== null && Date.now() >= deadline) return Response.json({ error: "The registration deadline has passed. New entries are closed." }, { status: 423 });
     const form = body.registration ?? {};
     const division = state.divisions.find((item) => item.id === form.divisionId);
     if (!division || !clean(form.name)) return Response.json({ error: "A player name and division are required." }, { status: 400 });
@@ -341,7 +343,9 @@ async function PUT(request: Request) {
   const body = (await request.json()) as { state?: TournamentState; expectedRevision?: number };
   if (!body.state) return Response.json({ error: "State is required" }, { status: 400 });
   if (body.expectedRevision !== row.revision) return Response.json({ error: "State changed on another device", state: organizerState(current), revision: row.revision }, { status: 409 });
-  const proposed = hydrateTournament(body.state);
+  const registrationClosesAt = body.state.registrationClosesAt === undefined ? current.registrationClosesAt : body.state.registrationClosesAt;
+  if (registrationClosesAt !== "" && registrationDeadlineTime(registrationClosesAt) === null) return Response.json({ error: "Enter a valid Philippine date and time for the registration deadline." }, { status: 400 });
+  const proposed = hydrateTournament({ ...body.state, registrationClosesAt });
   const removedGames = current.matches.filter(match => !proposed.matches.some(next => next.id === match.id));
   if (removedGames.some(gameHasStarted) || removedGames.length > 0 && proposed.matches.some(match => !current.matches.some(previous => previous.id === match.id))) return Response.json({ error: "Use the reviewed bracket regeneration workflow. Started games cannot be replaced.", state: organizerState(current), revision: row.revision }, { status: 409 });
   proposed.registrations = proposed.registrations.map(r => { const previous = current.registrations.find(p => p.id === r.id); return { ...r, registrationPinHash: previous?.registrationPinHash, registrationPinRecovery: previous?.registrationPinRecovery, paymentGroupId: previous?.paymentGroupId }; });

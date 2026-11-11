@@ -136,6 +136,8 @@ export type TournamentState = {
   tournamentName: string;
   venue?: string;
   registrationContactUrl?: string;
+  /** Philippine wall time (YYYY-MM-DDTHH:mm). Empty leaves the cutoff to the phase tracker. */
+  registrationClosesAt?: string;
   organizerPinHash?: string;
   umpirePinHash?: string;
   theme: TournamentTheme;
@@ -701,7 +703,7 @@ export function hydrateTournament(input: TournamentState): TournamentState {
     if (matchPin) usedPins.add(matchPin);
     return { ...match, scoring: scoringRule(match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21"), formatByDivision.get(match.divisionId)?.stageScoring?.[match.stage] ?? match.scoring), pin: matchPin, format: match.format ?? (match.stage === "regular" ? formatByDivision.get(match.divisionId)?.groupMatchFormat ?? "single_31" : formatByDivision.get(match.divisionId)?.championshipMatchFormat ?? "best_of_3_21") };
   });
-  return { ...input, registrationContactUrl: registrationContactUrl(input.registrationContactUrl), theme: normalizeTheme(input.theme), gameDay: gameDaySettings(input), projector: normalizeProjectorSettings(input.projector), venue: typeof input.venue === "string" ? input.venue.trim().slice(0, 200) : "", version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
+  return { ...input, registrationContactUrl: registrationContactUrl(input.registrationContactUrl), registrationClosesAt: registrationDeadlineTime(input.registrationClosesAt) === null ? "" : input.registrationClosesAt, theme: normalizeTheme(input.theme), gameDay: gameDaySettings(input), projector: normalizeProjectorSettings(input.projector), venue: typeof input.venue === "string" ? input.venue.trim().slice(0, 200) : "", version: Math.max(5, input.version ?? 1), status: input.status ?? "setup", divisions, registrations, matches };
 }
 
 /** Operational settings remain editable while structural tournament setup is locked. */
@@ -823,10 +825,17 @@ export function tournamentStartTime(state: Pick<TournamentState, "startDate" | "
   return Date.parse(state.startDate + "T" + state.dayStart + ":00+08:00");
 }
 
+export function registrationDeadlineTime(value: unknown): number | null {
+  if (typeof value !== "string" || !/^[1-9]\d{3}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
+  const wallTime = Date.parse(`${value}:00Z`);
+  if (!Number.isFinite(wallTime) || new Date(wallTime).toISOString().slice(0, 16) !== value) return null;
+  return Date.parse(`${value}:00+08:00`);
+}
+
 /** Fields edited in Setup, excluding roster overrides used in the Players tab. */
 export function setupConfiguration(state: TournamentState) {
   return {
-    tournamentName: state.tournamentName, venue: state.venue || "", registrationContactUrl: registrationContactUrl(state.registrationContactUrl), startDate: state.startDate, endDate: state.endDate,
+    tournamentName: state.tournamentName, venue: state.venue || "", registrationContactUrl: registrationContactUrl(state.registrationContactUrl), registrationClosesAt: state.registrationClosesAt || "", startDate: state.startDate, endDate: state.endDate,
     dayStart: state.dayStart, dayEnd: state.dayEnd, gameDuration: state.gameDuration, courts: state.courts,
     divisions: state.divisions.map(({ entries, ...configuration }) => { void entries; return configuration; }),
   };
