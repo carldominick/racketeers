@@ -139,6 +139,10 @@ export type TournamentState = {
   /** Philippine wall time (YYYY-MM-DDTHH:mm). Empty leaves the cutoff to the phase tracker. */
   registrationClosesAt?: string;
   organizerPinHash?: string;
+  organizerAccountsEnabled?: boolean;
+  organizerAccountsActivation?: string;
+  /** Server-only signing key for payment links after organizer account activation. */
+  paymentProofShareKey?: string;
   umpirePinHash?: string;
   theme: TournamentTheme;
   startDate: string;

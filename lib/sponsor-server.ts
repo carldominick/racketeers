@@ -1,3 +1,4 @@
+import { organizerRequestMatches } from "./organizer-accounts";
 import type { ProofEnvironment } from "./payment-proof-server";
 import { MAX_SPONSOR_BYTES, sponsorImageUrl } from "./sponsors";
 
@@ -19,11 +20,8 @@ export async function handleSponsors(request: Request, env: SponsorEnvironment):
     if (!["GET", "POST", "DELETE"].includes(request.method)) return reply({ error: "Method not allowed." }, 405);
     if (request.method !== "GET") {
       const pin = request.headers.get("x-organizer-pin") || "";
-      if (!/^\d{4,10}$/.test(pin)) return reply({ error: "Organizer access is required." }, 401);
       const row = await env.DB.prepare("SELECT payload FROM tournament_state WHERE id = ?").bind("racketeers").first<{ payload: string }>();
-      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
-      const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
-      if (!row || JSON.parse(row.payload).organizerPinHash !== hash) return reply({ error: "Organizer PIN did not match." }, 401);
+      if (!row || !await organizerRequestMatches(request, env.DB, JSON.parse(row.payload), pin)) return reply({ error: "Organizer PIN did not match." }, 401);
     }
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS sponsor_images (id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL)").run();
     const id = url.searchParams.get("image") || "";

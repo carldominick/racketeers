@@ -9,7 +9,7 @@ export async function handlePaymentDetails(request: Request, env: ProofEnvironme
     const id = new URL(request.url).searchParams.get("registrationId") || "";
     // Only organizer credentials are forwarded. Owners and signed share links cannot read these records.
     const metadata = await handlePaymentProof(new Request(new URL(`/api/payment-proof?metadata=1&registrationId=${encodeURIComponent(id)}`, request.url), {
-      headers: { "x-organizer-pin": request.headers.get("x-organizer-pin") || "" },
+      headers: { "x-organizer-pin": request.headers.get("x-organizer-pin") || "", cookie: request.headers.get("cookie") || "" },
     }), env);
     if (!metadata.ok) return metadata;
     const proof = await metadata.json() as { linkedRegistrationIds: string[]; receiptGroupId: string; proofVersion: string };

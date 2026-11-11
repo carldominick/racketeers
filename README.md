@@ -157,7 +157,7 @@ New registration IDs use REG followed by a cryptographically generated UUID with
 
 ## Registration and page access
 
-- The site opens Registration without a mandatory PIN prompt. Staff access opens the organizer or umpire PIN dialog. Organizer access includes every view. Umpire access includes Umpire and Spectator only.
+- The site opens Registration without a mandatory PIN prompt. Choose Organizer or Umpire in Staff access. The current organizer PIN can open User management before activation. After activation, organizers use their individual username and password. Umpires use the existing staff PIN. See [Organizer accounts](docs/organizer-accounts.md).
 - Set the shared umpire page PIN in Organizer → Setup → Umpire page access (8–10 digits, different from the organizer PIN). Rotating it immediately rejects the previous PIN on scoring APIs. Individual match PINs are still required.
 - Registration has three steps: **Division & players → Entries & shirts → Review & payment**. Choose a division using the selection buttons and enter the participating players on the same first page. The event details, Tournament rules & regulations, and Disclaimer & waiver remain in the left sidebar on desktop and above the form on smaller screens throughout the flow.
 - Every participating player needs a full name, club/group, Facebook profile link and phone/mobile number. Changing division preserves entered player details, including Player 2. Singles hides partner fields and excludes them from submission; switching back restores the partner draft. Shirt sizes are selected on the second step.

@@ -23,6 +23,7 @@ const runtime = new Miniflare({
   compatibilityFlags:['nodejs_compat'],
   serviceBindings:{ASSETS:env.ASSETS.fetch},
   d1Databases:{DB:'reliability-disposable'},
+  r2Buckets:{PAYMENT_PROOFS:'reliability-disposable'},
   bindings:{INITIAL_ORGANIZER_PIN:'12345678'},
 });
 test.after(()=>runtime.dispose());
@@ -123,4 +124,69 @@ test('built Worker uses disposable D1 for venue registrations and enforces JSON 
   const published = await (await runtime.dispatchFetch('https://racketeers.example/api/state')).json();
   assert.equal(published.state.registrationClosesAt, registrationClosesAt);
   assert.deepEqual(published.state.registrations, []);
+});
+
+test('built named-account activation, password change, cookies, PIN retirement and audit use real workerd/D1',async()=>{
+ const post=(body,cookie='',pin='')=>runtime.dispatchFetch('https://racketeers.example/api/organizers',{method:'POST',headers:{'content-type':'application/json',cookie,...(pin?{'x-organizer-pin':pin}:{})},body:JSON.stringify(body)});
+ const legacyState=await (await runtime.dispatchFetch('https://racketeers.example/api/state',{headers:{'x-organizer-pin':'12345678'}})).json();
+ const division=legacyState.state.divisions[0];
+ const pin=Array.from({length:9000},(_,index)=>String(index+1000)).find(candidate=>legacyState.state.matches.every(game=>game.pin!==candidate));
+ const match={id:'viewer-test-match',divisionId:division.id,stage:'regular',round:1,label:'Fixture game',entryAId:division.entries[0].id,entryBId:division.entries[1].id,sets:[{a:0,b:0,complete:false}],status:'ready',court:1,scheduledAt:null,validated:false,pin,format:'single_31'};
+ const saveMatch=await runtime.dispatchFetch('https://racketeers.example/api/state',{
+  method:'PUT',headers:{'content-type':'application/json','x-organizer-pin':'12345678'},
+  body:JSON.stringify({state:{...legacyState.state,matches:[...legacyState.state.matches,match]},expectedRevision:legacyState.revision}),
+ });
+ assert.equal(saveMatch.status,200);
+ const registration=legacyState.state.registrations[0];
+ const r2=await runtime.getR2Bucket('PAYMENT_PROOFS');
+ await r2.put(`payments/groups/${registration.paymentGroupId}/${registration.paymentGroupId}.png`, 'disposable fixture');
+ const exportLink=async(pin,cookie='')=>{
+  const response=await runtime.dispatchFetch('https://racketeers.example/api/payment-proof?export-links=1',{
+   method:'POST',headers:{'content-type':'application/json','x-organizer-pin':pin,cookie},body:JSON.stringify({registrationIds:[registration.id]}),
+  });
+  assert.equal(response.status,200);
+  const result=await response.json();
+  assert.ok(result.links[registration.id]);
+  return result.links[registration.id];
+ };
+ const oldLink=await exportLink('12345678');
+ assert.equal((await runtime.dispatchFetch(oldLink)).status,200);
+ const activation=await post({action:'activate'},'','12345678');assert.equal(activation.status,200);
+ assert.equal((await runtime.dispatchFetch(oldLink)).status,401);
+ const {credentials}=await activation.json(),c=credentials.find(c=>c.username==='carl.taboada');assert.ok(c);
+ let signed=await post({action:'login',username:c.username,password:c.password});assert.equal(signed.status,200);
+ let cookie=signed.headers.get('set-cookie').split(';')[0];assert.match(signed.headers.get('set-cookie'),/HttpOnly/);
+ assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/state',{headers:{cookie,'x-organizer-pin':'session'}})).status,401);
+ const changed=await post({action:'update',currentPassword:c.password,password:'a new long private password'},cookie);assert.equal(changed.status,200);
+ signed=await post({action:'login',username:c.username,password:'a new long private password'});assert.equal(signed.status,200);cookie=signed.headers.get('set-cookie').split(';')[0];
+ const get=await runtime.dispatchFetch('https://racketeers.example/api/state',{headers:{cookie,'x-organizer-pin':'session'}});assert.equal(get.status,200);const state=await get.json();assert.equal(state.organizer,true);
+ assert.equal(state.state.paymentProofShareKey,undefined);
+ assert.equal(state.state.organizerPinHash,undefined);
+ assert.equal((await runtime.dispatchFetch(await exportLink('session',cookie))).status,200);
+ assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/state?backup=1',{headers:{cookie,'x-organizer-pin':'session'}})).status,200);
+ for(const path of ['/api/state','/api/payment-settings','/api/sponsors','/api/demo']){const response=await runtime.dispatchFetch('https://racketeers.example'+path,{method:path==='/api/state'?'GET':'POST',headers:{'x-organizer-pin':'12345678','content-type':'application/json'},...(path==='/api/state'?{}:{body:'{}'})});assert.equal(response.status,401,path);}
+ const registrationClosesAt='2026-11-29T08:30';
+ const save=await runtime.dispatchFetch('https://racketeers.example/api/state',{method:'PUT',headers:{'content-type':'application/json',cookie,'x-organizer-pin':'session'},body:JSON.stringify({state:{...state.state,venue:'Fictional venue',registrationClosesAt,organizerAccountsEnabled:false},expectedRevision:state.revision})});assert.equal(save.status,200);
+ const audit=await runtime.dispatchFetch('https://racketeers.example/api/organizers?audit=1',{headers:{cookie}});assert.equal(audit.status,200);const events=(await audit.json()).events;assert.ok(events.some(e=>e.username===c.username&&e.action.includes('venue')&&e.action.includes('registration deadline')&&e.outcome==='Succeeded'));
+ const publicState=await runtime.dispatchFetch('https://racketeers.example/api/state');const publicData=await publicState.json();assert.equal(publicData.state.organizerAccountsEnabled,true);assert.equal(publicData.state.registrations.length,0);assert.equal(publicData.state.registrationClosesAt,registrationClosesAt);
+ assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/demo',{method:'POST',headers:{cookie,'x-organizer-pin':'session'}})).status,200);
+ assert.equal((await post({action:'logout'},cookie)).status,200);
+ assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/state',{headers:{cookie,'x-organizer-pin':'session'}})).status,401);
+ const viewer=credentials.find(c=>c.username==='racketeers');signed=await post({action:'login',username:viewer.username,password:viewer.password});cookie=signed.headers.get('set-cookie').split(';')[0];
+ assert.equal((await post({action:'update',currentPassword:viewer.password,password:'viewer long private password'},cookie)).status,200);
+ signed=await post({action:'login',username:'racketeers',password:'viewer long private password'});cookie=signed.headers.get('set-cookie').split(';')[0];
+ const verify=await runtime.dispatchFetch('https://racketeers.example/api/state',{method:'POST',headers:{cookie,'content-type':'application/json'},body:JSON.stringify({action:'verifyOrganizer',pin:'session'})});assert.equal(verify.status,200);
+ const viewed=await runtime.dispatchFetch('https://racketeers.example/api/state',{headers:{cookie,'x-organizer-pin':'session'}});
+ assert.equal(viewed.status,200);
+ const view=(await viewed.json()).state;
+ assert.ok(view.registrations.length);
+ assert.ok(view.registrations.every(r=>!r.registrationPinHash&&!r.registrationPinRecovery));
+ assert.equal(view.matches.find(m=>m.id===match.id)?.pin,'');
+ assert.equal(view.paymentProofShareKey,undefined);
+ assert.equal(view.umpirePinHash,undefined);
+ assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/state?backup=1',{headers:{cookie,'x-organizer-pin':'session'}})).status,403);
+ for(const action of ['verifyMatch','viewRegistrationPin']){
+  assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/state',{method:'POST',headers:{cookie,'x-organizer-pin':'session','content-type':'application/json'},body:JSON.stringify({action,pin:match.pin,registrationId:registration.id})})).status,403);
+ }
+ for(const path of ['/api/state','/api/sponsors','/api/payment-settings','/api/payment-proof','/api/payment-details','/api/demo']){const result=await runtime.dispatchFetch('https://racketeers.example'+path,{method:'POST',headers:{cookie,'x-organizer-pin':'session','x-umpire-pin':'12345678','content-type':'application/json','cf-connecting-ip':'203.0.113.12'},body:JSON.stringify({action:'changeUmpirePin',newPin:'87654321'})});assert.equal(result.status,403,path);}
 });

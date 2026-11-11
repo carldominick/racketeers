@@ -1,5 +1,9 @@
 # Racketeers product and implementation context
 
+## Named organizer accounts
+
+Staff access lets users choose Organizer or Umpire. Before account activation, an organizer can still use the legacy PIN. User management can create three named managers (carl.taboada, erin.kizel, regin.povz) and a view-only racketeers account. Initial passwords are generated at activation and must be replaced before access. Named sessions are checked on the Worker, and organizer actions are attributed in the audit history. Registration and umpire PINs are independent. See [Organizer accounts](docs/organizer-accounts.md) for activation and recovery.
+
 ## Club title and registration exports — 2026-11-07
 
 The site header and browser title now read “Racketeers Badminton Club”; the configured tournament/event name is preserved. Branding wraps on narrow screens. Organizer CSV exports support all divisions in one file, with the division column retained; Excel keeps separate sheets. Downloading the visible roster no longer requires an idle/saved sync state. Offline or unsaved exports use the loaded snapshot, identify unavailable payment fields, and explicitly warn when unsaved changes are included. Connected exports still request organizer-authorized private payment links and reviewed fields; temporary service failures fall back to roster data with a warning, while expired organizer authorization remains an explicit error. Unavailable receipt data is not labeled as a missing screenshot. Exporting does not write tournament state or change the existing conflict/save safeguards.

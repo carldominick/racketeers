@@ -1,5 +1,5 @@
 /** Shared Worker boundary: never log credentials or payment request bodies. */
-import { organizerPinMatches } from "./organizer-auth";
+import { organizerRequestMatches } from "./organizer-accounts";
 
 type Database = { prepare(sql: string): { bind(...values: unknown[]): { first<T>(): Promise<T | null>; run(): Promise<unknown> }; run(): Promise<unknown> } };
 type Limit = { count: number; expires: number };
@@ -107,7 +107,7 @@ export async function protectedRequest(request: Request, db: Database, next: (re
       let organizer = false;
       if (registering && request.headers.has("x-organizer-pin")) {
         const row = await db.prepare("SELECT payload FROM tournament_state WHERE id = ?").bind("racketeers").first<{ payload: string }>();
-        organizer = await organizerPinMatches(request.headers.get("x-organizer-pin"), row ? JSON.parse(row.payload).organizerPinHash : undefined);
+        organizer = await organizerRequestMatches(request, db, row ? JSON.parse(row.payload) : {});
         if (!organizer) { await recordFailure(db, authKey, now); return finish(reject("Organizer PIN did not match.", 401)); }
       }
       if (registering && !organizer) {
