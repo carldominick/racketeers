@@ -43,6 +43,18 @@ test('public and organizer registration share required player fields and preserv
  }
 });
 
+test('the configured registration deadline appears in the public sidebar in Philippine time',()=>{
+ const render=(current,organizerPin='')=>renderToStaticMarkup(React.createElement(PublicRegistration,{state:current,organizerPin,onSaved(){}}));
+ const scheduled={...state,registrationClosesAt:'2026-11-29T08:30'};
+ const html=render(scheduled);
+ const sidebar=html.match(/<aside class="clubhouse-sidebar">.*?<\/aside>/s)[0];
+ assert.match(sidebar,/<h3>Registration ends<\/h3>/);
+ assert.match(sidebar,/<time dateTime="2026-11-29T00:30:00.000Z">[^<]*8:30[^<]*<\/time>/);
+ assert.match(sidebar,/role="timer" aria-label="Time left to register"/);
+ assert.doesNotMatch(render(state),/registration-deadline-banner/);
+ assert.doesNotMatch(render(scheduled,'organizer-test-only'),/registration-deadline-banner/);
+});
+
 test('division selection and player details occupy the same first step of a visible three-step flow',()=>{
  const html=renderToStaticMarkup(React.createElement(PublicRegistration,{state,onSaved(){}}));
  assert.match(html,/Division &amp; players/);assert.match(html,/Entries &amp; shirts/);assert.match(html,/Review &amp; payment/);
