@@ -1,0 +1,83 @@
+.auto-projector .projector-stage:has(> .projector-sponsors-page) {
+  background: #0d1e2b;
+  padding-inline: max(var(--projector-padding-x), 2.3%);
+}
+.clubhouse-site.oled .auto-projector .projector-stage:has(> .projector-sponsors-page) { background: #000; }
+.auto-projector .projector-stage:has(> .projector-sponsors-page) > footer { color: #dce6ee; }
+
+.projector-sponsors-page { width: 100%; }
+.clubhouse-site .projector-sponsors-page > div { height: 100%; }
+.projector-sponsor-wall {
+  container-type: size;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+.auto-projector .projector-sponsor-wall > header {
+  border-bottom: clamp(2px, .35cqw, 6px) solid var(--lime);
+  padding: clamp(5px, 1.4cqh, 16px) 0 clamp(5px, 2cqh, 22px);
+}
+.auto-projector .projector-sponsor-wall > header p {
+  color: #f1f5f9;
+  font-size: clamp(12px, min(2.2cqw, 4cqh), 40px);
+  font-weight: 650;
+  line-height: 1.14;
+  overflow-wrap: anywhere;
+}
+.clubhouse-site .auto-projector .projector-sponsor-wall > header h2 {
+  color: #f8fafc;
+  font-size: clamp(17px, min(4cqw, 7cqh), 72px);
+  line-height: 1.13;
+}
+.projector-sponsor-art {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  gap: clamp(3px, 1.4cqh, 18px);
+  padding-block: clamp(5px, 2.3cqh, 25px) 0;
+}
+.projector-sponsor-lead {
+  display: grid;
+  place-items: center;
+  flex: 0 1 38%;
+  width: 88%;
+  align-self: center;
+  min-height: 0;
+  padding: clamp(4px, 1.3cqh, 16px) clamp(6px, 1.2cqw, 24px);
+  border-radius: clamp(5px, 1.3cqw, 24px);
+  background: #fff;
+}
+.projector-sponsor-lead:only-child { flex: 1; }
+/* Trim only the measured outer white space of these two existing uploads. */
+.projector-sponsor-lead .fruitas-wordmark { object-view-box: inset(19% 0); }
+.projector-sponsor-grid .house-of-fruitas-wordmark { object-view-box: inset(27% 0 38%); }
+.projector-sponsor-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-auto-rows: minmax(0, 1fr);
+  grid-auto-columns: minmax(0, 1fr);
+  gap: clamp(2px, .8cqw, 14px);
+  width: 92%;
+  align-self: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.projector-sponsor-grid li {
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(2px, .7cqh, 8px);
+  border-radius: clamp(4px, .75cqw, 14px);
+  background: #fff;
+}
+.projector-sponsor-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  object-fit: contain;
+}

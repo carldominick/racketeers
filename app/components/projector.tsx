@@ -1,11 +1,11 @@
 "use client";
-/* eslint-disable @next/next/no-img-element -- Sponsor images use the dedicated public image endpoint. */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { displayName, matchScoreText, distributeEntriesToPools, standingsFor, subBracketName, type TournamentState } from "../../lib/tournament";
 import { paginateCourts, paginateRows, projectorCourts } from "../../lib/projector";
 import { normalizeProjectorSettings, type ProjectorSlideId } from "../../lib/projector-settings";
 import { ProjectorCourts } from "./projector-courts";
+import { ProjectorSponsors } from "./projector-sponsors";
 import { CornersOut } from "@phosphor-icons/react/dist/csr/CornersOut";
 import { NextGameNotice } from "./next-game-notice";
 import { projectorViewport } from "../../lib/projector-viewport";
@@ -13,7 +13,7 @@ import "./projector-resolution.css";
 import { useSponsorImages } from "./sponsor-images";
 import type { SponsorImage } from "../../lib/sponsors";
 
-type Section = { id: string; kind: ProjectorSlideId; title: string; image?: SponsorImage; headers: string[]; rows: { id: string; cells: ReactNode[] }[] };
+type Section = { id: string; kind: ProjectorSlideId; title: string; images?: SponsorImage[]; headers: string[]; rows: { id: string; cells: ReactNode[] }[] };
 export function Projector({ state, onFullscreenChange, sponsorImages }: { state: TournamentState; onFullscreenChange?: (value: boolean) => void; sponsorImages?: SponsorImage[] }) {
   const sponsorData = useSponsorImages(sponsorImages === undefined);
   const sponsors = sponsorImages ?? sponsorData.library.images;
@@ -58,7 +58,7 @@ export function Projector({ state, onFullscreenChange, sponsorImages }: { state:
         result.push({ id: `${division.id}:${pool}`, kind: "standings", title: `${division.name}${pools.length > 1 ? ` · ${subBracketName(pool)}` : ""} — Standings`, headers: ["#", "Entry", "P", "W", "L", "PF", "PA", "Diff"], rows: rows.map((r, i) => ({ id: r.entryId, cells: [i + 1, <strong key="name">{r.name}</strong>, r.played, r.wins, r.losses, r.pointsFor, r.pointsAgainst, r.difference > 0 ? `+${r.difference}` : r.difference] })) });
       }
     }
-    for (const image of sponsors) result.push({ id: `sponsor:${image.id}`, kind: "sponsors", title: "Thank you to our sponsors", image, headers: [], rows: [] });
+    if (sponsors.length) result.push({ id: "sponsors", kind: "sponsors", title: "Thank you to our sponsors", images: sponsors, headers: [], rows: [] });
     return settings.slides.filter(slide => slide.enabled).flatMap(slide => result.filter(section => section.kind === slide.id));
   }, [state, courts, settings.slides, sponsors]);
   useLayoutEffect(() => {
@@ -97,10 +97,10 @@ export function Projector({ state, onFullscreenChange, sponsorImages }: { state:
       const footer = outerHeight(el.querySelector("footer"));
       const bodyHeight = Math.max(1, available - controls - footer);
       const next = sections.flatMap((content, section) => {
+        if (content.kind === "sponsors") return [{ section, start: 0, end: 0, scale: 1 }];
         const sample = el.querySelectorAll<HTMLElement>(".projector-measure-section")[section];
         if (!sample) return [];
         const header = measuredHeight(sample.querySelector("header"));
-        if (content.kind === "sponsors") return [{ section, start: 0, end: 0, scale: Math.min(1, bodyHeight / Math.max(1, measuredHeight(sample))) }];
         if (content.kind === "courts") {
           const grid = sample.querySelector<HTMLElement>(".projector-court-grid");
           if (!grid) return [{ section, start: 0, end: 0, scale: 1 }];
@@ -136,13 +136,13 @@ export function Projector({ state, onFullscreenChange, sponsorImages }: { state:
     return () => clearTimeout(timer);
   }, [slide, pageKey, seconds, settings.autoAdvance, Boolean(section)]); // eslint-disable-line react-hooks/exhaustive-deps
   const table = (s: Section, start = 0, end = s.rows.length) => <table className={s.headers.length === 3 ? "projector-match-table" : "projector-standings-table"}><thead><tr>{s.headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{s.rows.slice(start, end).map(row => <tr key={row.id}>{row.cells.map((cell, i) => <td key={i}>{cell}</td>)}</tr>)}</tbody></table>;
-  const content = (s: Section, start = 0, end = s.rows.length) => s.kind === "courts" ? <ProjectorCourts courts={courts.slice(start, end)} allCourts={allCourts} settings={settings} tournamentName={state.tournamentName} /> : <><header><p>{state.tournamentName}</p><h2>{s.title}</h2></header>{s.image ? <figure className="projector-sponsor"><img src={s.image.url} alt={s.image.name} style={{ height: Math.max(80, viewport.height - 300) }} /><figcaption>{s.image.name}</figcaption></figure> : s.rows.length ? table(s, start, end) : <p className="projector-empty">No entries yet.</p>}</>;
+  const content = (s: Section, start = 0, end = s.rows.length) => s.kind === "courts" ? <ProjectorCourts courts={courts.slice(start, end)} allCourts={allCourts} settings={settings} tournamentName={state.tournamentName} /> : s.images ? <ProjectorSponsors images={s.images} tournamentName={state.tournamentName} title={s.title} /> : <><header><p>{state.tournamentName}</p><h2>{s.title}</h2></header>{s.rows.length ? table(s, start, end) : <p className="projector-empty">No entries yet.</p>}</>;
   return <section ref={root} tabIndex={-1} className={`auto-projector ${fullscreen ? "projection-mode" : ""}`} style={{ height }} aria-label="Automatic tournament slideshow">
     <div ref={stage} className={`projector-stage ${viewport.scaled ? "projector-scaled" : ""}`} style={{ width: viewport.width, height: viewport.height, transform: `scale(${viewport.scale})` }}>
     {!fullscreen && <div className="projector-controls"><button ref={fullscreenButton} type="button" className="ghost" onClick={() => void enterFullscreen()}><CornersOut size={20} aria-hidden="true" />Enter fullscreen</button></div>}
     <NextGameNotice state={state} />
     <div className="projector-measure" aria-hidden="true">{sections.map(s => <section className="projector-measure-section" key={s.id}>{content(s)}</section>)}</div>
-    {section ? <section className={`projector-page ${section.kind === "courts" ? "projector-courts-page" : ""}`}><div style={{ transform: `scale(${page.scale})`, transformOrigin: "center" }}>{content(section, page.start, page.end)}</div></section> : <p className="projector-empty">No slides to display.</p>}
+    {section ? <section className={`projector-page projector-${section.kind}-page`}><div style={{ transform: `scale(${page.scale})`, transformOrigin: "center" }}>{content(section, page.start, page.end)}</div></section> : <p className="projector-empty">No slides to display.</p>}
     <footer><span>{section?.rows.length ? `${page.start + 1}–${page.end} of ${section.rows.length} · ` : ""}Slide {index + 1} / {Math.max(1, pages.length)}</span><span>{settings.autoAdvance ? `Automatically advances every ${seconds} seconds` : "Auto-advance paused"}</span><div className="slide-progress"><i key={`${slide}:${pageKey}:${seconds}`} style={{ animationDuration: `${seconds}s`, animationPlayState: settings.autoAdvance ? "running" : "paused" }} /></div></footer>
     </div>
   </section>;
