@@ -1,9 +1,15 @@
 .auto-projector .projector-stage:has(> .projector-sponsors-page) {
-  background: #0d1e2b;
+  background: #fff;
   padding-inline: max(var(--projector-padding-x), 2.3%);
 }
+.clubhouse-site.dark .auto-projector .projector-stage:has(> .projector-sponsors-page) {
+  --sponsor-heading: #f8fafc;
+  --sponsor-event-name: #f1f5f9;
+  --sponsor-footer: #dce6ee;
+  background: #0d1e2b;
+}
 .clubhouse-site.oled .auto-projector .projector-stage:has(> .projector-sponsors-page) { background: #000; }
-.auto-projector .projector-stage:has(> .projector-sponsors-page) > footer { color: #dce6ee; }
+.auto-projector .projector-stage:has(> .projector-sponsors-page) > footer { color: var(--sponsor-footer, var(--muted)); }
 
 .projector-sponsors-page { width: 100%; }
 .clubhouse-site .projector-sponsors-page > div { height: 100%; }
@@ -19,14 +25,14 @@
   padding: clamp(5px, 1.4cqh, 16px) 0 clamp(5px, 2cqh, 22px);
 }
 .auto-projector .projector-sponsor-wall > header p {
-  color: #f1f5f9;
+  color: var(--sponsor-event-name, var(--ink));
   font-size: clamp(12px, min(2.2cqw, 4cqh), 40px);
   font-weight: 650;
   line-height: 1.14;
   overflow-wrap: anywhere;
 }
 .clubhouse-site .auto-projector .projector-sponsor-wall > header h2 {
-  color: #f8fafc;
+  color: var(--sponsor-heading, var(--ink));
   font-size: clamp(17px, min(4cqw, 7cqh), 72px);
   line-height: 1.13;
 }
@@ -80,4 +86,8 @@
   min-height: 0;
   min-width: 0;
   object-fit: contain;
+}
+
+.clubhouse-site:not(.dark) :is(.projector-sponsor-lead, .projector-sponsor-grid li) {
+  box-shadow: inset 0 0 0 1px var(--line);
 }
