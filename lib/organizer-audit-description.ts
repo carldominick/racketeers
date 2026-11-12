@@ -51,6 +51,7 @@ function describeRoute(method: string, path: string, action = '', image = false,
       if (action === 'login') return 'Sign in to organizer access';
       if (action === 'logout') return 'Sign out of organizer access';
       if (action === 'reset') return 'Reset an organizer password';
+      if (action === 'createAdmin') return 'Add an organizer admin';
       if (action === 'activate') return 'Set up named organizer accounts';
       return 'Update organizer account details';
     default: return 'Use an organizer control';

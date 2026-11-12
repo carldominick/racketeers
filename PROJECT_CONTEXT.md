@@ -1,5 +1,7 @@
 # Racketeers product and implementation context
 
+Organizer state and court alerts poll at two-second intervals while the tab is visible. Authenticated state polls confirm an unchanged revision without downloading the full tournament. Each refresh has a timeout, and the delayed status allows time for a request to finish and retry. The desk tolerates isolated refresh failures and slows retries when failures persist, including honoring a server-supplied retry time. Named account expiry still asks the organizer to sign in. Account managers can add an organizer admin from User management after confirming their current password.
+
 ## Named organizer accounts
 
 Staff access lets users choose Organizer or Umpire. Before account activation, an organizer can still use the legacy PIN. User management can create three named managers (carl.taboada, erin.kizel, regin.povz) and a view-only racketeers account. Initial passwords are generated at activation and must be replaced before access. Named sessions are checked on the Worker, and organizer actions are attributed in the audit history. Registration and umpire PINs are independent. See [Organizer accounts](docs/organizer-accounts.md) for activation and recovery.
