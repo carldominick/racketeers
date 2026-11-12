@@ -22,16 +22,23 @@ const {ProjectorCourts}=await import(pathToFileURL(path.join(dir,'courts.mjs')))
 await build({entryPoints:['app/components/projector.tsx'],outfile:path.join(dir,'slideshow.mjs'),bundle:true,platform:'node',format:'esm',loader:{'.css':'empty'},plugins:[{name:'portable-shared-react',setup(build){build.onResolve({filter:/^react(?:\/.*)?$/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
 const {Projector}=await import(pathToFileURL(path.join(dir,'slideshow.mjs')));
 
-test('Sponsors uses one section per image, honors visibility and skips empty libraries',()=>{
+test('Sponsors displays all uploads on one slide, honors visibility and skips empty libraries',()=>{
  const state=initialTournament();
  state.projector=normalizeProjectorSettings({slides:['courts','live','upcoming','finished','standings'].map(id=>({id,enabled:false})).concat([{id:'sponsors',enabled:true,seconds:37}])});
- const images=[{id:'one',name:'Community One',url:'/api/sponsors?image=one'},{id:'two',name:'Community Two',url:'/api/sponsors?image=two'}];
+ const images=['House of Fruitas','The Mango Farm','Fruitas House of Desserts','Balai Pandesal','Black Pearl','Friends Fries','FRUITAS LOGO','Soy & Bean','Jamaican Pattie','Johnn Lemon'].map((name,index)=>({id:String(index),name,url:`/api/sponsors?image=${index}`}));
  const html=renderToStaticMarkup(React.createElement(Projector,{state,sponsorImages:images}));
- assert.equal((html.match(/class="projector-sponsor"/g)||[]).length,2);assert.match(html,/Community One/);assert.match(html,/Community Two/);
+ assert.equal((html.match(/class="projector-sponsor-wall"/g)||[]).length,1);
+ assert.match(html,/class="projector-sponsor-lead"><img[^>]*alt="FRUITAS LOGO"/);
+ assert.equal((html.match(/<li /g)||[]).length,9);
+ assert.match(html,/<li[^>]*><img[^>]*alt="Fruitas House of Desserts"/);
+ assert.match(html,/<li style="grid-area:2 \/ 2 \/ span 1 \/ span 2"><img[^>]*alt="Friends Fries"/);
+ const withoutFruitas=renderToStaticMarkup(React.createElement(Projector,{state,sponsorImages:images.filter(image=>image.id!=='6')}));
+ assert.ok(!withoutFruitas.includes('projector-sponsor-lead'));
+ assert.equal((withoutFruitas.match(/<li /g)||[]).length,9);
  assert.ok(!html.includes('match PIN'));assert.ok(!html.includes('No entries yet.'));
  const empty=renderToStaticMarkup(React.createElement(Projector,{state,sponsorImages:[]}));assert.ok(!empty.includes('Thank you to our sponsors'));
  state.projector.slides.find(s=>s.id==='sponsors').enabled=false;
- const hidden=renderToStaticMarkup(React.createElement(Projector,{state,sponsorImages:images}));assert.ok(!hidden.includes('Community One'));
+ const hidden=renderToStaticMarkup(React.createElement(Projector,{state,sponsorImages:images}));assert.ok(!hidden.includes('The Mango Farm'));
  const hydrated=hydrateTournament({...state,projector:{slides:state.projector.slides.filter(s=>s.id!=='sponsors')}});assert.equal(hydrated.projector.slides.find(s=>s.id==='sponsors').seconds,15);
 });
 

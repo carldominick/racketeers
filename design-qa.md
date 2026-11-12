@@ -329,3 +329,14 @@ No actionable layout, control-label or owner/partner consistency issue remains i
 Verification: 74 relevant API/payment/helper/UI tests pass. Full local suite: 155 pass, with only the documented Windows print-test ESM loader failure before assertions. Lint, build, two render tests and whitespace checks pass. Linux CI and live deployment remain pending explicit release authorization; no production data was changed.
 
 final result: passed
+
+## Sponsor slide — option 1
+
+- Source: `exec-cf9f2a8b-9edc-4f7e-88f8-c8c15f66c988.png` (1672 × 941, selected Product Design mockup).
+- Implementation capture: in-app browser comparison at `http://localhost:5185/__sponsor-compare`. The browser capture placed the source and the running app side by side at comparable 16:9 sizes; the implementation frame was 1280 × 720 CSS pixels. The comparison used the original ten uploads and the navigation-free projector state. Native fullscreen was also observed at 1715 × 1143.
+- Layout and type: centered two-line heading and lime rule, wide Fruitas lead tile, and five tiles above four centered tiles. Uses the existing tournament title and projector footer. The projector heading weight and sizes follow the existing sans family; no text was clipped.
+- Color and artwork: navy, lime, and white match the selected design. Pure black replaces the navy backdrop while preserving white art tiles. Original library assets preserve their aspect ratios; only the outer white margins of two known images are trimmed.
+- Findings and fixes: the first capture exposed a collapsed page width; setting the sponsor page width fixed it. The 720p comparison showed the House of Fruitas logo undersized due to its white margins. A measured whitespace trim restored its scale, and the focused comparison confirmed the artwork was intact.
+- Verified all ten assets load, all nine small tiles fit, one sponsor slide is counted, no horizontal overflow at 360, 390, 834 or 1440 CSS pixels, and no errors/warnings in the direct preview console. Escape restored the controls in the embedded fullscreen fallback.
+
+final result: passed

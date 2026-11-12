@@ -903,8 +903,6 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
 .sponsor-pending label {display:grid;gap:6px}
 .sponsor-pending input {width:100%;min-width:0}
 .sponsor-pending button {justify-self:start}
-.projector-sponsor {margin:0;text-align:center;border-top:4px solid var(--lime);padding-top:16px}
-.projector-sponsor img {display:block;width:100%;object-fit:contain;border-radius:8px;background:#fff}
 
 /* Pure-black display mode keeps large OLED surfaces unlit; print remains white. */
 @media screen {
@@ -918,7 +916,7 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
  .clubhouse-site.dark.oled .view-switch button {color:var(--muted)}
  .clubhouse-site.dark.oled .view-switch button.active {background:var(--lime);color:#14212d}
  .clubhouse-site.dark.oled :is(.next-game-notice,.phase-lock-note,.unlock-set,.registration-save-warning,.umpire-sync.offline) {background:#000;color:#ffe2a1;border:1px solid #957741}
- .clubhouse-site.dark.oled :is(.registration-id-display,.shirt-guide-dialog,.shirt-guide-preview,.shirt-guide-image,.umpire-minus,.sponsor-library-grid img,.projector-sponsor img) {background:#000;color:var(--ink)}
+ .clubhouse-site.dark.oled :is(.registration-id-display,.shirt-guide-dialog,.shirt-guide-preview,.shirt-guide-image,.umpire-minus,.sponsor-library-grid img) {background:#000;color:var(--ink)}
  .clubhouse-site.dark.oled .clubhouse-sidebar::before {display:none}
  .clubhouse-site.dark.oled .clubhouse-sidebar :is(p,small) {color:var(--muted)}
  .clubhouse-site.dark.oled .umpire-console-court .court-help-button {background:#000;color:#ffe2a1}
@@ -930,8 +928,7 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
   .desk-organizer .desk-public-views {grid-row:3;grid-column:1/-1;justify-self:start}
  }
 }
-.projector-sponsor figcaption {color:var(--ink);font-size:24px;font-weight:750;line-height:1.3;padding-top:12px;overflow-wrap:anywhere}
-@media(max-width:650px) {.projector-sponsor figcaption {font-size:18px}.sponsor-pending button {width:100%}}
+@media(max-width:650px) {.sponsor-pending button {width:100%}}
 
 /* Registration: division and players share one step; partner choice precedes new-person fields. */
 @media screen {
