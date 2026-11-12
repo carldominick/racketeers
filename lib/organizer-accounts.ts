@@ -5,6 +5,7 @@ export type AccountDB = { prepare(sql: string): { run(): Promise<unknown>; bind(
 export type OrganizerAccount = { id: string; username: string; manager: number; read_only: number; must_change: number; version: number };
 const cookieName = '__Host-racketeers-organizer';
 const viewerStateActions = ['verifyAccess', 'verifyOrganizer'];
+const validUsername = /^[a-z0-9][a-z0-9._-]{2,79}$/;
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
 export const digest = async (value: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
 const random = () => hex(crypto.getRandomValues(new Uint8Array(32)).buffer);
@@ -107,6 +108,25 @@ export async function handleAccounts(request: Request, db: AccountDB): Promise<R
       return reply({ credentials: credentials.map(({ username, password }) => ({ username, password })) });
     }
     if (!actor) return reply({ error: 'Organizer sign-in required.' }, 401);
+    if (body.action === 'createAdmin') {
+      if (!actor.manager || actor.read_only || actor.must_change) return reply({ error: 'Account manager access required.' }, 403);
+      const username = String(body.username ?? '').trim().toLowerCase();
+      if (!validUsername.test(username)) return reply({ error: 'Use 3–80 letters, digits, dots, underscores or hyphens.' }, 400);
+      const currentPassword = typeof body.currentPassword === 'string' ? body.currentPassword : '';
+      const manager = await db.prepare('SELECT password_hash FROM organizer_accounts WHERE id = ? AND version = ?')
+        .bind(actor.id, actor.version).first<{ password_hash: string }>();
+      if (!manager || !currentPassword || currentPassword.length > 256 || !await passwordMatches(currentPassword, manager.password_hash)) {
+        return reply({ error: 'Current password did not match.' }, 401);
+      }
+      const initialPassword = random().slice(0, 32);
+      const user = await db.prepare(
+        'INSERT INTO organizer_accounts (id, username, password_hash, manager, read_only, must_change, version) ' +
+        'SELECT ?, ?, ?, 1, 0, 1, 1 FROM organizer_accounts WHERE id = ? AND version = ? AND manager = 1 AND read_only = 0 AND must_change = 0 ' +
+        'ON CONFLICT(username) DO NOTHING RETURNING id, username, manager, read_only, must_change, version'
+      ).bind(crypto.randomUUID(), username, await passwordHash(initialPassword), actor.id, actor.version).first<OrganizerAccount>();
+      if (!user) return reply({ error: 'The username is already in use or your account changed. Refresh and try again.' }, 409);
+      return reply({ user, initialPassword }, 201);
+    }
     const id = String(body.id || actor.id);
     if (actor.read_only && !actor.must_change) return reply({error:'This account has view-only access.'},403);
     if ((id !== actor.id && !actor.manager) || (actor.must_change && id !== actor.id)) return reply({ error: 'Account manager access required.' }, 403);
@@ -117,7 +137,7 @@ export async function handleAccounts(request: Request, db: AccountDB): Promise<R
     if (!actingUser || !await passwordMatches(String(body.currentPassword || ''), actingUser.password_hash)) return reply({ error: 'Current password did not match.' }, 401);
     const username = String(body.username || target.username).trim().toLowerCase();
     if (actor.read_only && username !== target.username) return reply({error:'This account has view-only access.'},403);
-    if (!/^[a-z0-9][a-z0-9._-]{2,79}$/.test(username)) return reply({ error: 'Use 3–80 letters, digits, dots, underscores or hyphens.' }, 400);
+    if (!validUsername.test(username)) return reply({ error: 'Use 3–80 letters, digits, dots, underscores or hyphens.' }, 400);
     const password = body.action === 'reset' && id !== actor.id ? random().slice(0,32) : String(body.password || '');
     if (password && (password.length < 14 || password.length > 256)) return reply({ error: 'Use a password of 14–256 characters.' }, 400);
     if (password && await passwordMatches(password, target.password_hash)) return reply({error:'Choose a different password from the current password.'},400);

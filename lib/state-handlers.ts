@@ -33,6 +33,7 @@ function registrationsForHash(state: TournamentState, hash?: string) {
 }
 
 const database = dependencies.database;
+const stateTables = new WeakSet<StateDatabase>();
 
 async function sha(value: string) {
   const bytes = new TextEncoder().encode(value);
@@ -42,12 +43,15 @@ async function sha(value: string) {
 
 async function ensureRow() {
   const db = await database();
-  await db.prepare(`CREATE TABLE IF NOT EXISTS tournament_state (
-    id TEXT PRIMARY KEY,
-    revision INTEGER NOT NULL DEFAULT 1,
-    payload TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  )`).run();
+  if (!stateTables.has(db)) {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS tournament_state (
+      id TEXT PRIMARY KEY,
+      revision INTEGER NOT NULL DEFAULT 1,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`).run();
+    stateTables.add(db);
+  }
   let row = await db.prepare("SELECT revision, payload, updated_at FROM tournament_state WHERE id = ?").bind(ROW_ID).first<{ revision: number; payload: string; updated_at: string }>();
   if (!row) {
     const state = initialTournament();
@@ -117,21 +121,26 @@ async function saveStateAtRevision(state: TournamentState, revision: number) {
 
 async function GET(request: Request) {
   const row = await ensureRow();
-  const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
+  const rawState = JSON.parse(row.payload) as TournamentState;
+  const params = new URL(request.url).searchParams;
   const marker = request.headers.get("x-organizer-pin");
-  const actor = state.organizerAccountsEnabled && marker === "session" ? await accountActor(request, await database()) : null;
-  const isOrganizer = state.organizerAccountsEnabled ? Boolean(actor && !actor.must_change) : await authorized(marker, state);
+  const actor = rawState.organizerAccountsEnabled && marker === "session" ? await accountActor(request, await database()) : null;
+  const isOrganizer = rawState.organizerAccountsEnabled ? Boolean(actor && !actor.must_change) : await authorized(marker, rawState);
   const readOnly = Boolean(actor?.read_only);
   if (request.headers.has("x-organizer-pin") && !isOrganizer) return Response.json({ error: "Organizer PIN did not match." }, { status: 401 });
-  if (new URL(request.url).searchParams.has("backup")) {
+  if (params.has("backup")) {
     if (!isOrganizer) return Response.json({ error: "Organizer access required." }, { status: 401 });
     if (readOnly) return Response.json({ error: "Account manager access is required for backups." }, { status: 403 });
     return Response.json({ format: "racketeers-state-backup-v1", revision: row.revision, digest: await sha(row.payload), payload: row.payload, exportedAt: new Date().toISOString() }, { headers: { "Cache-Control": "private, no-store" } });
   }
-  if (new URL(request.url).searchParams.has("staffUpdates")) {
-    if (!isOrganizer && !(await umpireAuthorized(request, state))) return Response.json({ error: "Staff access required." }, { status: 401 });
-    return Response.json({ courtHelp: state.courtHelp ?? {}, notifications: isOrganizer ? state.staffNotifications ?? [] : [], revision: row.revision }, { headers: { "Cache-Control": "no-store" } });
+  if (params.has("staffUpdates")) {
+    if (!isOrganizer && !(await umpireAuthorized(request, rawState))) return Response.json({ error: "Staff access required." }, { status: 401 });
+    return Response.json({ courtHelp: rawState.courtHelp ?? {}, notifications: isOrganizer ? rawState.staffNotifications ?? [] : [], revision: row.revision }, { headers: { "Cache-Control": "no-store" } });
   }
+  if (isOrganizer && params.get("sinceRevision") === String(row.revision)) {
+    return new Response(null, { status: 204, headers: { "Cache-Control": "private, no-store" } });
+  }
+  const state = hydrateTournament(rawState);
   return Response.json({ state: isOrganizer ? organizerState(state, readOnly) : publicState(state, await umpireAuthorized(request, state)), revision: row.revision, organizer: isOrganizer, updatedAt: row.updated_at });
 }
 

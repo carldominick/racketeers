@@ -66,6 +66,8 @@ Organizer saves pause on a revision conflict, preserve the unsaved draft and sho
 
 Bracket regeneration now previews its impact, requires a current downloaded recovery copy and typed confirmation, and runs through an organizer-only revision-checked action. It is blocked during Live/Completed and once play/results exist. Game Day adds a compact desk checklist for outstanding validation, holds, no-show results, reservations and connection state. Opening checks does not advance rotation or assign courts.
 
+Game Day tolerates isolated refresh failures and spaces out retries if they continue. Account managers can add a new organizer admin in **Prepare → User management → Accounts** and share the generated initial password privately.
+
 Setup also offers a private tournament-state recovery download. Full recovery requires separate database tables and R2 objects: see [Backup and recovery](docs/backup-recovery.md). No automatic production restore is provided.
 
 Development/build scripts prepare ignored `public/ocr/` assets from locked npm dependencies. Run `npm ci` first. For the disposable 12-court and synthetic receipt fixture, set PowerShell `$env:RACKETEERS_PREVIEW_COURTS = '1'`, then run `npm run dev -- --host 127.0.0.1`. Open `http://127.0.0.1:5173/?role=organizer`. The fixture starts Live; switch Setup to Registration to exercise receipt review. Data disappears on preview restart. This does not test production authentication. Verification is recorded in `design-qa.md` and `outputs/court-ocr-verification.md`.

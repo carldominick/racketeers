@@ -16,6 +16,40 @@ const request=(body,cookie='',pin='')=>new Request('https://test/api/organizers'
 async function activated(){const f=fixture();const pin='87654321';const hash=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pin))).toString('hex');f.sql.prepare('INSERT INTO tournament_state VALUES (?,?,1,?)').run('racketeers',JSON.stringify({organizerPinHash:hash,registrations:[],matches:[]}),new Date().toISOString());const result=await handleAccounts(request({action:'activate'},'',pin),f.db);assert.equal(result.status,200);const {credentials}=await result.json();return {...f,pin,credentials,state:()=>JSON.parse(f.sql.prepare('SELECT payload FROM tournament_state').get().payload)};}
 async function login(f,username,password){const response=await handleAccounts(request({action:'login',username,password}),f.db);return {response,cookie:response.headers.get('set-cookie')?.split(';')[0]||'',data:await response.json()};}
 
+test('only an active manager who confirms their password can create an admin', async () => {
+ const f = await activated();
+ const manager = f.credentials[0];
+ const viewer = f.credentials.find(account => account.username === 'racketeers');
+ const first = await login(f, manager.username, manager.password);
+ const create = (cookie, currentPassword, username = 'fixture.admin') => {
+  const req = request({action:'createAdmin',username,currentPassword},cookie);
+  return auditedOrganizerRequest(req,f.db,next=>handleAccounts(next,f.db));
+ };
+ assert.equal((await create('',manager.password)).status,401);
+ assert.equal((await create(first.cookie,manager.password)).status,403);
+ const newPassword = 'fixture manager current password';
+ assert.equal((await handleAccounts(request({action:'update',currentPassword:manager.password,password:newPassword},first.cookie),f.db)).status,200);
+ const {cookie} = await login(f,manager.username,newPassword);
+ assert.equal((await create(cookie,'incorrect')).status,401);
+ assert.equal((await create((await login(f,viewer.username,viewer.password)).cookie,viewer.password)).status,403);
+
+ const results = await Promise.all([create(cookie,newPassword),create(cookie,newPassword,' FIXTURE.ADMIN ')]);
+ assert.deepEqual(results.map(response=>response.status).sort(),[201,409]);
+ const {user,initialPassword} = await results.find(response=>response.status===201).json();
+ assert.equal(user.username,'fixture.admin');
+ assert.equal(user.manager,1);
+ assert.equal(user.read_only,0);
+ assert.equal(user.must_change,1);
+ assert.equal(f.sql.prepare('SELECT COUNT(*) AS count FROM organizer_accounts').get().count,5);
+ assert.equal((await login(f,user.username,initialPassword)).data.actor.must_change,1);
+ const list = await (await handleAccounts(new Request('https://test/api/organizers',{headers:{cookie}}),f.db)).json();
+ assert.ok(list.users.some(account=>account.id===user.id));
+ assert.doesNotMatch(JSON.stringify(list),/password_hash|initialPassword/);
+ const entries = await (await handleAccounts(new Request('https://test/api/organizers?audit=1',{headers:{cookie}}),f.db)).json();
+ assert.ok(entries.events.some(event=>event.username===manager.username&&event.action==='Add an organizer admin'&&event.outcome==='Succeeded'));
+ assert.ok(!JSON.stringify(entries).includes(initialPassword));
+});
+
 test('audit history describes a shared payment update and translates older request labels', async () => {
  const f = await activated();
  const organizer = f.credentials[0];

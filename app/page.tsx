@@ -7,7 +7,7 @@ import { OrganizerAccounts } from "./components/organizer-accounts";
 import { StaffAccessDialog } from "./components/staff-access-dialog";
 import { GameDayDesk } from "./components/game-day-desk";
 import { useCourtWindow } from "./components/court-window-launcher";
-import { readStateResponse, syncDisplayState, SYNC_LABELS, type SyncStatus } from "../lib/sync-status";
+import { pollFailure, POLL_TIMEOUT_MS, readStateResponse, STAFF_POLL_MS, syncDisplayState, SYNC_LABELS, type SyncStatus } from "../lib/sync-status";
 import { NextGameNotice } from "./components/next-game-notice";
 import { UmpireScorecard } from "./components/umpire-scorecard";
 import { PrintMatchCards } from "./components/print-match-card";
@@ -662,6 +662,9 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
   const umpireSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const umpireSaveVersion = useRef(0);
   const refreshRequests = useRef(0);
+  const refreshVersion = useRef(0);
+  const refreshRetry = useRef({ failures: 0, retryAt: 0 });
+  const refreshSnapshot = useRef<{ pin: string; revision: number } | null>(null);
   const themeOverride = useRef<TournamentState["theme"] | null>(null);
   const stateRef = useRef(state);
   const revisionRef = useRef(revision);
@@ -670,22 +673,58 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
   const saveInFlight = useRef(false);
   const saveLatestRef = useRef<() => Promise<void>>(async () => undefined);
   const touchedMatchIds = useRef(new Set<string>());
-  const pollingMs = unlocked ? 1000 : view === "spectator" || view === "projector" ? 2000 : 60000;
+  const pollingMs = unlocked || view === "spectator" || view === "projector" ? STAFF_POLL_MS : 60000;
+  const refreshInterval = sync === "connecting" || sync === "offline" ? STAFF_POLL_MS : pollingMs;
   const displaySync = syncDisplayState(sync, lastConfirmedAt, syncClock, pollingMs);
   useEffect(() => { const timer = setInterval(() => setSyncClock(Date.now()), 5000); return () => clearInterval(timer); }, []);
 
-  const fetchState = useCallback(async (pin = organizerPin, staffPin = umpireAccessPin) => {
+  const fetchState = useCallback(async (pin = organizerPin, staffPin = umpireAccessPin, incremental = false) => {
     refreshRequests.current += 1;
+    const version = ++refreshVersion.current;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), POLL_TIMEOUT_MS);
+    let retryAfter: string | null = null;
+    const snapshot = refreshSnapshot.current;
+    const since = incremental && pin && snapshot?.pin === pin && snapshot.revision === revisionRef.current ? snapshot.revision : null;
+    if (!incremental) refreshSnapshot.current = null;
     try {
-      const response = await fetch("/api/state", { signal: controller.signal, headers: pin ? { "x-organizer-pin": pin } : staffPin ? { "x-umpire-pin": staffPin } : {} });
-      if (pin === "session" && (response.status === 401 || response.status === 403)) { organizerAuthPaused.current=true; setOrganizerSessionExpired(true); throw new Error("Organizer sign-in expired."); }
+      const path = since === null ? "/api/state" : `/api/state?sinceRevision=${since}`;
+      const response = await fetch(path, { signal: controller.signal, headers: pin ? { "x-organizer-pin": pin } : staffPin ? { "x-umpire-pin": staffPin } : {} });
+      if (version !== refreshVersion.current) return false;
+      if (pin === "session" && (response.status === 401 || response.status === 403)) {
+        organizerAuthPaused.current = true;
+        setOrganizerSessionExpired(true);
+        setSync("offline");
+        return false;
+      }
+      if (response.status === 429 || response.status === 503) retryAfter = response.headers.get("Retry-After");
+      if (since !== null && response.status === 204) {
+        refreshRetry.current = { failures: 0, retryAt: 0 };
+        setLastConfirmedAt(Date.now());
+        if (!dirtyRef.current && !saveInFlight.current && !umpireFailed.current && !umpirePending.current) setSync("saved");
+        return true;
+      }
       const data = await readStateResponse(response);
+      if (version !== refreshVersion.current) return false;
+      refreshRetry.current = { failures: 0, retryAt: 0 };
       setLastConfirmedAt(Date.now());
-      if (!dirtyRef.current && !saveInFlight.current && !umpireFailed.current && !umpirePending.current && data.revision >= revisionRef.current) { const incoming = { ...data.state, theme: themeOverride.current ?? data.state.theme }; stateRef.current = incoming; setState(incoming); revisionRef.current = data.revision; setRevision(data.revision); setSync("saved"); }
+      if (!dirtyRef.current && !saveInFlight.current && !umpireFailed.current && !umpirePending.current && data.revision >= revisionRef.current) {
+        const incoming = { ...data.state, theme: themeOverride.current ?? data.state.theme };
+        stateRef.current = incoming;
+        setState(incoming);
+        revisionRef.current = data.revision;
+        setRevision(data.revision);
+        refreshSnapshot.current = data.organizer && pin ? { pin, revision: data.revision } : null;
+        setSync("saved");
+      }
       return data.organizer;
-    } catch { setSync("offline"); }
+    } catch {
+      if (version === refreshVersion.current) {
+        const retry = pollFailure(refreshRetry.current.failures, Date.now(), retryAfter);
+        refreshRetry.current = retry;
+        if (!dirtyRef.current && !saveInFlight.current && (retry.unavailable || !navigator.onLine)) setSync("offline");
+      }
+    }
     finally { clearTimeout(timeout); refreshRequests.current -= 1; }
     return false;
   }, [organizerPin, umpireAccessPin]);
@@ -693,10 +732,19 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
   useEffect(() => { const timer = setTimeout(() => void fetchState(""), 0); return () => clearTimeout(timer); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (view === "umpire" && umpireUnlocked) return;
-    const ms = unlocked ? 1000 : view === "spectator" || view === "projector" ? 2000 : 60000;
-    const timer = setInterval(() => { if (!organizerAuthPaused.current && !dirty && !refreshRequests.current && document.visibilityState !== "hidden") void fetchState(); }, ms);
-    return () => clearInterval(timer);
-  }, [view, dirty, fetchState, state.updatedAt, umpireUnlocked, unlocked]);
+    const refresh = () => {
+      if (!organizerAuthPaused.current && !dirtyRef.current && !refreshRequests.current &&
+          document.visibilityState !== "hidden" && Date.now() >= refreshRetry.current.retryAt) void fetchState(undefined, undefined, true);
+    };
+    const timer = setInterval(refresh, refreshInterval);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("online", refresh);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("online", refresh);
+    };
+  }, [view, fetchState, refreshInterval, umpireUnlocked]);
   useEffect(() => {
     if (!printMode) return;
     const finish = () => setPrintMode(null);

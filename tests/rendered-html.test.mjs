@@ -161,6 +161,12 @@ test('built named-account activation, password change, cookies, PIN retirement a
  const changed=await post({action:'update',currentPassword:c.password,password:'a new long private password'},cookie);assert.equal(changed.status,200);
  signed=await post({action:'login',username:c.username,password:'a new long private password'});assert.equal(signed.status,200);cookie=signed.headers.get('set-cookie').split(';')[0];
  const get=await runtime.dispatchFetch('https://racketeers.example/api/state',{headers:{cookie,'x-organizer-pin':'session'}});assert.equal(get.status,200);const state=await get.json();assert.equal(state.organizer,true);
+ const pollUrl = 'https://racketeers.example/api/state?sinceRevision='+state.revision;
+ const unchanged = await runtime.dispatchFetch(pollUrl,{headers:{cookie,'x-organizer-pin':'session'}});
+ assert.equal(unchanged.status,204);
+ assert.equal(await unchanged.text(),'');
+ assert.equal((await runtime.dispatchFetch(pollUrl,{headers:{'x-organizer-pin':'session'}})).status,401);
+ assert.equal((await runtime.dispatchFetch(pollUrl)).status,200);
  assert.equal(state.state.paymentProofShareKey,undefined);
  assert.equal(state.state.organizerPinHash,undefined);
  assert.equal((await runtime.dispatchFetch(await exportLink('session',cookie))).status,200);
@@ -185,6 +191,9 @@ test('built named-account activation, password change, cookies, PIN retirement a
  const registrations=state.state.registrations.map(player=>paidIds.has(player.id)?{...player,paid:true}:player);
  const save=await runtime.dispatchFetch('https://racketeers.example/api/state',{method:'PUT',headers:{'content-type':'application/json',cookie,'x-organizer-pin':'session'},body:JSON.stringify({state:{...state.state,registrations,venue:'Fictional venue',registrationClosesAt,organizerAccountsEnabled:false},expectedRevision:state.revision})});assert.equal(save.status,200);
  assert.deepEqual((await save.json()).state.registrations.filter(player=>player.paid).map(player=>player.id),[...paidIds]);
+ const changedPoll = await runtime.dispatchFetch(pollUrl,{headers:{cookie,'x-organizer-pin':'session'}});
+ assert.equal(changedPoll.status,200);
+ assert.equal((await changedPoll.json()).revision,state.revision+1);
  const audit=await runtime.dispatchFetch('https://racketeers.example/api/organizers?audit=1',{headers:{cookie}});assert.equal(audit.status,200);const events=(await audit.json()).events;
  assert.ok(events.some(e=>e.username===c.username&&e.action.includes('Confirm payment for 2 player entries')&&e.action.includes('venue')&&e.action.includes('registration deadline')&&e.outcome==='Succeeded'));
  const publicState=await runtime.dispatchFetch('https://racketeers.example/api/state');const publicData=await publicState.json();assert.equal(publicData.state.organizerAccountsEnabled,true);assert.equal(publicData.state.registrations.length,0);assert.equal(publicData.state.registrationClosesAt,registrationClosesAt);

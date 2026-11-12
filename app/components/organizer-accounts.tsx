@@ -105,6 +105,54 @@ function AccountEditor({actor,user,onSaved,blocked=false,onBusyChange}:{actor:Or
   }
   return <form className="account-editor" onSubmit={e=>{e.preventDefault();void save();}}><fieldset disabled={busy||blocked}><legend>{own?'Your account':user.username}</legend><label>Username<input autoComplete="off" readOnly={Boolean(actor.read_only)} required value={username} maxLength={80} onChange={e=>setUsername(e.target.value)} /></label><label>Your current password<input type="password" autoComplete="current-password" required value={currentPassword} onChange={e=>setCurrent(e.target.value)} /></label>{own&&<><label>New password<input type="password" autoComplete="new-password" minLength={14} maxLength={256} required={Boolean(actor.must_change)} value={password} onChange={e=>setPassword(e.target.value)} /></label><label>Confirm new password<input type="password" autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)} /></label><small>Use at least 14 characters. Leave blank to change only your username.</small></>}<button className="primary">Save account</button>{!own&&<button type="button" className="secondary" onClick={()=>void save(true)}>Generate reset password</button>}</fieldset>{message&&<p role="status" className="account-secret">{message}</p>}</form>;
 }
+function AddOrganizerAdmin({ blocked, onAdded }: { blocked: boolean; onAdded: (user: OrganizerAccount) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [created, setCreated] = useState<{ username: string; password: string } | null>(null);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy || blocked) return;
+    const form = event.currentTarget;
+    const fields = new FormData(form);
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetch('/api/organizers', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'createAdmin', username: fields.get('username'), currentPassword: fields.get('currentPassword') }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      setCreated({ username: data.user.username, password: data.initialPassword });
+      onAdded(data.user);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to add the account.');
+    } finally {
+      const passwordField = form.elements.namedItem('currentPassword');
+      if (passwordField instanceof HTMLInputElement) passwordField.value = '';
+      setBusy(false);
+    }
+  }
+
+  return <details className="card">
+    <summary>Add organizer admin</summary>
+    {created ? <div className="account-secret">
+      <p role="status"><strong>{created.username}</strong> was added. Share this initial password privately. The new admin must change it at first sign-in.</p>
+      <p><code>{created.password}</code></p>
+      <button type="button" className="secondary" onClick={() => setCreated(null)}>Done</button>
+    </div> : <form className="account-editor" onSubmit={submit}>
+      <fieldset disabled={busy || blocked}>
+        <legend>New account manager</legend>
+        <label>Username<input name="username" autoComplete="off" required minLength={3} maxLength={80} /></label>
+        <label>Your current password<input name="currentPassword" type="password" autoComplete="current-password" required maxLength={256} /></label>
+        <button className="primary">{busy ? 'Adding…' : 'Add admin and generate password'}</button>
+      </fieldset>
+      {error && <p role="alert">{error}</p>}
+    </form>}
+  </details>;
+}
+
 type Event={id:number;username:string;at:string;action:string;outcome:string};
 export function OrganizerAccounts({pin,configured,onSignOut,blocked=false}:{pin:string;configured:boolean;onSignOut:()=>void;blocked?:boolean}) {
   const [actor,setActor]=useState<OrganizerAccount|null>(null),[users,setUsers]=useState<OrganizerAccount[]>([]),[events,setEvents]=useState<Event[]>([]),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[credentials,setCredentials]=useState<{username:string;password:string}[]>([]);
@@ -118,5 +166,8 @@ export function OrganizerAccounts({pin,configured,onSignOut,blocked=false}:{pin:
       {(actor?.manager || actor?.read_only) && <button type="button" aria-pressed={section === "history"} onClick={() => { setSection("history"); void load(); }}>Audit history</button>}
     </div>
     {message&&<p role="status">{message}</p>}
-    <div className="stack" hidden={section !== "accounts"}>{actor&&users.map(user=><details key={`${user.id}:${user.username}`} className="card"><summary>{user.username} — {user.manager?'Account manager':user.read_only?'View only':'Tournament organizer'}</summary><AccountEditor blocked={blocked} actor={actor} user={user} onSaved={()=>{if(actor.id===user.id)onSignOut();else void load();}} /></details>)}</div>{section === "history" && actor && (actor.manager||actor.read_only) && <section className="card"><h3>Organizer audit trail</h3><p>Times are Philippine time. Pending means a change was attempted but its final outcome could not be recorded. Shared-account entries identify racketeers, not an individual.</p><div className="table-wrap"><table><thead><tr><th>Date and time</th><th>User</th><th>Description</th><th>Outcome</th></tr></thead><tbody>{events.map(event=><tr key={event.id}><td>{new Date(event.at).toLocaleString('en-PH',{timeZone:'Asia/Manila'})}</td><td>{event.username}</td><td>{event.action}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>{!events.length&&<p>No organizer activity recorded yet.</p>}{events.length>=100&&<button disabled={busy} className="secondary" onClick={async()=>{setBusy(true);try{const response=await fetch(`/api/organizers?audit=1&before=${events.at(-1)!.id}`);const data=await response.json();if(!response.ok)throw new Error(data.error);setEvents(current=>[...current,...data.events]);}catch{setMessage('Unable to load earlier history.');}finally{setBusy(false);}}}>Load earlier history</button>}</section>}</section>;
+    <div className="stack" hidden={section !== "accounts"}>
+      {actor?.manager && !actor.read_only && !actor.must_change &&
+        <AddOrganizerAdmin blocked={busy || blocked} onAdded={user => setUsers(current => [...current.filter(account => account.id !== user.id), user])} />}
+      {actor&&users.map(user=><details key={`${user.id}:${user.username}`} className="card"><summary>{user.username} — {user.manager?'Account manager':user.read_only?'View only':'Tournament organizer'}</summary><AccountEditor blocked={blocked} actor={actor} user={user} onSaved={()=>{if(actor.id===user.id)onSignOut();else void load();}} /></details>)}</div>{section === "history" && actor && (actor.manager||actor.read_only) && <section className="card"><h3>Organizer audit trail</h3><p>Times are Philippine time. Pending means a change was attempted but its final outcome could not be recorded. Shared-account entries identify racketeers, not an individual.</p><div className="table-wrap"><table><thead><tr><th>Date and time</th><th>User</th><th>Description</th><th>Outcome</th></tr></thead><tbody>{events.map(event=><tr key={event.id}><td>{new Date(event.at).toLocaleString('en-PH',{timeZone:'Asia/Manila'})}</td><td>{event.username}</td><td>{event.action}</td><td>{event.outcome}</td></tr>)}</tbody></table></div>{!events.length&&<p>No organizer activity recorded yet.</p>}{events.length>=100&&<button disabled={busy} className="secondary" onClick={async()=>{setBusy(true);try{const response=await fetch(`/api/organizers?audit=1&before=${events.at(-1)!.id}`);const data=await response.json();if(!response.ok)throw new Error(data.error);setEvents(current=>[...current,...data.events]);}catch{setMessage('Unable to load earlier history.');}finally{setBusy(false);}}}>Load earlier history</button>}</section>}</section>;
 }
