@@ -854,6 +854,7 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
  .print-match-header>strong {font-size:17pt;font-weight:700;white-space:nowrap}
  .print-match-meta {display:grid;grid-template-columns:minmax(0,1.86fr) minmax(0,.94fr) minmax(0,1.08fr);align-items:center;gap:.16in;padding:.1in 0;border-bottom:.75pt solid #111;font-size:11pt}
  .print-match-meta>p:first-child {overflow-wrap:anywhere}
+ .print-match-meta-managed {grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
  .print-blank-field {display:flex;align-items:baseline;gap:.08in;white-space:nowrap}
  .print-match-meta .print-blank-field {border-left:.65pt solid #777;padding-left:.1in}
  .print-write-line {display:block;flex:1;min-width:.25in;height:1.15em;border-bottom:.65pt solid #111}

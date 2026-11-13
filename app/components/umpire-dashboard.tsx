@@ -16,7 +16,7 @@ export async function umpireRequest(body?: WorkflowInput, organizerPin?: string,
     headers: { ...(body ? { "content-type": "application/json" } : {}), ...(organizerPin ? { "x-organizer-pin": organizerPin } : {}), ...(demoSeat ? { "x-demo-umpire-seat": demoSeat } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await response.json() as Partial<Snapshot> & { error?: string; roster?: UmpireSummary[]; pin?: string };
+  const data = await response.json() as Partial<Snapshot> & { error?: string; roster?: UmpireSummary[]; personalAccessConfigured?: boolean; pin?: string };
   if (!response.ok) throw new Error(data.error || "Unable to connect to umpire access.");
   return data;
 }

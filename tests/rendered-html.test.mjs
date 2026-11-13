@@ -41,6 +41,23 @@ test('built demo entry requires the real organizer and preview query parameters 
 const fetchWorker = request => runtime.dispatchFetch(request.url,{method:request.method,headers:request.headers,cf:request.cf});
 const fetchPage = pathname => fetchWorker(new Request('https://racketeers.example'+pathname, {headers:{accept:'text/html'}}));
 
+test('built Worker keeps shared access unchanged when personal umpire setup is missing', async () => {
+  const base = 'https://racketeers.example';
+  const headers = {'x-organizer-pin':'12345678'};
+  const before = await (await runtime.dispatchFetch(base+'/api/state',{headers})).json();
+  const roster = await runtime.dispatchFetch(base+'/api/umpires',{headers});
+  assert.equal(roster.status,200);
+  assert.equal((await roster.json()).personalAccessConfigured,false);
+  const publicRoster = await (await runtime.dispatchFetch(base+'/api/umpires')).json();
+  assert.equal(Object.hasOwn(publicRoster,'personalAccessConfigured'),false);
+  const attempt = await runtime.dispatchFetch(base+'/api/umpires',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify({action:'enable',expectedRevision:before.revision})});
+  assert.equal(attempt.status,503);
+  assert.match((await attempt.json()).error,/one-time setup in Cloudflare/);
+  const after = await (await runtime.dispatchFetch(base+'/api/state',{headers})).json();
+  assert.equal(after.revision,before.revision);
+  assert.deepEqual(after.state,before.state);
+});
+
 test('built Worker enforces personal umpire access and atomically completes a staffed game on disposable D1', async () => {
   const umpireRuntime = new Miniflare({
     modules:[{type:'ESModule',path:path.join(server,'index.js')},...serverFiles.filter(name=>name!=='index.js' && name.endsWith('.js')).map(name=>({type:'ESModule',path:path.join(server,name)}))],
@@ -60,8 +77,12 @@ test('built Worker enforces personal umpire access and atomically completes a st
     const db=await umpireRuntime.getD1Database('DB');
     const fixture={...seeded.state,organizerPinHash:createHash('sha256').update('45678901').digest('hex'),umpirePinHash:createHash('sha256').update('87654321').digest('hex'),status:'live',divisions:[div],matches:[match]};
     await db.prepare('UPDATE tournament_state SET payload = ? WHERE id = ?').bind(JSON.stringify(fixture),'racketeers').run();
+    const readiness = (await check(send('/api/umpires',undefined,org))).body;
+    assert.equal(readiness.personalAccessConfigured,true);
+    assert.doesNotMatch(JSON.stringify(readiness),/disposable-built-worker-credential-secret/);
     await check(send('/api/umpires',{action:'enable'}),403);
     await check(staff({action:'enable'}));
+    assert.equal((await state()).state.matches[0].pin,'');
     const revision=(await state()).revision;
     const concurrent=await Promise.all([staff({action:'add',name:'Rosa Villanueva'},revision),staff({action:'add',name:'Dario Tan'},revision)]);
     assert.deepEqual(concurrent.map(result=>result.status).sort(),[200,409]);

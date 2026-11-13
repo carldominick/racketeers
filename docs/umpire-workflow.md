@@ -1,6 +1,8 @@
 # Personal umpire access and match workflow
 
-The organizer opens **Run tournament → Umpire roster** and enables personal umpire access for the active tournament. Existing tournaments can finish their shared-PIN assignments before enabling it. Activation retires the shared umpire credential, clears stored game PINs and disables the old scoring endpoints for the managed tournament.
+The organizer opens **Run tournament → Umpire roster** and enables personal umpire access for the active tournament. If setup is pending, the roster explains the missing prerequisite and keeps the button disabled. Existing tournaments can finish their shared-PIN assignments before enabling it. Activation retires the shared umpire credential, clears stored game PINs, removes their controls from Game Day Desk and their write-in field from printouts, and disables the old scoring endpoints for the managed tournament.
+
+For production, a Cloudflare administrator must add the Worker secret `UMPIRE_CREDENTIAL_SECRET` to `racketeers` under **Settings → Variables and Secrets** and deploy the settings. Generate a unique random value (32 random bytes encoded as text). Do not reuse an umpire PIN or the organizer password. Adding the secret prepares the Worker; it does not switch the tournament. With no current shared-PIN game in progress or assigned, refresh the roster and select **Enable personal umpire access**. See [Cloudflare Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
 
 Add an umpire to issue a six-digit PIN, give it to the umpire privately, then assign a court. The umpire signs in through **Staff access → Umpire**, starts duty and keeps the dashboard open. Game Day Desk explains why a court is unavailable. Assign an eligible game, acknowledge it on the umpire dashboard, confirm the players and start scoring. At a legal winning score, complete the deciding set. Check both teams’ verbal confirmation and confirm that the court is clear, then submit. The game updates standings and brackets and the umpire returns to waiting.
 
@@ -32,7 +34,7 @@ Roster names, tournament credential scope, assignments, session hashes, and matc
 
 Racketeers still hosts one active tournament per deployment. The roster can be reused by rotating the credential scope once active assignments and disputes are resolved. This preserves names and historical match records while clearing tournament assignments and credentials. It does not add a multi-event manager or automate creating a fresh draw.
 
-The organizer’s private state backup contains the umpire directory and dispute history. Store it as sensitive data. Backup exports clear duty flags and session hashes so a restore requires umpire sign-in. Presence timestamps can expire or be recreated and are not needed to restore results. Future production review must include provisioning a stable `UMPIRE_CREDENTIAL_SECRET` as a Worker secret, confirming the local roster and rollout plan, and arranging an idle court window for activation.
+The organizer’s private state backup contains the umpire directory and dispute history. Store it as sensitive data. Backup exports clear duty flags and session hashes so a restore requires umpire sign-in. Presence timestamps can expire or be recreated and are not needed to restore results. Keep `UMPIRE_CREDENTIAL_SECRET` stable across deployments: changing it invalidates existing personal PINs.
 
 ## Implementation map
 

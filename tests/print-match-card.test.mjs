@@ -31,6 +31,16 @@ test('assigned or completed games print blank court, PIN, and final score cells'
   assert.equal((html.match(/type="checkbox"/g)||[]).length,2); assert.doesNotMatch(html,/ checked=""/);
 });
 
+test('staffed tournaments omit the retired game PIN field from individual and bulk cards', () => {
+  const staffed = {...state,managedUmpires:true};
+  for (const props of [{matchId:match.id},{perSheet:2},{perSheet:4}]) {
+    const html = render(PrintMatchCards,{state:staffed,...props});
+    assert.doesNotMatch(html,/Umpire PIN|umpire-pin|91928374/);
+    assert.match(html,/data-field="court"><\/span>/);
+    assert.match(html,/Player signatures/);
+  }
+});
+
 test('doubles provide four individual named signature lines and the match scoring rules', () => {
   const html = render(PrintMatchCard, {state,match});
   for (const name of ['Alex','Sam','Chris','Pat']) assert.ok(html.includes(`<span>${name}:</span>`));
