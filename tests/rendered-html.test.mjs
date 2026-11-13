@@ -4,11 +4,12 @@ import {readFile, readdir} from "node:fs/promises";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {crc32} from "node:zlib";
+import {createHash} from "node:crypto";
 import {Miniflare} from "miniflare";
 
 const client = fileURLToPath(new URL('../dist/client/', import.meta.url));
 
-const mime = {'.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.wasm':'application/wasm', '.gz':'application/gzip'};
+const mime = {'.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.wasm':'application/wasm', '.gz':'application/gzip', '.wav':'audio/wav'};
 const env = {ASSETS:{async fetch(request) {
   const filename = path.resolve(client, '.' + new URL(request.url).pathname);
   if (!filename.startsWith(client.endsWith(path.sep) ? client : client + path.sep)) return new Response(null, {status:404});
@@ -39,6 +40,61 @@ test('built demo entry requires the real organizer and preview query parameters 
 });
 const fetchWorker = request => runtime.dispatchFetch(request.url,{method:request.method,headers:request.headers,cf:request.cf});
 const fetchPage = pathname => fetchWorker(new Request('https://racketeers.example'+pathname, {headers:{accept:'text/html'}}));
+
+test('built Worker enforces personal umpire access and atomically completes a staffed game on disposable D1', async () => {
+  const umpireRuntime = new Miniflare({
+    modules:[{type:'ESModule',path:path.join(server,'index.js')},...serverFiles.filter(name=>name!=='index.js' && name.endsWith('.js')).map(name=>({type:'ESModule',path:path.join(server,name)}))],
+    modulesRoot:server, compatibilityDate:'2026-08-01', compatibilityFlags:['nodejs_compat'],
+    serviceBindings:{ASSETS:env.ASSETS.fetch}, d1Databases:{DB:'umpire-workflow-disposable'},
+    bindings:{INITIAL_ORGANIZER_PIN:'45678901',UMPIRE_CREDENTIAL_SECRET:'disposable-built-worker-credential-secret'},
+  });
+  const base='https://racketeers.example', org={'x-organizer-pin':'45678901'};
+  const send=(endpoint,body,headers={},method=body?'POST':'GET')=>umpireRuntime.dispatchFetch(base+endpoint,{method,headers:{...headers,...(body?{'content-type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
+  const check=async (input,status=200)=>{const response=await input;const body=await response.json();assert.equal(response.status,status,JSON.stringify(body));return {response,body};};
+  const state=async()=>(await check(send('/api/state',undefined,org))).body;
+  const staff=async(body,revision)=>(send('/api/umpires',{...body,expectedRevision:revision??(await state()).revision},org));
+  try {
+    const seeded=await state();
+    const div={...seeded.state.divisions[0],registrationManaged:false,entries:[{id:'a',name:'Tala Reyes',players:['Tala Reyes']},{id:'b',name:'Diego Lim',players:['Diego Lim']}]};
+    const match={id:'worker-game',divisionId:div.id,entryAId:'a',entryBId:'b',stage:'regular',round:1,label:'Game',court:null,scheduledAt:null,sets:[{a:0,b:0,complete:false}],status:'ready',validated:false,pin:'4351',format:'single_31'};
+    const db=await umpireRuntime.getD1Database('DB');
+    const fixture={...seeded.state,organizerPinHash:createHash('sha256').update('45678901').digest('hex'),umpirePinHash:createHash('sha256').update('87654321').digest('hex'),status:'live',divisions:[div],matches:[match]};
+    await db.prepare('UPDATE tournament_state SET payload = ? WHERE id = ?').bind(JSON.stringify(fixture),'racketeers').run();
+    await check(send('/api/umpires',{action:'enable'}),403);
+    await check(staff({action:'enable'}));
+    const revision=(await state()).revision;
+    const concurrent=await Promise.all([staff({action:'add',name:'Rosa Villanueva'},revision),staff({action:'add',name:'Dario Tan'},revision)]);
+    assert.deepEqual(concurrent.map(result=>result.status).sort(),[200,409]);
+    const issued=await concurrent.find(result=>result.ok).json();
+    const roster=(await check(send('/api/umpires',undefined,org))).body.roster;
+    assert.match(issued.pin,/^\d{6}$/);assert.equal(roster.length,1);
+    assert.equal((await send('/api/state',{action:'verifyAccess',pin:'87654321'})).status,401);
+    assert.equal((await send('/api/state',{matchId:match.id,pin:'4351',sets:[{a:1,b:0,complete:false}]},org,'PATCH')).status,401);
+    const login=await check(send('/api/umpires',{action:'login',pin:issued.pin}));
+    assert.match(login.response.headers.get('set-cookie'),/Secure; HttpOnly; SameSite=Strict/);
+    const ump={cookie:login.response.headers.get('set-cookie').split(';')[0]};
+    await check(send('/api/umpires',{action:'duty',onDuty:true},ump));
+    await check(staff({action:'assignCourt',court:1,umpireId:roster[0].id}));
+    const dispatch=async()=>send('/api/state',{action:'dispatchGame',matchId:match.id,court:1,expectedRevision:(await state()).revision},org);
+    await db.prepare('UPDATE umpire_presence SET seen = ?').bind(Date.now()-46_000).run();
+    await check(dispatch(),409);
+    await check(send('/api/umpires',undefined,ump));
+    await check(dispatch());
+    const operate=async body=>{const snapshot=(await check(send('/api/umpires',undefined,ump))).body;return send('/api/umpires',{...body,matchId:match.id,version:snapshot.match.umpireWorkflow.version},ump);};
+    await check(operate({action:'acknowledge'}));
+    await check(operate({action:'start'}));
+    await check(operate({action:'score',operation:crypto.randomUUID(),sets:[{a:31,b:19,complete:true}]}));
+    await check(operate({action:'submit',a:true,b:true,clear:true}));
+    const final=(await state()).state.matches[0];
+    assert.equal(final.validated,true);assert.equal(final.courtInUse,false);
+    assert.equal((await check(send('/api/umpires',undefined,ump))).body.match,null);
+    const publicState=(await check(send('/api/state'))).body;
+    assert.doesNotMatch(JSON.stringify(publicState),/pinKey|pinHash|umpireDirectory|umpireWorkflow/);
+    const wrongPin=issued.pin==='000000'?'000001':'000000';
+    for(let n=0;n<12;n++) assert.equal((await send('/api/umpires',{action:'login',pin:wrongPin})).status,401);
+    assert.equal((await send('/api/umpires',{action:'login',pin:wrongPin})).status,429);
+  } finally { await umpireRuntime.dispose(); }
+});
 
 test('built registration starts Connecting and uses deliverable assets without cached workspace font paths', async () => {
   const response = await fetchPage('/');
@@ -76,6 +132,18 @@ test('built Worker serves court pages, emitted assets and OCR binaries for overs
       assert.equal(response.headers.get('content-type'), mime[path.extname(pathname)], pathname);
       assert.ok((await response.arrayBuffer()).byteLength > 0, pathname);
     }
+  }
+});
+
+test('built Worker serves the three court chimes as WAV audio', async () => {
+  for (const clip of ['umpire-assignment','game-finished','court-needs-help']) {
+    const response = await fetchWorker(new Request(`https://racketeers.example/assets/court-chimes/${clip}.wav`));
+    assert.equal(response.status,200,clip);
+    assert.equal(response.headers.get('content-type'),'audio/wav',clip);
+    const bytes=Buffer.from(await response.arrayBuffer());
+    assert.equal(bytes.toString('ascii',0,4),'RIFF');
+    assert.equal(bytes.toString('ascii',8,12),'WAVE');
+    assert.ok(bytes.length>44);
   }
 });
 

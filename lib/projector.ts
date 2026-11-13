@@ -1,5 +1,5 @@
 import { courtOccupant, gameNumber } from "./game-day";
-import { displayName, isMatchUsingCourt, type TournamentState } from "./tournament";
+import { displayName, isAwaitingUmpireCompletion, isMatchUsingCourt, type TournamentState } from "./tournament";
 
 export type ProjectorCourt = {
   court: number;
@@ -19,7 +19,7 @@ export function projectorCourts(state: TournamentState): ProjectorCourt[] {
       return entry?.players.filter(name => name.trim()).length ? entry.players.filter(name => name.trim()) : [displayName(entry)];
     };
     const unfinished = match.sets.findIndex(set => !set.complete);
-    const setIndex = unfinished >= 0 ? unfinished : Math.max(0, match.sets.length - 1);
+    const setIndex = isAwaitingUmpireCompletion(match) ? Math.max(0, match.sets.map(set => set.complete).lastIndexOf(true)) : unfinished >= 0 ? unfinished : Math.max(0, match.sets.length - 1);
     const score = match.sets[setIndex];
     return { court, status: isMatchUsingCourt(match) ? "in_play" as const : "reserved" as const, game: { number: gameNumber(state, match), division: division?.name ?? "Division", playersA: players(match.entryAId), playersB: players(match.entryBId), scoreA: score?.a ?? 0, scoreB: score?.b ?? 0, setNumber: setIndex + 1, multipleSets: match.format === "best_of_3_21" } };
   });

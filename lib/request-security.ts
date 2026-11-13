@@ -95,6 +95,31 @@ export async function protectedRequest(request: Request, db: Database, next: (re
     const credentials = request.headers.has("x-umpire-pin") || request.headers.has("x-organizer-pin") || request.headers.has("x-registration-pin");
     const authRequest = credentials || write && (!registering || registrationCredential);
     const now = Date.now();
+    if (pathname === "/api/umpires" && action === "login") {
+      await prepareLimits(db, now);
+      const address = request.headers.get("cf-connecting-ip") || "local";
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(address));
+      const identity = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+      const localKey = "umpire-login:" + identity;
+      const globalKey = "umpire-login:tournament";
+      const local = await reserve(db, localKey, 12, now);
+      if (!local) return finish(limited("Too many umpire sign-in attempts. Try again in 15 minutes."));
+      const refund = async (key: string, slot: Limit) => {
+        try { await db.prepare("UPDATE request_limits SET count = count - 1 WHERE id = ? AND expires = ? AND count > 0").bind(key, slot.expires).run(); }
+        catch { /* Keep the admission slot when accounting is unavailable. */ }
+      };
+      const global = await reserve(db, globalKey, 240, now);
+      if (!global) {
+        await refund(localKey, local);
+        return finish(limited("Too many umpire sign-in attempts. Try again in 15 minutes."));
+      }
+      const response = await next(request);
+      if (response.ok) {
+        await refund(localKey, local);
+        await refund(globalKey, global);
+      }
+      return finish(response);
+    }
     let authKey = "";
     if (authRequest || registering) {
       await prepareLimits(db, now);

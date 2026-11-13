@@ -24,6 +24,22 @@ test('round robin dispatch visits every bracket before its second turn',()=>{
  }
  assert.deepEqual(order,['A','B','C','D','A','B','C','D']);
 });
+test('finishing a game frees its court for an eligible recommendation and starts player rest',()=>{
+ const state={...fixture(),courts:1};
+ const [game, next, waiting]=state.matches;
+ Object.assign(game,{status:'live',court:1,courtInUse:true,sets:[{a:31,b:17,complete:false}]});
+ waiting.entryAId=game.entryAId;
+ const scored=logic.applyUmpireSets(game,[{a:31,b:17,complete:true}],true);
+ const pending=events.recordCourtCompletions(state,{...state,matches:[scored,...state.matches.slice(1)]});
+ assert.equal(desk.courtOccupant(pending,1)?.id,game.id);
+ assert.equal(desk.isFinished(scored),false);
+ assert.deepEqual(desk.courtRecommendations(pending),[]);
+ assert.match(desk.gameEligibility(pending,waiting).reason,/Players busy/);
+ const completed=events.recordCourtCompletions(pending,{...pending,matches:[logic.completeUmpireGame(scored),...state.matches.slice(1)]});
+ assert.equal(desk.courtOccupant(completed,1),undefined);
+ assert.deepEqual(desk.courtRecommendations(completed).map(r=>[r.court,r.match.id]),[[1,next.id]]);
+ assert.match(desk.gameEligibility(completed,waiting).reason,/Players resting/);
+});
 test('rotation distinguishes two pools in the same division',()=>{
  const state=fixture();state.matches[1].subBracket=1;state.matches[2].subBracket=1;
  const keys=desk.gameQueue(state).ready.slice(0,5).map(desk.bracketKey);

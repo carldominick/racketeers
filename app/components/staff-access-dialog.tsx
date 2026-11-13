@@ -8,13 +8,14 @@ type StaffRole = "organizer" | "umpire";
 
 type Props = {
   accountsEnabled: boolean;
+  personalUmpirePin?: boolean;
   renewingOrganizer: boolean;
   onClose: () => void;
   onOrganizerLogin: () => Promise<void>;
   onPinLogin: (role: StaffRole, pin: string) => Promise<void>;
 };
 
-export function StaffAccessDialog({ accountsEnabled, renewingOrganizer, onClose, onOrganizerLogin, onPinLogin }: Props) {
+export function StaffAccessDialog({ accountsEnabled, personalUmpirePin, renewingOrganizer, onClose, onOrganizerLogin, onPinLogin }: Props) {
   const [role, setRole] = useState<StaffRole | null>(renewingOrganizer ? "organizer" : null);
   const [legacy, setLegacy] = useState(false);
   const [pin, setPin] = useState("");
@@ -24,6 +25,7 @@ export function StaffAccessDialog({ accountsEnabled, renewingOrganizer, onClose,
   const heading = useRef<HTMLHeadingElement>(null);
   const titleId = useId();
   const errorId = useId();
+  const personal = role === "umpire" && personalUmpirePin;
   const usesPin = role === "umpire" || (role === "organizer" && legacy && !accountsEnabled);
 
   useEffect(() => {
@@ -73,7 +75,7 @@ export function StaffAccessDialog({ accountsEnabled, renewingOrganizer, onClose,
             {role === "organizer" ? "Organizer sign-in" : role === "umpire" ? "Umpire sign-in" : "Staff access"}
           </h2>
           {!role && <p>Choose your role for this tournament.</p>}
-          {role === "umpire" && <p>Use your staff PIN. You’ll enter the match PIN at the scorecard.</p>}
+          {role === "umpire" && <p>{personal ? "Enter your personal six-digit PIN to see your court." : "Use your staff PIN. You’ll enter the match PIN at the scorecard."}</p>}
         </header>
         {!role && (
           <div className="staff-role-list">
@@ -95,11 +97,11 @@ export function StaffAccessDialog({ accountsEnabled, renewingOrganizer, onClose,
         )}
         {usesPin && (
           <form className="staff-pin-form" onSubmit={submitPin} aria-busy={busy}>
-            <label>{role === "umpire" ? "Umpire staff PIN" : "Organizer PIN"}
-              <input type="password" inputMode="numeric" autoComplete="off" required minLength={4} maxLength={10}
-                pattern="[0-9]{4,10}" value={pin} disabled={busy} aria-invalid={Boolean(error)}
+            <label>{role === "umpire" ? personal ? "Personal umpire PIN" : "Umpire staff PIN" : "Organizer PIN"}
+              <input type="password" inputMode="numeric" autoComplete="off" required minLength={personal ? 6 : 4} maxLength={personal ? 6 : 10}
+                pattern={personal ? "[0-9]{6}" : "[0-9]{4,10}"} value={pin} disabled={busy} aria-invalid={Boolean(error)}
                 aria-describedby={error ? errorId : undefined} onChange={event => {
-                  setPin(event.target.value.replace(/\D/g, "").slice(0, 10));
+                  setPin(event.target.value.replace(/\D/g, "").slice(0, personal ? 6 : 10));
                   setError("");
                 }} />
             </label>

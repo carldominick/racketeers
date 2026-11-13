@@ -435,6 +435,45 @@ async function gameDayApiFixture(){
  state.gameDay={evenRotation:true,restMinutes:0,nearCapEnabled:true,nearCapPoints:5};saved.payload=JSON.stringify(state);return state;
 }
 
+test('umpire confirms the saved winning result before a court can take another game',async()=>{
+ for(const format of ['single_31','best_of_3_21']){
+  const state=await gameDayApiFixture(), match=state.matches[0], bestOfThree=format==='best_of_3_21';
+  const target=bestOfThree?21:31;
+  const sets=[{a:target,b:10,complete:true},...(bestOfThree?[{a:target,b:8,complete:true},{a:0,b:0,complete:false}]:[])];
+  const unconfirmed=sets.map((set,index)=>index===(bestOfThree?1:0)?{...set,complete:false}:set);
+  Object.assign(match,{format,scoring:{mode:'first_to_target',target,cap:target},sets:unconfirmed,court:1,courtInUse:true,status:'live'});
+  saved.payload=JSON.stringify(state);
+  const umpire={'x-umpire-pin':'87654321'};
+  const patch=(body,headers=umpire)=>api.PATCH(request({matchId:match.id,pin:match.pin,...body},headers,'PATCH'));
+  const complete={action:'completeGame',sets};
+  const dispatch=()=>post({action:'dispatchGame',matchId:state.matches[1].id,court:1,expectedRevision:saved.revision},org);
+  const stored=()=>JSON.parse(saved.payload);
+  assert.equal((await patch(complete,{})).status,401);
+  assert.equal((await patch({...complete,pin:'9999'})).status,401);
+  assert.equal((await patch(complete)).status,409);
+  assert.equal((await patch({sets,finishSeparately:true})).status,200);
+  assert.equal(stored().matches[0].status,'live');
+  assert.equal(logic.isMatchUsingCourt(stored().matches[0]),true);
+  assert.equal(stored().matches[0].completedAt,undefined);
+  assert.equal((stored().staffNotifications??[]).filter(event=>event.kind==='court_released').length,0);
+  assert.equal((await dispatch()).status,409);
+  assert.equal((await patch({...complete,sets:unconfirmed})).status,409);
+  rejectNextWrite=true;
+  assert.equal((await patch(complete)).status,409);
+  assert.equal(logic.isMatchUsingCourt(stored().matches[0]),true);
+  assert.equal((await patch(complete)).status,200);
+  const game=stored().matches[0];
+  assert.equal(game.status,'finished');assert.equal(game.validated,false);assert.equal(game.court,1);assert.equal(game.courtInUse,false);
+  assert.deepEqual(game.sets,sets);assert.ok(game.completedAt);assert.equal(game.awaitingUmpireCompletion,undefined);
+  assert.equal((await dispatch()).status,200);
+  assert.equal((await patch(complete)).status,200);
+  const released=stored().staffNotifications.filter(event=>event.kind==='court_released');
+  assert.equal(released.length,1);assert.equal(released[0].gameComplete,true);assert.equal(released[0].available,true);
+  assert.equal((await patch({sets:unconfirmed,finishSeparately:true})).status,409);
+  assert.equal(stored().matches[1].court,1);
+ }
+});
+
 test('pure-black theme persists with organizer authorization and revisions while Live setup is locked',async()=>{
  const state=await gameDayApiFixture(),before=structuredClone(state),next={...state,theme:'black'};
  const put=(value,headers=org,revision=saved.revision)=>api.PUT(request({state:value,expectedRevision:revision},headers,'PUT'));

@@ -1,6 +1,8 @@
 import { gameNumber } from "../../lib/game-day";
 import { displayName, scoringRule, type Entry, type Match, type TournamentState } from "../../lib/tournament";
 
+export type MatchCardsPerSheet = 2 | 4;
+
 function PlayerSignatures({ entry, side, mode }: { entry?: Entry; side: "A" | "B"; mode: "singles" | "doubles" | "team" }) {
   const count = Math.max(mode === "singles" ? 1 : 2, entry?.players.length ?? 0);
   const label = mode === "singles" ? "PLAYER" : mode === "team" ? "TEAM" : "PAIR";
@@ -13,22 +15,23 @@ function PlayerSignatures({ entry, side, mode }: { entry?: Entry; side: "A" | "B
   </div>;
 }
 
-export function PrintMatchCard({ state, match }: { state: TournamentState; match: Match }) {
+export function PrintMatchCard({ state, match, number, compact = false }: { state: TournamentState; match: Match; number?: number; compact?: boolean }) {
   const division = state.divisions.find(item => item.id === match.divisionId);
   const entryA = division?.entries.find(item => item.id === match.entryAId);
   const entryB = division?.entries.find(item => item.id === match.entryBId);
   const nameA = displayName(entryA), nameB = displayName(entryB);
   const longNames = nameA.length > 28 || nameB.length > 28;
   const sideLabel = division?.mode === "singles" ? "Player" : division?.mode === "team" ? "Team" : "Pair";
-  const scoreNameA = longNames || !entryA ? `${sideLabel} A` : nameA;
-  const scoreNameB = longNames || !entryB ? `${sideLabel} B` : nameB;
+  const scoreNameA = compact || longNames || !entryA ? `${sideLabel} A` : nameA;
+  const scoreNameB = compact || longNames || !entryB ? `${sideLabel} B` : nameB;
   const sets = match.format === "best_of_3_21" ? 3 : 1;
   const rule = scoringRule(match.format, match.scoring);
   const rules = `${sets === 3 ? "Best of 3" : "Single set"} · First to ${rule.target}${rule.mode === "first_to_target" ? "" : ` · Win by 2 · Cap ${rule.cap}`}`;
-  return <section className={`print-match-card${longNames ? " print-match-card-long-names" : ""}`} aria-label={`Game ${gameNumber(state, match)} match card`}>
+  const displayedNumber = number ?? gameNumber(state, match);
+  return <section className={`print-match-card${longNames ? " print-match-card-long-names" : ""}`} aria-label={`Game ${displayedNumber} match card`}>
     <header className="print-match-header">
       <div><p>RACKETEERS · MATCH CARD</p><h1>{state.tournamentName}</h1></div>
-      <strong>Game {gameNumber(state, match)}</strong>
+      <strong>Game {displayedNumber}</strong>
     </header>
     <div className="print-match-meta">
       <p>{division?.name} · {match.label}</p>
@@ -55,7 +58,12 @@ export function PrintMatchCard({ state, match }: { state: TournamentState; match
   </section>;
 }
 
-export function PrintMatchCards({ state, matchId }: { state: TournamentState; matchId?: string }) {
+export function PrintMatchCards({ state, matchId, number, perSheet = 2 }: { state: TournamentState; matchId?: string; number?: number; perSheet?: MatchCardsPerSheet }) {
   const matches = matchId ? state.matches.filter(match => match.id === matchId) : [...state.matches].sort((a, b) => (a.scheduledAt ?? "z").localeCompare(b.scheduledAt ?? "z"));
-  return <div className="print-sheet print-match-cards">{matches.map(match => <PrintMatchCard key={match.id} state={state} match={match} />)}</div>;
+  if (!matchId && perSheet === 4) return <div className="print-sheet print-match-cards print-match-cards-compact">
+    {Array.from({ length: Math.ceil(matches.length / 4) }, (_, index) => <div className="print-compact-page" key={index}>
+      {matches.slice(index * 4, index * 4 + 4).map(match => <PrintMatchCard key={match.id} state={state} match={match} compact />)}
+    </div>)}
+  </div>;
+  return <div className="print-sheet print-match-cards">{matches.map(match => <PrintMatchCard key={match.id} state={state} match={match} number={matchId ? number : undefined} />)}</div>;
 }

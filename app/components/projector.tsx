@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { displayName, matchScoreText, distributeEntriesToPools, standingsFor, subBracketName, type TournamentState } from "../../lib/tournament";
+import { displayName, isMatchUsingCourt, isProvisionalMatch, matchScoreText, distributeEntriesToPools, standingsFor, subBracketName, type TournamentState } from "../../lib/tournament";
 import { paginateCourts, paginateRows, projectorCourts } from "../../lib/projector";
 import { normalizeProjectorSettings, type ProjectorSlideId } from "../../lib/projector-settings";
 import { ProjectorCourts } from "./projector-courts";
@@ -48,7 +48,7 @@ export function Projector({ state, onFullscreenChange, sponsorImages }: { state:
     const result: Section[] = [{ id: "courts", kind: "courts", title: "Courts right now", headers: [], rows: courts.map(court => ({ id: String(court.court), cells: [] })) }];
     const entries = new Map(state.divisions.flatMap(d => d.entries.map(e => [e.id, e] as const)));
     for (const [id, title] of [["live", "Live matchups"], ["upcoming", "Upcoming matchups"], ["finished", "Results"]] as const) {
-      const matches = state.matches.filter(m => !m.hold && (id === "live" ? m.status === "live" : id === "finished" ? m.status === "finished" || m.validated : m.status !== "live" && m.status !== "finished" && !m.validated));
+      const matches = state.matches.filter(m => !m.hold && !m.voidedResult && m.umpireWorkflow?.phase !== "voided" && (id === "live" ? m.status === "live" && (!isProvisionalMatch(m) || isMatchUsingCourt(m)) : id === "finished" ? m.status === "finished" || m.validated : m.status !== "live" && m.status !== "finished" && !m.validated));
       if (matches.length) result.push({ id, kind: id, title, headers: ["Game / court", "Matchup", "Score"], rows: matches.map(m => ({ id: m.id, cells: [<><strong>{m.label}</strong><small>{state.divisions.find(d => d.id === m.divisionId)?.name} · {m.court ? `Court ${m.court}` : "Court TBD"}</small></>, <><strong>{displayName(entries.get(m.entryAId || ""))}</strong><small>vs</small><strong>{displayName(entries.get(m.entryBId || ""))}</strong></>, m.forfeit ? <><strong>Forfeit · {displayName(entries.get(m.forfeit.winnerId))} wins</strong><small>{m.validated ? "Validated" : "Awaiting validation"}</small><small>{matchScoreText(m)}</small></> : matchScoreText(m)] })) });
     }
     for (const division of state.divisions) {

@@ -1,4 +1,4 @@
-import { displayName, forfeitWinningPoints, gameDaySettings, isMatchUsingCourt, isSetWon, matchWinner, reseedChampionships, scoringRule, subBracketName, type Match, type TournamentState } from "./tournament";
+import { displayName, forfeitWinningPoints, gameDaySettings, isAwaitingUmpireCompletion, isMatchUsingCourt, isProvisionalMatch, isSetWon, matchWinner, reseedChampionships, scoringRule, subBracketName, type Match, type TournamentState } from "./tournament";
 
 export function bracketKey(match: Match) { return `${match.divisionId}:${match.subBracket ?? 0}`; }
 export function bracketLabel(state: TournamentState, match: Match) {
@@ -11,7 +11,7 @@ export function matchupText(state: TournamentState, match: Match) {
   const entries = state.divisions.find(d => d.id === match.divisionId)?.entries ?? [];
   return `${displayName(entries.find(e => e.id === match.entryAId))} vs ${displayName(entries.find(e => e.id === match.entryBId))}`;
 }
-export function isFinished(match: Match) { return match.validated || match.status === "finished" || Boolean(matchWinner(match)); }
+export function isFinished(match: Match) { return match.validated || match.status === "finished" || !isProvisionalMatch(match) && !isAwaitingUmpireCompletion(match) && Boolean(matchWinner(match)); }
 export function isDispatched(match: Match) { return !match.hold && !isFinished(match) && Boolean(match.dispatchedAt); }
 export function courtOccupant(state: TournamentState, court: number) {
   return state.matches.find(m => m.court === court && isMatchUsingCourt(m)) ?? state.matches.find(m => m.court === court && isDispatched(m) && m.status === "ready");
@@ -39,15 +39,16 @@ function matchupReadiness(state: TournamentState, match: Match): Eligibility {
   if (!division?.entries.some(e => e.id === match.entryAId) || !division.entries.some(e => e.id === match.entryBId)) return { ready: false, reason: "Waiting for confirmed players" };
   if (match.stage !== "regular" && !division.manualChampionshipMatchups) {
     const prior = state.matches.filter(m => m.divisionId === match.divisionId && (m.stage === "regular" || m.round < match.round));
-    if (prior.some(m => !m.validated)) return { ready: false, reason: "Waiting for earlier results to be validated" };
+    if (prior.some(m => !m.validated && !(m.stage === "regular" && m.umpireWorkflow?.phase === "voided"))) return { ready: false, reason: "Waiting for earlier results to be validated" };
   }
   return { ready: true, reason: "Ready" };
 }
+const isWaitingForReassignment = (state: TournamentState, match: Match) => Boolean(state.managedUmpires && match.status === "live" && !match.court && !match.umpireWorkflow && match.umpireHistory?.length);
 export function gameEligibility(state: TournamentState, match: Match, now = Date.now(), ignoreOwnDispatch = false): Eligibility {
   if (state.status === "completed") return { ready: false, reason: "Tournament completed" };
   if (isFinished(match)) return { ready: false, reason: "Result complete" };
   if (match.hold) return { ready: false, reason: "On hold" };
-  if (!ignoreOwnDispatch && (match.status === "live" || isDispatched(match) || isMatchUsingCourt(match))) return { ready: false, reason: "Already assigned / in progress" };
+  if (!ignoreOwnDispatch && ((match.status === "live" && !isWaitingForReassignment(state, match)) || isDispatched(match) || isMatchUsingCourt(match))) return { ready: false, reason: "Already assigned / in progress" };
   const matchup = matchupReadiness(state, match);
   if (!matchup.ready) return matchup;
   const players = playerKeys(state, match);
@@ -60,7 +61,7 @@ export function gameEligibility(state: TournamentState, match: Match, now = Date
 }
 
 export function gameQueue(state: TournamentState, now = Date.now()) {
-  const pending = state.matches.filter(m => !isFinished(m) && m.status !== "live" && !isDispatched(m));
+  const pending = state.matches.filter(m => !isFinished(m) && (m.status !== "live" || isWaitingForReassignment(state, m)) && !isDispatched(m));
   const allKeys = [...new Set(state.matches.map(bracketKey))];
   const settings = gameDaySettings(state);
   const cursor = Math.max(0, allKeys.indexOf(settings.nextBracketKey ?? ""));
@@ -76,11 +77,11 @@ export function gameQueue(state: TournamentState, now = Date.now()) {
 }
 
 /** Simulate dispatch so recommendations also respect rotation and player overlap with each other. */
-export function courtRecommendations(state: TournamentState, now = Date.now()) {
+export function courtRecommendations(state: TournamentState, now = Date.now(), courtAllowed: (court: number) => boolean = () => true) {
   const recommendations: { court: number; match: Match }[] = [];
   let proposed = state;
   for (let court = 1; court <= state.courts; court++) {
-    if (courtOccupant(proposed, court)) continue;
+    if (courtOccupant(proposed, court) || !courtAllowed(court)) continue;
     const match = gameQueue(proposed, now).ready[0];
     if (!match) break;
     const result = dispatchGame(proposed, match.id, court, now);
@@ -139,13 +140,13 @@ export function dispatchGame(state: TournamentState, matchId: string, court: num
   if (courtOccupant(state, court)) return { error: `Court ${court} is already in use or reserved.` };
   const keys = [...new Set(state.matches.map(bracketKey))];
   const nextBracketKey = keys[(keys.indexOf(bracketKey(match)) + 1) % keys.length];
-  return { state: { ...state, gameDay: { ...gameDaySettings(state), nextBracketKey }, matches: state.matches.map(m => m.id === matchId ? { ...m, court, dispatchedAt: new Date(now).toISOString(), courtInUse: false } : m) } };
+  return { state: { ...state, gameDay: { ...gameDaySettings(state), nextBracketKey }, matches: state.matches.map(m => m.id === matchId ? { ...m, court, ...(state.managedUmpires ? { status: "ready" as const } : {}), dispatchedAt: new Date(now).toISOString(), courtInUse: false } : m) } };
 }
 
 export type NearCapSignal = { match: Match; setNumber: number; remaining: number; cap: number };
 export function nearCapSignal(state: TournamentState, match: Match): NearCapSignal | null {
   const settings = gameDaySettings(state);
-  if (!settings.nearCapEnabled || state.status !== "live" || match.status !== "live" || isFinished(match)) return null;
+  if (!settings.nearCapEnabled || state.status !== "live" || match.status !== "live" || isFinished(match) || match.umpireWorkflow && match.umpireWorkflow.phase !== "playing" || matchWinner(match)) return null;
   const index = match.sets.findIndex(s => !s.complete);
   if (index < 0) return null;
   const set = match.sets[index], rule = scoringRule(match.format, match.scoring);

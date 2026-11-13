@@ -21,6 +21,13 @@ export const sponsorImages = sqliteTable("sponsor_images", {
   createdAt: text("created_at").notNull(),
 });
 
+// Only last-seen timestamps are stored here. Credentials and court assignments
+// use the tournament row so authorization and state changes share one revision.
+export const umpirePresence = sqliteTable("umpire_presence", {
+  id: text("id").primaryKey(),
+  seen: integer("seen").notNull(),
+});
+
 // Organizer-only receipt extraction/review, separate from whole-state score writes.
 export const paymentReceiptDetails = sqliteTable("payment_receipt_details", {
   groupId: text("group_id").primaryKey(),

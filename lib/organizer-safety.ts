@@ -5,7 +5,7 @@ export function gameHasStarted(match: Match) {
 }
 export function regenerationIssue(state: TournamentState): string | null {
   if (state.status === "live" || state.status === "completed") return "Regeneration is unavailable during Live or Completed.";
-  if (state.matches.some(gameHasStarted)) return "Games have already started or have recorded results. Use individual game corrections; brackets cannot be regenerated.";
+  if (state.matches.some(match => gameHasStarted(match) || match.umpireWorkflow || match.umpireHistory?.length)) return "Games have already started or have recorded results. Use individual game corrections; brackets cannot be regenerated.";
   return null;
 }
 export function regenerationImpact(state: TournamentState) {
