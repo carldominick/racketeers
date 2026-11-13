@@ -33,10 +33,10 @@ export function PrintMatchCard({ state, match, number, compact = false }: { stat
       <div><p>RACKETEERS · MATCH CARD</p><h1>{state.tournamentName}</h1></div>
       <strong>Game {displayedNumber}</strong>
     </header>
-    <div className="print-match-meta">
+    <div className={`print-match-meta${state.managedUmpires ? " print-match-meta-managed" : ""}`}>
       <p>{division?.name} · {match.label}</p>
       <p className="print-blank-field"><b>Court #:</b><span className="print-write-line" data-field="court" /></p>
-      <p className="print-blank-field"><b>Umpire PIN:</b><span className="print-write-line" data-field="umpire-pin" /></p>
+      {!state.managedUmpires && <p className="print-blank-field"><b>Umpire PIN:</b><span className="print-write-line" data-field="umpire-pin" /></p>}
     </div>
     <div className="print-matchup"><h2>{nameA}</h2><span>vs</span><h2>{nameB}</h2></div>
     <div className="print-match-body">

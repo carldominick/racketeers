@@ -10,10 +10,11 @@ import "./umpire-workflow.css";
 
 type Props = {
   state: TournamentState; roster: UmpireSummary[]; busy: boolean; demo: boolean;
+  personalAccessConfigured: boolean | null;
   onAction: (body: WorkflowInput) => Promise<{ pin?: string }>;
 };
 
-export function UmpireRoster({ state, roster, busy, demo, onAction }: Props) {
+export function UmpireRoster({ state, roster, busy, demo, personalAccessConfigured, onAction }: Props) {
   const [name, setName] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("active");
@@ -31,7 +32,11 @@ export function UmpireRoster({ state, roster, busy, demo, onAction }: Props) {
   const matchesFilter = (member: UmpireSummary) => member.name.toLowerCase().includes(search.trim().toLowerCase()) && (filter === "all" || filter === "active" && !member.inactive || filter === "inactive" && member.inactive || filter === "on-duty" && !member.inactive && member.onDuty);
   return <div className="stack umpire-workflow">
     <section className="card"><h2>Umpire roster</h2>
-      {!state.managedUmpires ? <><p>Enable personal PINs and staffed courts for this tournament. This retires the shared umpire login.</p><button className="primary" disabled={busy} onClick={() => void save({ action: "enable" })}>Enable personal umpire access</button></> : <>
+      {!state.managedUmpires ? <>
+        <p>Give each umpire a personal PIN and assign them to a court. Turning this on retires the shared login and removes game PINs.</p>
+        {personalAccessConfigured !== true && <p role="status">{personalAccessConfigured === false ? "Personal access needs a one-time setup in Cloudflare. Ask the site administrator to finish setup. Shared login and game PINs still work." : "Waiting to verify that personal umpire access is ready."}</p>}
+        <button className="primary" disabled={busy || personalAccessConfigured !== true} onClick={() => void save({ action: "enable" })}>Enable personal umpire access</button>
+      </> : <>
         <form className="umpire-workflow-form" onSubmit={event => { event.preventDefault(); void save({ action: "add", name }, name.trim()); }}>
           <label>Umpire name<input required maxLength={100} value={name} onChange={event => setName(event.target.value)} /></label>
           <button className="primary" disabled={busy || name.trim().length < 2}>Add umpire and generate PIN</button>
@@ -117,17 +122,19 @@ export function OrganizerUmpireReviews({ state, roster, busy, onAction }: Pick<P
 }
 
 export function useUmpireRoster(pin: string, enabled: boolean) {
-  const [roster, setRoster] = useState<UmpireSummary[]>([]);
+  const [snapshot, setSnapshot] = useState<{ pin: string; roster: UmpireSummary[]; personalAccessConfigured: boolean | null }>();
   useEffect(() => {
     if (!enabled || !pin) return;
     let current = true;
     const refresh = async () => {
-      try { const data = await umpireRequest(undefined, pin); if (current) setRoster(data.roster ?? []); }
-      catch { if (current) setRoster([]); }
+      try {
+        const data = await umpireRequest(undefined, pin);
+        if (current) setSnapshot({ pin, roster: data.roster ?? [], personalAccessConfigured: data.personalAccessConfigured ?? null });
+      } catch { if (current) setSnapshot(undefined); }
     };
     void refresh();
     const timer = setInterval(() => void refresh(), 3000);
     return () => { current = false; clearInterval(timer); };
   }, [enabled, pin]);
-  return roster;
+  return enabled && snapshot?.pin === pin ? snapshot : { roster: [], personalAccessConfigured: null };
 }

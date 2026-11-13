@@ -42,6 +42,7 @@ const organizerActions = new Set(["enable", "newTournament", "add", "rename", "i
 
 export async function handleUmpire(request: Request, context: Context, body?: WorkflowInput) {
   const { state, db, secret, organizer, revision, save, demoSession } = context;
+  const personalAccessConfigured = secret.length >= 32;
   const now = Date.now();
   const directory = state.umpireDirectory ?? { scope: "", members: [] };
   const replace = (members = directory.members, scope = directory.scope, issuedKey?: string): TournamentState => ({
@@ -63,7 +64,7 @@ export async function handleUmpire(request: Request, context: Context, body?: Wo
     const organizerRequest = request.headers.has("x-organizer-pin");
     if ((!body && organizerRequest) || organizerActions.has(action)) {
       requireUmpire(organizer, "Organizer access is required.", 403);
-      if (!body) return response({ managed: Boolean(state.managedUmpires), revision, roster: await roster() });
+      if (!body) return response({ managed: Boolean(state.managedUmpires), personalAccessConfigured, revision, roster: await roster() });
       requireUmpire(body.expectedRevision === revision, "Tournament data changed. Refresh and try again.");
       const target = directory.members.find(member => member.id === body.umpireId);
       const match = state.matches.find(item => item.id === body.matchId);
@@ -74,7 +75,7 @@ export async function handleUmpire(request: Request, context: Context, body?: Wo
         case "enable":
           requireUmpire(!state.managedUmpires, "Personal umpire access is already enabled.");
           requireUmpire(!state.matches.some(match => !isFinished(match) && (match.status === "live" || match.dispatchedAt)), "Finish or unassign current games before enabling personal umpire access.");
-          requireUmpire(secret.length >= 32, "Configure the umpire credential secret first.", 503);
+          requireUmpire(personalAccessConfigured, "Personal umpire access needs a one-time setup in Cloudflare. Shared login and game PINs still work.", 503);
           next = { ...replace([], crypto.randomUUID()), umpirePinHash: undefined, matches: state.matches.map(match => ({ ...match, pin: "" })) };
           break;
         case "newTournament":
