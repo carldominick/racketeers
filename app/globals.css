@@ -1177,7 +1177,17 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
 .desk-side .desk-more>div>button {width:auto}
 .desk-assignment,.desk-review,.desk-queue {scroll-margin-top:112px}
 .desk-assignment h3:focus,.desk-review h3:focus,.desk-queue h3:focus {outline:3px solid var(--lime-dark);outline-offset:5px}
-.desk-assignment {position:sticky;top:112px}
+.desk-review-jump {justify-self:start;color:var(--ink);font-size:13px;font-weight:700;text-underline-offset:3px;min-height:44px;display:inline-flex;align-items:center}
+@media screen and (width > 1200px) {
+ .desk-side {
+  --desk-panel-top:112px;
+  position:sticky;
+  top:var(--desk-panel-top);
+  max-height:calc(100dvh - var(--desk-panel-top) - 16px);
+  overflow-y:auto;
+ }
+ .desk-side :is(.desk-assignment,.desk-review) {scroll-margin-top:0}
+}
 .registration-outcome {border-left:3px solid var(--lime-dark);padding:12px 16px;background:var(--surface);line-height:1.6}
 .registration-total {font-size:20px}
 .registration-charges details {margin:12px 0}
@@ -1198,7 +1208,9 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
  .clubhouse-registration .guided-workspace {padding-top:18px}
  .clubhouse-registration .registration-steps {margin-bottom:16px}
  .clubhouse-registration .guided-heading {margin-bottom:18px}
- .desk-assignment {position:static}
+}
+@media(max-width:1200px) {
+ .desk-assignment,.desk-review,.desk-queue {scroll-margin-top:16px}
 }
 @media(max-width:760px) {
  .registration-view .view-switch {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%;gap:0}
@@ -1228,7 +1240,6 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
  .desk-readiness .readiness-grid>details {flex-basis:100%}
  .game-day-desk .desk-court .desk-tools .desk-small,.game-day-desk .desk-small {min-height:44px}
  .game-day-desk .desk-select {min-height:44px!important}
- .desk-assignment,.desk-review,.desk-queue {scroll-margin-top:16px}
 }
 
 /* Multi-photo receipt controls retain the Clubhouse palette. */

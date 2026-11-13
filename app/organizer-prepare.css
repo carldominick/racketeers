@@ -54,6 +54,19 @@
   }
   .prepare-player-link:hover, .prepare-player-link[aria-pressed=true] { text-decoration: underline; text-underline-offset: 3px; }
   .prepare-detail { min-width: 0; }
+  @media (width > 1000px) {
+    .prepare-registration-workspace > aside.prepare-detail {
+      /* At tablet widths only the division selector sticks to the top. */
+      --player-panel-top: 80px;
+      position: sticky;
+      top: var(--player-panel-top);
+      max-height: calc(100dvh - var(--player-panel-top) - 16px);
+      overflow-y: auto;
+    }
+  }
+  @media (width > 1200px) {
+    .prepare-registration-workspace > aside.prepare-detail { --player-panel-top: 112px; }
+  }
   .prepare-detail-head { margin-bottom: 12px; align-items: start; }
   .prepare-detail-head h2, .prepare-detail-head p { margin: 0; overflow-wrap: anywhere; }
   .prepare-detail-head p { color: var(--muted); }

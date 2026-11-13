@@ -1197,7 +1197,7 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
         <span><strong>{visibleRegistrations.filter(player => !player.paid).length}</strong> Unconfirmed entries</span>
         <span><strong>{visibleRegistrations.filter(player => player.secondShirt !== "none" && !player.shirtReceived).length}</strong> Shirts to hand out</span>
       </div>
-      <div className="prepare-workspace">
+      <div className="prepare-workspace prepare-registration-workspace">
         <RegistrationRoster divisions={registrationDivisions} registrations={visibleRegistrations}
           locked={registrationLocked} canEdit={!organizerReadOnly && !organizerSessionExpired}
           selectedId={selectedRegistrationId} onSelect={id => {
