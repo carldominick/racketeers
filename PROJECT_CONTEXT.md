@@ -156,7 +156,7 @@ Ordinary public state omits all registrations, staff hashes/signals and match PI
 
 ## Registration, identities, shirts and contacts
 
-Prepare's Registrations workspace groups reciprocal partners by division and keeps singles and unpaired registrations visible. Selecting a player opens payment, shirt and player details beside the roster or in a drawer. The Shirt received checkbox uses the existing organizer save, revision, audit and permission checks. Entries without a requested shirt have no active checkbox. Draw combines pool rosters and group matchups with a championship bracket view and selected matchup details. Both workspaces use existing tournament records and match generation rules.
+Prepare's Registrations workspace groups reciprocal partners by division and keeps singles and unpaired registrations visible. Selecting a player opens payment, shirt and player details in a sidebar that follows the roster on desktop or in a drawer on smaller screens. Long sidebars scroll independently. The Shirt received checkbox uses the existing organizer save, revision, audit and permission checks. Entries without a requested shirt have no active checkbox. Draw combines pool rosters and group matchups with a championship bracket view and selected matchup details. Both workspaces use existing tournament records and match generation rules.
 
 Registration uses three visible steps: Division & players, Entries & shirts, and Review & payment, with focus/scroll changes between steps. The event details, rules and separate disclaimer/waiver links stay in the desktop left sidebar and above the form on narrow screens. Division selection and player details share the first step; shirts move to the second. Division changes preserve player drafts, including Player 2; singles submissions exclude hidden partner fields. Doubles requires both names. Every new participating player needs a club/group, Facebook profile URL and phone/mobile. Valid Facebook hosts are facebook.com, www/m/mbasic.facebook.com, HTTPS, non-root profile path and no embedded credentials. Phone accepts common punctuation and 7–15 digits without enforcing a single country. Public level selection was removed; new registration player/desired levels are blank, while organizer level overrides and legacy/custom level fields remain.
 
@@ -201,6 +201,8 @@ Winning points alone are not a completed set. Single-set matches need one comple
 Standings include validated regular matches only. Played/wins/losses and summed set points produce point difference. Sort is wins descending, difference descending, points for descending, then alphabetical display name. No head-to-head tiebreak exists. Medal result helpers require validated gold/bronze games and use tournament medal point settings.
 
 ## Game Day Desk, courts and schedule
+
+On desktop, Assign next game and Review result scroll together in one sidebar. The assignment card links to the result review and shows how many results are pending.
 
 The desk now recommends a distinct eligible game for each free court by simulating dispatch against the queue, including player overlap between recommendations. Recommendations are read-only; organizer confirmation reserves the court and advances rotation. Unstarted games can be held with an organizer-only note, releasing their reserved court, and returned to the queue for a fresh eligibility check and refresh of automatic entrants confirmed while the game was held. Holds are separate from scoring status and are omitted from projector upcoming slides.
 
