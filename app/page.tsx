@@ -13,7 +13,8 @@ import { UmpireDashboard, umpireRequest } from "./components/umpire-dashboard";
 import { OrganizerUmpireReviews, UmpireRoster, useUmpireRoster } from "./components/umpire-roster";
 import type { WorkflowInput } from "../lib/umpire-workflow";
 import { UmpireScorecard } from "./components/umpire-scorecard";
-import { PrintMatchCards } from "./components/print-match-card";
+import { PrintMatchCards, type MatchCardsPerSheet } from "./components/print-match-card";
+import { BulkMatchCardPrint } from "./components/bulk-match-card-print";
 import { ArrowSquareOut } from "@phosphor-icons/react/dist/csr/ArrowSquareOut";
 import { Key } from "@phosphor-icons/react/dist/csr/Key";
 import { Moon } from "@phosphor-icons/react/dist/csr/Moon";
@@ -76,6 +77,7 @@ import {
   courtInUseAfterScore,
   isMatchUsingCourt,
   isProvisionalMatch,
+  applyUmpireSets,
   isSetWon,
   scoringRule,
   matchScoreLimit,
@@ -102,7 +104,7 @@ import {
 
 type View = "organizer" | "register" | "umpire" | "spectator" | "projector";
 type Tab = "umpires" | "accounts" | "setup" | "registration" | "draw" | "scores" | "schedule" | "projector" | "standings";
-type PrintMode = { type: "schedule" } | { type: "scorecard"; matchId: string; snapshot?: TournamentState; number?: number } | { type: "scorecards" } | null;
+type PrintMode = { type: "schedule" } | { type: "scorecard"; matchId: string; snapshot?: TournamentState; number?: number } | { type: "scorecards"; perSheet: MatchCardsPerSheet } | null;
 
 
 function ContactFields({ facebookProfile, phone, readOnly = false, onChange }: { facebookProfile?: string; phone?: string; readOnly?: boolean; onChange: (patch: { facebookProfile?: string; phone?: string }) => void }) {
@@ -485,9 +487,9 @@ function StandingsTable({ state, division }: { state: TournamentState; division:
     <tbody>{rows.map((row, index) => <tr key={row.entryId}><td>{index + 1}</td><td><strong>{row.name}</strong></td><td>{row.played}</td><td>{row.wins}</td><td>{row.losses}</td><td>{row.pointsFor}</td><td>{row.pointsAgainst}</td><td className={row.difference >= 0 ? "positive" : "negative"}>{row.difference > 0 ? "+" : ""}{row.difference}</td></tr>)}</tbody></table></div>;
 }
 
-function TournamentProgress({ state, onPrintAll }: { state: TournamentState; onPrintAll?: () => void }) {
+function TournamentProgress({ state, onPrintAll }: { state: TournamentState; onPrintAll?: (perSheet: MatchCardsPerSheet) => void }) {
   const stageOrder: Match["stage"][] = ["round_64", "round_32", "round_16", "quarterfinal", "semifinal", "bronze", "gold"];
-  return <div className="stack tournament-progress"><section className="scoreboard-hero progress-hero"><div><p className="eyebrow">Live tournament tracker</p><h2>Group stage to championship</h2><p>See every pool, possible qualifier, knockout matchup, and advancing winner in one stage-by-stage view.</p></div>{onPrintAll && <button className="ghost" onClick={onPrintAll}>Print All Umpire Scorecards</button>}</section>{state.divisions.map((division) => {
+  return <div className="stack tournament-progress"><section className="scoreboard-hero progress-hero"><div><p className="eyebrow">Live tournament tracker</p><h2>Group stage to championship</h2><p>See every pool, possible qualifier, knockout matchup, and advancing winner in one stage-by-stage view.</p></div>{onPrintAll && <BulkMatchCardPrint count={state.matches.length} onPrint={onPrintAll} label="Print all scorecards" buttonClass="ghost" />}</section>{state.divisions.map((division) => {
     const entryMap = new Map(division.entries.map((entry) => [entry.id, entry]));
     const divisionMatches = state.matches.filter((match) => match.divisionId === division.id);
     const groupMatches = divisionMatches.filter((match) => match.stage === "regular");
@@ -502,7 +504,7 @@ function TournamentProgress({ state, onPrintAll }: { state: TournamentState; onP
 function PrintSheet({ state, mode }: { state: TournamentState; mode: Exclude<PrintMode, null> }) {
   const entries = new Map(state.divisions.flatMap((division) => division.entries).map((entry) => [entry.id, entry]));
   if (mode.type === "schedule") return <section className="print-sheet print-schedule"><header><p>RACKETEERS</p><h1>{state.tournamentName}</h1><span>Tournament Match Schedule</span></header><table><thead><tr><th>Date & time</th><th>Court</th><th>Division / Round</th><th>Matchup</th><th>Umpire</th></tr></thead><tbody>{[...state.matches].sort((a, b) => (a.scheduledAt ?? "z").localeCompare(b.scheduledAt ?? "z")).map((match) => <tr key={match.id}><td>{fmtDate(match.scheduledAt)}</td><td>{match.court ? `Court ${match.court}` : "TBD"}</td><td>{state.divisions.find((division) => division.id === match.divisionId)?.name}<br />{match.label}</td><td>{displayName(entries.get(match.entryAId ?? ""))}<br /><b>vs</b><br />{displayName(entries.get(match.entryBId ?? ""))}</td><td></td></tr>)}</tbody></table></section>;
-  return <PrintMatchCards state={state} matchId={mode.type === "scorecard" ? mode.matchId : undefined} number={mode.type === "scorecard" ? mode.number : undefined} />;
+  return <PrintMatchCards state={state} matchId={mode.type === "scorecard" ? mode.matchId : undefined} perSheet={mode.type === "scorecards" ? mode.perSheet : undefined} number={mode.type === "scorecard" ? mode.number : undefined} />;
 }
 
 function MatchCard({ match, state, organizer = false, scoreEditable = false, onChange, onScoreStep, onCompleteSet, onUncompleteSet, onValidate, onUnvalidate, onReset, onPrint }: { match: Match; state: TournamentState; organizer?: boolean; scoreEditable?: boolean; onChange?: (match: Match) => void; onScoreStep?: (setIndex: number, side: "a" | "b", delta: number) => void; onCompleteSet?: (setIndex: number) => void; onUncompleteSet?: (setIndex: number) => void; onValidate?: () => void; onUnvalidate?: () => void; onReset?: () => void; onPrint?: () => void }) {
@@ -1059,7 +1061,8 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
       if (!snapshot) return;
       umpirePending.current = null;
       umpireSaveQueue.current = umpireSaveQueue.current.then(async () => {
-        const response = await fetch("/api/state", { method: "PATCH", headers: { "content-type": "application/json", ...(unlocked ? { "x-organizer-pin": organizerPin } : { "x-umpire-pin": umpireAccessPin }) }, body: JSON.stringify({ matchId: snapshot.id, pin: umpirePin, sets: snapshot.sets, status: snapshot.status }) });
+        const completingGame = snapshot.status === "finished";
+        const response = await fetch("/api/state", { method: "PATCH", headers: { "content-type": "application/json", ...(unlocked ? { "x-organizer-pin": organizerPin } : { "x-umpire-pin": umpireAccessPin }) }, body: JSON.stringify({ matchId: snapshot.id, pin: umpirePin, sets: snapshot.sets, ...(completingGame ? { action: "completeGame" } : { status: snapshot.status, finishSeparately: true }) }) });
         const data = await response.json();
         if (!response.ok) {
           if (response.status === 409 && (data.gameLocked || data.error === "Organizer-validated games are locked")) {
@@ -1067,14 +1070,21 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
             if (umpireTimer.current) clearTimeout(umpireTimer.current);
             setUmpireUnlocked(false);
             await fetchState("");
-            alert(`${data.error || "This game was locked by the organizer."} Unsaved taps were not applied.`);
+            alert(completingGame ? data.error || "The game was not completed." : `${data.error || "This game was locked by the organizer."} Unsaved taps were not applied.`);
             return;
           }
           throw new Error(data.error || "Score update failed");
         }
         revisionRef.current = data.revision;
         setRevision(data.revision);
-        if (umpireSaveVersion.current === saveVersion && !umpirePending.current) { umpireFailed.current = null; setSync("saved"); setLastConfirmedAt(Date.now()); }
+        if (umpireSaveVersion.current === saveVersion && !umpirePending.current) {
+          if (completingGame) {
+            const completed = (data.state?.matches as Match[] | undefined)?.find(match => match.id === snapshot.id);
+            if (completed?.status !== "finished") throw new Error("Game completion was not confirmed");
+            setState(current => ({ ...current, matches: current.matches.map(match => match.id === completed.id ? completed : match) }));
+          }
+          umpireFailed.current = null; setSync("saved"); setLastConfirmedAt(Date.now());
+        }
       }).catch(() => { if (umpireSaveVersion.current === saveVersion) { umpireFailed.current = snapshot; setSync("offline"); } });
     }, 1000);
   };
@@ -1100,10 +1110,17 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
     const currentMatch = umpirePending.current ?? state.matches.find((match) => match.id === selectedMatch);
     if (!currentMatch || currentMatch.validated || currentMatch.hold || currentMatch.forfeit) return;
     if (!confirm(`Complete set ${setIndex + 1} at ${currentMatch.sets[setIndex]?.a}–${currentMatch.sets[setIndex]?.b}? Scoring will be locked for this set.`)) return;
-    const nextMatch = completeMatchSet(currentMatch, setIndex);
-    if (nextMatch === currentMatch) return;
+    const scored = completeMatchSet(currentMatch, setIndex);
+    if (scored === currentMatch) return;
+    const nextMatch = applyUmpireSets(currentMatch, scored.sets, true);
     setState((current) => ({ ...current, matches: current.matches.map((match) => match.id === nextMatch.id ? nextMatch : match) }));
     queueUmpireSave(nextMatch);
+  };
+  const finishUmpireGame = () => {
+    const match = state.matches.find(item => item.id === selectedMatch);
+    if (sync !== "saved" || !match || match.status === "finished" || match.validated || match.hold || match.forfeit || !matchWinner(match)) return;
+    // Keep the court in use until the server acknowledges the handoff.
+    queueUmpireSave({ ...match, status: "finished" });
   };
   const unlockUmpireSet = (setIndex: number) => {
     const currentMatch = umpirePending.current ?? state.matches.find((match) => match.id === selectedMatch);
@@ -1252,13 +1269,13 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
       </> : <p>No divisions have been added yet.</p>}
     </div>}
     {tab === "umpires" && <UmpireRoster state={state} roster={umpireRoster} busy={dirty || gameActionBusy || sync !== "saved"} demo={demo} onAction={umpireOrganizerAction} />}
-    {tab === "scores" && <>{courtWindow.url && <a className="court-tab-fallback" href={courtWindow.url} target="_blank" rel="noopener">Open court view in a tab</a>}{courtWindow.error && <p role="alert">{courtWindow.error}</p>}<GameDayDesk umpireRoster={umpireRoster} connectionLabel={saveConflict ? "Review save conflict" : SYNC_LABELS[displaySync]} onOpenCourtView={courtWindow.open} state={state} busy={dirty || sync !== "saved" || gameActionBusy || helpBusyCourt !== null} help={courtHelp} onAssign={async (id, court) => { await gameCourtAction("dispatchGame", id, { court }); }} onRelease={async id => { await gameCourtAction("releaseGameCourt", id); }} onAction={gameCourtAction} onSettings={updateGameDaySettings} onSettingsPage={() => setTab("setup")} onPin={renewMatchPin} onReset={resetMatch} onPrint={(id) => setPrintMode(id ? { type: "scorecard", matchId: id } : { type: "scorecards" })} onValidate={validateMatch} onUnvalidate={unvalidateMatch} onUpdate={updateMatch} onHelp={(court, help) => void toggleCourtHelp(court, help)} renderScoreEditor={match => <MatchCard match={match} state={state} organizer onChange={updateMatch} onValidate={() => validateMatch(match.id)} onUnvalidate={() => unvalidateMatch(match.id)} onReset={() => resetMatch(match.id)} onPrint={() => setPrintMode({ type: "scorecard", matchId: match.id })} />} />{state.managedUmpires && <OrganizerUmpireReviews state={state} roster={umpireRoster} busy={dirty || gameActionBusy || sync !== "saved"} onAction={umpireOrganizerAction} />}{(gameActionMessage || helpMessage) && <p className="desk-action-message" role="status">{gameActionMessage || helpMessage}</p>}</>}
+    {tab === "scores" && <>{courtWindow.url && <a className="court-tab-fallback" href={courtWindow.url} target="_blank" rel="noopener">Open court view in a tab</a>}{courtWindow.error && <p role="alert">{courtWindow.error}</p>}<GameDayDesk umpireRoster={umpireRoster} connectionLabel={saveConflict ? "Review save conflict" : SYNC_LABELS[displaySync]} onOpenCourtView={courtWindow.open} state={state} busy={dirty || sync !== "saved" || gameActionBusy || helpBusyCourt !== null} help={courtHelp} onAssign={async (id, court) => { await gameCourtAction("dispatchGame", id, { court }); }} onRelease={async id => { await gameCourtAction("releaseGameCourt", id); }} onAction={gameCourtAction} onSettings={updateGameDaySettings} onSettingsPage={() => setTab("setup")} onPin={renewMatchPin} onReset={resetMatch} onPrint={id => setPrintMode({ type: "scorecard", matchId: id })} onPrintAll={perSheet => setPrintMode({ type: "scorecards", perSheet })} onValidate={validateMatch} onUnvalidate={unvalidateMatch} onUpdate={updateMatch} onHelp={(court, help) => void toggleCourtHelp(court, help)} renderScoreEditor={match => <MatchCard match={match} state={state} organizer onChange={updateMatch} onValidate={() => validateMatch(match.id)} onUnvalidate={() => unvalidateMatch(match.id)} onReset={() => resetMatch(match.id)} onPrint={() => setPrintMode({ type: "scorecard", matchId: match.id })} />} />{state.managedUmpires && <OrganizerUmpireReviews state={state} roster={umpireRoster} busy={dirty || gameActionBusy || sync !== "saved"} onAction={umpireOrganizerAction} />}{(gameActionMessage || helpMessage) && <p className="desk-action-message" role="status">{gameActionMessage || helpMessage}</p>}</>}
     {tab === "schedule" && <section className="card"><div className="section-head"><div><p className="eyebrow">Court plan</p><h2>Tournament Schedule</h2></div><div className="action-row"><button className="ghost" onClick={() => setPrintMode({ type: "schedule" })}>Print Schedule</button><button className="secondary" onClick={() => commit(assignSchedule(state))}>Regenerate Schedule</button></div></div><div className="schedule-list editable-schedule">{[...state.matches].sort((a, b) => (a.scheduledAt ?? "z").localeCompare(b.scheduledAt ?? "z")).map((match) => <div className="schedule-row" key={match.id}><input aria-label={`${match.label} scheduled time`} type="datetime-local" value={inputDateTime(match.scheduledAt)} disabled={match.validated} onChange={(event) => { const nextMatch = { ...match, scheduledAt: event.target.value ? new Date(event.target.value).toISOString() : null }; const candidate = { ...state, matches: state.matches.map((item) => item.id === match.id ? nextMatch : item) }; if (nextMatch.court && !isCourtAvailable(candidate, nextMatch.court, nextMatch.id)) alert(`Court ${nextMatch.court} is already assigned at that time.`); else updateMatch(nextMatch); }} /><select aria-label={`${match.label} scheduled court`} value={match.court ?? ""} disabled={match.validated} onChange={(event) => { const court = Number(event.target.value) || null; if (!court || isCourtAvailable(state, court, match.id)) updateMatch({ ...match, court }); else alert(`Court ${court} is already assigned at this time.`); }}><option value="">Court TBD</option>{Array.from({ length: state.courts }, (_, index) => { const court = index + 1; const available = isCourtAvailable(state, court, match.id); return <option key={court} value={court} disabled={!available}>Court {court}{available ? "" : " · In use"}</option>; })}</select><span>{match.label}</span><strong>{displayName(entryMap.get(match.entryAId ?? ""))} vs {displayName(entryMap.get(match.entryBId ?? ""))}</strong><Status match={match} /></div>)}</div></section>}
-    {tab === "standings" && <TournamentProgress state={state} onPrintAll={() => setPrintMode({ type: "scorecards" })} />}
+    {tab === "standings" && <TournamentProgress state={state} onPrintAll={perSheet => setPrintMode({ type: "scorecards", perSheet })} />}
   </>;
 
   const umpireMatch = state.matches.find((match) => match.id === selectedMatch);
-  const umpireContent = state.managedUmpires ? <UmpireDashboard onFocusChange={setPersonalUmpireFocus} onScorePending={setPersonalScorePending} onPrint={(match, division, number) => setPrintMode({ type: "scorecard", matchId: match.id, number, snapshot: { ...state, divisions: division ? [division] : [], matches: state.matches.some(item => item.id === match.id) ? state.matches.map(item => item.id === match.id ? match : item) : [match] } })} /> : !umpireUnlocked ? <section className="gate card"><div className="gate-icon"><Key size={30} aria-hidden="true" /></div><p className="eyebrow">Umpire console</p><h2>Open a Match</h2><p>Enter the four-digit match PIN. The correct scorecard will open automatically.</p><form onSubmit={async (event) => { event.preventDefault(); const response = await fetch("/api/state", { method: "POST", headers: { "content-type": "application/json", ...(unlocked ? { "x-organizer-pin": organizerPin } : { "x-umpire-pin": umpireAccessPin }) }, body: JSON.stringify({ action: "verifyMatch", pin: umpirePin }) }); const data = await response.json(); if (!response.ok || !data.match) return alert(data.error || "Match PIN did not match an available game."); setSelectedMatch(data.match.id); setState((current) => ({ ...current, matches: [...current.matches.filter((match) => match.id !== data.match.id), data.match] })); setUmpireFocused(true); setUmpireUnlocked(true); }}><input aria-label="Match PIN" type="password" inputMode="numeric" autoComplete="off" placeholder="Match PIN" value={umpirePin} onChange={(event) => setUmpirePin(event.target.value.replace(/\D/g, "").slice(0, 4))} /><button className="primary" disabled={umpirePin.length !== 4}>Open Scorecard</button></form></section> : umpireMatch ? <UmpireScorecard key={umpireMatch.id} match={umpireMatch} state={state} sync={sync} focused={umpireFocused} helpRequested={Boolean(umpireMatch.court && courtHelp[umpireMatch.court])} helpBusy={helpBusyCourt !== null} helpMessage={helpMessage} onToggleHelp={() => umpireMatch.court && void toggleCourtHelp(umpireMatch.court, !courtHelp[umpireMatch.court])} onToggleFocus={() => setUmpireFocused(value => !value)} onPrint={() => setPrintMode({ type: "scorecard", matchId: umpireMatch.id })} onExit={() => setUmpireUnlocked(false)} onRetry={() => { const match = umpireFailed.current; if (match) queueUmpireSave(match); }} onScoreStep={changeUmpireScore} onCompleteSet={finishUmpireSet} onUnlockSet={unlockUmpireSet} /> : null;
+  const umpireContent = state.managedUmpires ? <UmpireDashboard onFocusChange={setPersonalUmpireFocus} onScorePending={setPersonalScorePending} onPrint={(match, division, number) => setPrintMode({ type: "scorecard", matchId: match.id, number, snapshot: { ...state, divisions: division ? [division] : [], matches: state.matches.some(item => item.id === match.id) ? state.matches.map(item => item.id === match.id ? match : item) : [match] } })} /> : !umpireUnlocked ? <section className="gate card"><div className="gate-icon"><Key size={30} aria-hidden="true" /></div><p className="eyebrow">Umpire console</p><h2>Open a Match</h2><p>Enter the four-digit match PIN. The correct scorecard will open automatically.</p><form onSubmit={async (event) => { event.preventDefault(); const response = await fetch("/api/state", { method: "POST", headers: { "content-type": "application/json", ...(unlocked ? { "x-organizer-pin": organizerPin } : { "x-umpire-pin": umpireAccessPin }) }, body: JSON.stringify({ action: "verifyMatch", pin: umpirePin }) }); const data = await response.json(); if (!response.ok || !data.match) return alert(data.error || "Match PIN did not match an available game."); setSelectedMatch(data.match.id); setState((current) => ({ ...current, matches: [...current.matches.filter((match) => match.id !== data.match.id), data.match] })); setUmpireFocused(true); setUmpireUnlocked(true); }}><input aria-label="Match PIN" type="password" inputMode="numeric" autoComplete="off" placeholder="Match PIN" value={umpirePin} onChange={(event) => setUmpirePin(event.target.value.replace(/\D/g, "").slice(0, 4))} /><button className="primary" disabled={umpirePin.length !== 4}>Open Scorecard</button></form></section> : umpireMatch ? <UmpireScorecard key={umpireMatch.id} match={umpireMatch} state={state} sync={sync} focused={umpireFocused} helpRequested={Boolean(umpireMatch.court && courtHelp[umpireMatch.court])} helpBusy={helpBusyCourt !== null} helpMessage={helpMessage} onToggleHelp={() => umpireMatch.court && void toggleCourtHelp(umpireMatch.court, !courtHelp[umpireMatch.court])} onToggleFocus={() => setUmpireFocused(value => !value)} onPrint={() => setPrintMode({ type: "scorecard", matchId: umpireMatch.id })} onExit={() => setUmpireUnlocked(false)} onRetry={() => { const match = umpireFailed.current; if (match) queueUmpireSave(match); }} onScoreStep={changeUmpireScore} onCompleteSet={finishUmpireSet} onCompleteGame={finishUmpireGame} onUnlockSet={unlockUmpireSet} /> : null;
 
   const spectatorContent = <div className="stack"><NextGameNotice state={state} /><section className="scoreboard-hero"><p className="eyebrow">Live tournament</p><h2>{state.tournamentName}</h2>{state.venue?.trim() && <p className="event-venue">{state.venue}</p>}<p>{liveMatches.length} live · {finishedMatches.length} finished · {state.courts} courts</p></section><div className="live-grid">{(liveMatches.length ? liveMatches : publicMatches.filter((match) => match.status !== "finished").slice(0, 6)).map((match) => <MatchCard key={match.id} match={match} state={state} />)}</div>{renderStandings()}</div>;
   const projectorContent = <Projector state={state} onFullscreenChange={setProjectorFullscreen} />;

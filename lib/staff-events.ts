@@ -1,11 +1,11 @@
-import { isMatchUsingCourt, matchWinner, type StaffNotification, type TournamentState } from "./tournament";
+import { isAwaitingUmpireCompletion, type StaffNotification, type TournamentState } from "./tournament";
 import { courtOccupant, gameNumber, isFinished, matchupText, nextGameCalls } from "./game-day";
 
 export function appendStaffNotification(state: TournamentState, event: Omit<StaffNotification, "id" | "createdAt">): TournamentState {
   return { ...state, staffNotifications: [...(state.staffNotifications ?? []), { ...event, id: crypto.randomUUID(), createdAt: new Date().toISOString() }].slice(-100) };
 }
 
-/** Only newly completed sets generate alerts. Refreshes, resets and court reassignment do not. */
+/** Record court releases once, independently of organizer validation. */
 export function recordCourtCompletions(previous: TournamentState, next: TournamentState): TournamentState {
   let result: TournamentState = { ...next, matches: next.matches.map(match => {
     const before = previous.matches.find(m => m.id === match.id);
@@ -16,14 +16,17 @@ export function recordCourtCompletions(previous: TournamentState, next: Tourname
   for (const match of next.matches) {
     const before = previous.matches.find(item => item.id === match.id);
     if (match.umpireWorkflow && !match.forfeit) continue;
-    if (!before || !match.court || match.court > next.courts) continue;
+    if (!before) continue;
+    const confirmedGame = isAwaitingUmpireCompletion(before) && isFinished(match);
+    const court = confirmedGame ? before.court : match.court;
+    if (!court || court > next.courts) continue;
     const setIndex = match.sets.findIndex((set, index) => set.complete && !before.sets[index]?.complete);
-    if (match.forfeit && !before.forfeit) {
-      result = appendStaffNotification(result, { kind: "court_released", court: match.court, matchId: match.id, matchLabel: match.label, gameComplete: true, available: !courtOccupant(next, match.court) });
+    if (confirmedGame || match.forfeit && !before.forfeit) {
+      result = appendStaffNotification(result, { kind: "court_released", court, matchId: match.id, matchLabel: match.label, gameComplete: true, available: !courtOccupant(next, court) });
       continue;
     }
-    if (setIndex < 0) continue;
-    result = appendStaffNotification(result, { kind: "court_released", court: match.court, matchId: match.id, matchLabel: match.label, setNumber: setIndex + 1, gameComplete: Boolean(matchWinner(match)), available: !next.matches.some(item => item.court === match.court && isMatchUsingCourt(item)) });
+    if (setIndex < 0 || isAwaitingUmpireCompletion(match)) continue;
+    result = appendStaffNotification(result, { kind: "court_released", court, matchId: match.id, matchLabel: match.label, setNumber: setIndex + 1, gameComplete: isFinished(match), available: !courtOccupant(next, court) });
   }
   for (const call of nextGameCalls(result)) {
     if (call.match.nearCapNotified || !call.match.court) continue;

@@ -36,7 +36,7 @@ function describeRoute(method: string, path: string, action = '', image = false,
       return Object.hasOwn(descriptions, action) ? descriptions[action] : 'Manage umpires';
     }
     case '/api/state':
-      if (method === 'PATCH') return 'Save a game score';
+      if (method === 'PATCH') return action === 'completeGame' ? 'Complete a game and release its court' : 'Save a game score';
       if (method === 'PUT') {
         const sections = action.split(', ').flatMap(key => Object.hasOwn(settings, key) ? [settings[key]] : []);
         return sections.length ? `Update ${sections.join(', ')}` : 'Save tournament changes';

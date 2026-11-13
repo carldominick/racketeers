@@ -80,3 +80,17 @@ test('bulk printing keeps every game, schedule order, and the same stable game n
   assert.equal((selected.match(/class="print-match-card"/g)||[]).length,1);
   assert.match(selected,/Game 1 match card/);
 });
+
+test('compact batches use four cards per sheet and keep incomplete final sheets without blank cards', () => {
+  for (const count of [0, 1, 4, 5, 8, 9]) {
+    const matches = Array.from({length:count},(_, index) => ({...match,id:`game-${index}`,scheduledAt: new Date(Date.UTC(2026,10,29,9-index)).toISOString()}));
+    const html = render(PrintMatchCards,{state:{...state,matches},perSheet:4});
+    const sheets = html.split('<div class="print-compact-page">').slice(1);
+    assert.deepEqual(sheets.map(sheet => (sheet.match(/aria-label="Game \d+ match card"/g)||[]).length), Array.from({length:Math.ceil(count/4)},(_, index) => Math.min(4,count-index*4)));
+    assert.deepEqual([...html.matchAll(/aria-label="Game (\d+) match card"/g)].map(item=>Number(item[1])),Array.from({length:count},(_,index)=>count-index));
+    assert.equal((html.match(/data-field="court"><\/span>/g)||[]).length,count);
+    assert.equal((html.match(/data-field="umpire-pin"><\/span>/g)||[]).length,count);
+    assert.equal((html.match(/aria-label="Player \d, side [AB], signature"/g)||[]).length,count*4);
+    assert.doesNotMatch(html,/91928374|884| checked=""/);
+  }
+});

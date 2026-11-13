@@ -888,6 +888,48 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
  .print-match-card-long-names .print-player-signatures>p>span:first-child {max-width:70%}
 }
 
+.bulk-match-card-print {display:flex;align-items:end;gap:8px;flex-wrap:wrap}
+.bulk-match-card-print label {display:grid;gap:4px;font-size:12px;font-weight:650}
+.bulk-match-card-print select {min-height:44px}
+.bulk-match-card-print button {display:inline-flex;align-items:center;gap:7px;min-height:44px}
+
+@media print {
+ @page match-cards-compact {size:letter portrait;margin:.2in}
+ .print-sheet.print-match-cards-compact {page:match-cards-compact;width:8.1in!important}
+ .print-compact-page {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));width:100%;height:10.54in;break-inside:avoid}
+ .print-compact-page + .print-compact-page {break-before:page}
+ .print-compact-page .print-match-card {width:auto;height:auto;min-width:0;min-height:0;padding:.14in;break-before:auto;border:0}
+ .print-compact-page .print-match-card:nth-child(even) {border-left:.5pt dashed #aaa}
+ .print-compact-page .print-match-card:nth-child(n+3) {border-top:.5pt dashed #aaa}
+ .print-compact-page .print-match-card .print-match-header {gap:.08in;padding-bottom:.065in;align-items:start}
+ .print-compact-page .print-match-header>div>p {font-size:7pt;letter-spacing:.08em;margin-bottom:.035in}
+ .print-compact-page .print-match-header h1 {font-size:10pt}
+ .print-compact-page .print-match-header>strong {font-size:14pt}
+ .print-compact-page .print-match-meta {grid-template-columns:repeat(2,minmax(0,1fr));gap:.045in .12in;padding:.06in 0;font-size:8.5pt}
+ .print-compact-page .print-match-meta>p:first-child {grid-column:1/-1;font-weight:700}
+ .print-compact-page .print-match-meta .print-blank-field {border-left:0;padding-left:0}
+ .print-compact-page .print-matchup {gap:.06in;padding:.07in 0}
+ .print-compact-page .print-matchup h2 {font-size:11pt}
+ .print-compact-page .print-matchup>span {font-size:8pt}
+ .print-compact-page .print-match-body {grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(1.5in,1fr) auto;gap:.07in;padding:.07in 0}
+ .print-compact-page .print-match-body h2 {font-size:9pt}
+ .print-compact-page .print-final-scores {padding:0;gap:.03in;grid-template-rows:auto auto minmax(.5in,1fr) auto auto}
+ .print-compact-page .print-match-rules,.print-compact-page .print-score-instruction,.print-compact-page .print-confirmation>p {font-size:8pt}
+ .print-compact-page .print-match-card .print-results-table th,.print-compact-page .print-match-card .print-results-table td {padding:.02in .045in;font-size:8.5pt}
+ .print-compact-page .print-results-table tbody tr {height:.2in}
+ .print-compact-page .print-winner {padding-top:.025in;gap:.08in .18in;font-size:9pt}
+ .print-compact-page .print-winner>label {font-size:8.5pt}
+ .print-compact-page .print-winner input {width:.13in;height:.13in}
+ .print-compact-page .print-confirmation {grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:auto auto auto;gap:.025in .12in;border-left:0;border-top:.65pt solid #777;padding:.06in 0 0}
+ .print-compact-page .print-confirmation>h2,.print-compact-page .print-confirmation>p {grid-column:1/-1}
+ .print-compact-page .print-signature-group {gap:.035in;padding-top:.03in}
+ .print-compact-page .print-signature-group>h3 {font-size:7pt}
+ .print-compact-page .print-player-signatures {grid-auto-rows:minmax(.19in,auto);gap:.035in}
+ .print-compact-page .print-player-signatures>p {font-size:8pt;gap:.035in}
+ .print-compact-page .print-player-signatures>p>span:first-child {max-width:65%}
+ .print-compact-page .print-match-card .print-match-footer {font-size:8.5pt;padding-top:.055in;gap:.12in}
+}
+
 .sponsor-library {border-top:1px solid var(--line);margin-top:28px;padding-top:20px}
 .sponsor-library>p {color:var(--muted);line-height:1.5;max-width:70ch}
 .sponsor-library :is(button,input) {min-height:44px;font-size:16px}

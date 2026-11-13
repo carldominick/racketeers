@@ -1,4 +1,4 @@
-import { displayName, forfeitWinningPoints, gameDaySettings, isMatchUsingCourt, isProvisionalMatch, isSetWon, matchWinner, reseedChampionships, scoringRule, subBracketName, type Match, type TournamentState } from "./tournament";
+import { displayName, forfeitWinningPoints, gameDaySettings, isAwaitingUmpireCompletion, isMatchUsingCourt, isProvisionalMatch, isSetWon, matchWinner, reseedChampionships, scoringRule, subBracketName, type Match, type TournamentState } from "./tournament";
 
 export function bracketKey(match: Match) { return `${match.divisionId}:${match.subBracket ?? 0}`; }
 export function bracketLabel(state: TournamentState, match: Match) {
@@ -11,7 +11,7 @@ export function matchupText(state: TournamentState, match: Match) {
   const entries = state.divisions.find(d => d.id === match.divisionId)?.entries ?? [];
   return `${displayName(entries.find(e => e.id === match.entryAId))} vs ${displayName(entries.find(e => e.id === match.entryBId))}`;
 }
-export function isFinished(match: Match) { return match.validated || match.status === "finished" || !isProvisionalMatch(match) && Boolean(matchWinner(match)); }
+export function isFinished(match: Match) { return match.validated || match.status === "finished" || !isProvisionalMatch(match) && !isAwaitingUmpireCompletion(match) && Boolean(matchWinner(match)); }
 export function isDispatched(match: Match) { return !match.hold && !isFinished(match) && Boolean(match.dispatchedAt); }
 export function courtOccupant(state: TournamentState, court: number) {
   return state.matches.find(m => m.court === court && isMatchUsingCourt(m)) ?? state.matches.find(m => m.court === court && isDispatched(m) && m.status === "ready");

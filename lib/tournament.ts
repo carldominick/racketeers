@@ -110,6 +110,7 @@ export type Match = {
   court: number | null;
   /** Physical occupancy, separate from a planned court assignment. */
   courtInUse?: boolean;
+  awaitingUmpireCompletion?: boolean;
   scheduledAt: string | null;
   validated: boolean;
   pin: string;
@@ -441,7 +442,18 @@ export function completeMatchSet(match: Match, setIndex: number): Match {
 
 export function uncompleteMatchSet(match: Match, setIndex: number): Match {
   if (match.validated || match.hold || match.forfeit || !match.sets[setIndex]?.complete) return match;
-  return { ...match, sets: match.sets.map((set, index) => index === setIndex ? { ...set, complete: false } : set), status: "live", courtInUse: true };
+  return { ...match, sets: match.sets.map((set, index) => index === setIndex ? { ...set, complete: false } : set), status: "live", courtInUse: true, awaitingUmpireCompletion: undefined };
+}
+
+/** The umpire has saved a winning result but has not yet released the game. */
+export function isAwaitingUmpireCompletion(match: Match): boolean {
+  return match.awaitingUmpireCompletion === true && match.status === "live" && !match.validated && !match.hold && !match.forfeit && Boolean(matchWinner(match));
+}
+
+export function completeUmpireGame(match: Match): Match | null {
+  if (match.validated || match.hold || match.forfeit || !matchWinner(match)) return null;
+  if (match.status === "finished") return match;
+  return { ...match, status: "finished", courtInUse: false, dispatchedAt: undefined, awaitingUmpireCompletion: undefined };
 }
 
 export function validateTournamentMatch(state: TournamentState, matchId: string): TournamentState {
@@ -454,6 +466,7 @@ export function validateTournamentMatch(state: TournamentState, matchId: string)
     status: "finished" as const,
     court: null,
     courtInUse: false,
+    awaitingUmpireCompletion: undefined,
   } : match);
   return reseedChampionships({ ...state, matches });
 }
@@ -784,7 +797,7 @@ export function medalResults(state: TournamentState, divisionId: string) {
 export function isMatchUsingCourt(match: Match): boolean {
   if (!match.court || match.hold || match.forfeit || match.validated || match.status === "finished") return false;
   if (isProvisionalMatch(match)) return match.courtInUse === true;
-  if (matchWinner(match)) return false;
+  if (matchWinner(match)) return isAwaitingUmpireCompletion(match) && match.courtInUse === true;
   if (typeof match.courtInUse === "boolean") return match.courtInUse;
   return match.status === "live" && (!match.sets.some(set => set.complete) || match.sets.some(set => !set.complete && (set.a > 0 || set.b > 0)));
 }
@@ -794,6 +807,12 @@ export function courtInUseAfterScore(match: Match, sets: SetScore[]): boolean {
   if (sets.some((set, index) => set.complete && !match.sets[index]?.complete)) return false;
   if (sets.some((set, index) => !set.complete && (set.a !== (match.sets[index]?.a ?? 0) || set.b !== (match.sets[index]?.b ?? 0) || match.sets[index]?.complete))) return true;
   return isMatchUsingCourt(match);
+}
+
+export function applyUmpireSets(match: Match, sets: SetScore[], finishSeparately: boolean, status?: MatchStatus): Match {
+  // Old scorecards keep their automatic release behavior until refreshed.
+  const awaiting = Boolean(matchWinner({ ...match, sets })) && (isAwaitingUmpireCompletion(match) || finishSeparately && !matchWinner(match));
+  return { ...match, sets, status: awaiting || status !== "ready" ? "live" : "ready", courtInUse: awaiting ? Boolean(match.court) : courtInUseAfterScore(match, sets), awaitingUmpireCompletion: awaiting || undefined };
 }
 
 export function isCourtAvailable(state: TournamentState, court: number, matchId: string) {

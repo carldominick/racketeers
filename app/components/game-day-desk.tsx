@@ -11,13 +11,15 @@ import { Info } from "@phosphor-icons/react/dist/csr/Info";
 import { MapPin } from "@phosphor-icons/react/dist/csr/MapPin";
 import { CalendarBlank } from "@phosphor-icons/react/dist/csr/CalendarBlank";
 import { ListChecks } from "@phosphor-icons/react/dist/csr/ListChecks";
-import { gameDaySettings, displayName, matchWinner, matchScoreText, matchResultSets, type CourtHelpRequest, type GameDaySettings, type Match, type TournamentState } from "../../lib/tournament";
+import { gameDaySettings, displayName, isAwaitingUmpireCompletion, matchWinner, matchScoreText, matchResultSets, type CourtHelpRequest, type GameDaySettings, type Match, type TournamentState } from "../../lib/tournament";
 import { bracketLabel, courtOccupant, courtRecommendations, gameEligibility, gameNumber, gameQueue, isDispatched, isFinished, matchupText } from "../../lib/game-day";
 import { NextGameNotice } from "./next-game-notice";
 import { GameDayActionDialog, type DeskAction, type DeskActionHandler } from "./game-day-action-dialog";
 import type { UmpireSummary } from "../../lib/umpire-types";
 import { workflowText } from "../../lib/umpire-workflow";
 import { deskReadiness } from "../../lib/desk-readiness";
+import { BulkMatchCardPrint } from "./bulk-match-card-print";
+import type { MatchCardsPerSheet } from "./print-match-card";
 
 type Props = {
   state: TournamentState; umpireRoster?: UmpireSummary[]; busy: boolean; help: Record<string, CourtHelpRequest>;
@@ -26,7 +28,7 @@ type Props = {
   onAssign: (id: string, court: number) => Promise<void>; onRelease: (id: string) => Promise<void>;
   onAction: DeskActionHandler;
   onSettings: (patch: Partial<GameDaySettings>) => void; onSettingsPage: () => void;
-  onPin: (id: string) => void; onReset: (id: string) => void; onPrint: (id?: string) => void;
+  onPin: (id: string) => void; onReset: (id: string) => void; onPrint: (id: string) => void; onPrintAll: (perSheet: MatchCardsPerSheet) => void;
   onValidate: (id: string) => void; onUnvalidate: (id: string) => void; onUpdate: (match: Match) => void;
   onHelp: (court: number, help: boolean) => void;
   renderScoreEditor: (match: Match) => React.ReactNode;
@@ -100,7 +102,7 @@ export function GameDayDesk(props: Props) {
   const readiness = deskReadiness(state);
   const looseLive = state.matches.filter(m => m.status === "live" && !m.hold && !isFinished(m) && !m.court && !m.umpireWorkflow);
   return <div className="game-day-desk">
-    <header className="desk-event"><div><strong>{state.tournamentName}</strong><span>{state.venue && <><MapPin size={18} aria-hidden="true" />{state.venue}</>}<CalendarBlank size={18} aria-hidden="true" />{new Date(`${state.startDate}T12:00:00+08:00`).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short", day: "numeric", month: "short", year: "numeric" })}</span></div><div className="desk-event-actions"><button type="button" className="secondary desk-print-button desk-bulk-print" onClick={() => props.onPrint()}><Printer size={18} aria-hidden="true" />Print all games</button><label>Division<select value={divisionFilter} onChange={e => setDivisionFilter(e.target.value)}><option value="all">All divisions</option>{state.divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label><span className="desk-phase">{state.status}</span></div></header>
+    <header className="desk-event"><div><strong>{state.tournamentName}</strong><span>{state.venue && <><MapPin size={18} aria-hidden="true" />{state.venue}</>}<CalendarBlank size={18} aria-hidden="true" />{new Date(`${state.startDate}T12:00:00+08:00`).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short", day: "numeric", month: "short", year: "numeric" })}</span></div><div className="desk-event-actions"><BulkMatchCardPrint count={state.matches.length} onPrint={props.onPrintAll} buttonClass="secondary desk-print-button desk-bulk-print" /><label>Division<select value={divisionFilter} onChange={e => setDivisionFilter(e.target.value)}><option value="all">All divisions</option>{state.divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label><span className="desk-phase">{state.status}</span></div></header>
     <div className="desk-heading"><h2>Game day desk</h2><p>{available.length} courts available · {state.courts - available.length} in use / reserved</p>{props.onOpenCourtView && <button className="secondary" onClick={props.onOpenCourtView}>Open court view</button>}</div>
     <section className="desk-readiness card" aria-label="Game Day checks"><h3>Desk checks</h3><p role="status">Connection: {props.connectionLabel || "Check the header"}. {busy || props.connectionLabel !== "Synced" ? "Check that the connection is synced and changes are saved before assigning courts." : "Ready to manage courts."}</p><div className="readiness-grid">{([ ["validations", "Results to validate"], ["held", "Games on hold"], ["noShows", "No-show results to review"], ["reserved", "Courts awaiting players"] ] as const).map(([key, label]) => readiness[key].length > 0 ? <details key={key}><summary>{readiness[key].length} · {label}</summary>{readiness[key].length ? readiness[key].map(match => <div key={match.id}><strong>Game {gameNumber(state, match)}{match.court ? ` · Court ${match.court}` : ""}</strong><p>{matchupText(state, match)}</p><button type="button" onClick={() => { if (key === "validations" || key === "noShows") { setReviewId(match.id); focusSection(document.getElementById("desk-result-review")); } else { setSearch(String(gameNumber(state, match))); setDivisionFilter("all"); focusSection(document.getElementById("desk-game-queue")); } }}>Review in {key === "validations" || key === "noShows" ? "results" : "queue"}</button></div>) : <p>Nothing waiting here.</p>}</details> : <span className="desk-check-clear" key={key}>{label}: 0</span>)}</div><small>No-show results are included in results to validate. Opening these checks does not change the rotation or court assignments.</small></section>
     <NextGameNotice state={state} />
@@ -113,12 +115,15 @@ export function GameDayDesk(props: Props) {
       const recommendation = recommendations.find(item => item.court === c);
       const division = state.divisions.find(d => d.id === match?.divisionId);
       const entries = division?.entries ?? [];
-      const matchDetails = match && <><small>{bracketLabel(state, match)} · Game {gameNumber(state, match)}</small><div className="desk-court-scores"><div><strong>{displayName(entries.find(e => e.id === match.entryAId))}</strong><b>{(matchResultSets(match).find(s => !s.complete) ?? matchResultSets(match).at(-1))?.a ?? 0}</b></div><div><strong>{displayName(entries.find(e => e.id === match.entryBId))}</strong><b>{(matchResultSets(match).find(s => !s.complete) ?? matchResultSets(match).at(-1))?.b ?? 0}</b></div></div>{match.forfeit && <small>No-show forfeiture</small>}{!state.managedUmpires && <Pin match={match} />}</>;
+      const sets = match ? matchResultSets(match) : [];
+      const currentSet = match && (isAwaitingUmpireCompletion(match) || isFinished(match)) ? sets.findLast(set => set.complete) : sets.find(set => !set.complete);
+      const displayedSet = currentSet ?? sets.at(-1);
+      const matchDetails = match && <><small>{bracketLabel(state, match)} · Game {gameNumber(state, match)}</small><div className="desk-court-scores"><div><strong>{displayName(entries.find(e => e.id === match.entryAId))}</strong><b>{displayedSet?.a ?? 0}</b></div><div><strong>{displayName(entries.find(e => e.id === match.entryBId))}</strong><b>{displayedSet?.b ?? 0}</b></div></div>{match.forfeit && <small>No-show forfeiture</small>}{!state.managedUmpires && <Pin match={match} />}</>;
       return <article key={c} className={`desk-court ${occupied ? "occupied" : "available"} ${court === c ? "selected-court" : ""}`}>
         <header><h3>Court {c}</h3><span className={`desk-state ${occupied ? "busy" : "free"}`}>{occupied ? occupied.status === "ready" ? "Reserved" : "In use" : blocked ? "Unavailable" : "Available"}</span></header>
         {state.managedUmpires && <p>{staffing?.name ?? "No assigned umpire"}{blocked ? ` · ${blocked}` : " · Connected and on duty"}</p>}
         {occupied?.umpireWorkflow && <p>{workflowText[occupied.umpireWorkflow.phase]}</p>}
-        {occupied ? matchDetails : recommendation ? <div className="desk-court-next"><small>Next recommended · {bracketLabel(state, recommendation.match)}</small><strong>Game {gameNumber(state, recommendation.match)}</strong><p>{matchupText(state, recommendation.match)}</p></div> : <div className="desk-empty-court"><ListChecks size={28} aria-hidden="true" /><strong>Ready for next game</strong><p>{queue.ready.length ? "Choose a ready game from the queue." : "Waiting for an eligible game."}</p></div>}
+        {occupied ? <>{matchDetails}{isAwaitingUmpireCompletion(occupied) && <small>Awaiting umpire completion</small>}</> : recommendation ? <div className="desk-court-next"><small>Next recommended · {bracketLabel(state, recommendation.match)}</small><strong>Game {gameNumber(state, recommendation.match)}</strong><p>{matchupText(state, recommendation.match)}</p></div> : <div className="desk-empty-court"><ListChecks size={28} aria-hidden="true" /><strong>Ready for next game</strong><p>{queue.ready.length ? "Choose a ready game from the queue." : "Waiting for an eligible game."}</p></div>}
         {help[c] && <span className="desk-result-pending"><HandWaving size={16} aria-hidden="true" />Help requested<button className="desk-help-clear" aria-label={`Clear help request for Court ${c}`} disabled={busy} onClick={() => props.onHelp(c, false)}>Clear</button></span>}
         <div className="desk-court-primary">{occupied ? <button className="primary" disabled={Boolean(occupied.umpireWorkflow)} onClick={() => setEditorId(occupied.id)}>Track game</button> : recommendation ? <button className="primary" disabled={busy} onClick={() => void props.onAssign(recommendation.match.id, c)}>Assign Game {gameNumber(state, recommendation.match)} to Court {c}</button> : null}{occupied?.status === "ready" && <button className="desk-small" disabled={busy} onClick={() => props.onRelease(occupied.id)}>Unassign</button>}</div>
         {!occupied && <button className="desk-small" disabled={busy || !queue.ready.length || Boolean(blocked)} onClick={() => select(recommendation?.match ?? selected, c)}>Choose court / game</button>}
