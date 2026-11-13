@@ -9,7 +9,7 @@ import {Miniflare} from "miniflare";
 
 const client = fileURLToPath(new URL('../dist/client/', import.meta.url));
 
-const mime = {'.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.wasm':'application/wasm', '.gz':'application/gzip'};
+const mime = {'.js':'text/javascript', '.css':'text/css', '.png':'image/png', '.wasm':'application/wasm', '.gz':'application/gzip', '.wav':'audio/wav'};
 const env = {ASSETS:{async fetch(request) {
   const filename = path.resolve(client, '.' + new URL(request.url).pathname);
   if (!filename.startsWith(client.endsWith(path.sep) ? client : client + path.sep)) return new Response(null, {status:404});
@@ -132,6 +132,18 @@ test('built Worker serves court pages, emitted assets and OCR binaries for overs
       assert.equal(response.headers.get('content-type'), mime[path.extname(pathname)], pathname);
       assert.ok((await response.arrayBuffer()).byteLength > 0, pathname);
     }
+  }
+});
+
+test('built Worker serves the three court chimes as WAV audio', async () => {
+  for (const clip of ['umpire-assignment','game-finished','court-needs-help']) {
+    const response = await fetchWorker(new Request(`https://racketeers.example/assets/court-chimes/${clip}.wav`));
+    assert.equal(response.status,200,clip);
+    assert.equal(response.headers.get('content-type'),'audio/wav',clip);
+    const bytes=Buffer.from(await response.arrayBuffer());
+    assert.equal(bytes.toString('ascii',0,4),'RIFF');
+    assert.equal(bytes.toString('ascii',8,12),'WAVE');
+    assert.ok(bytes.length>44);
   }
 });
 

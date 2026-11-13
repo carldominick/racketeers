@@ -6,6 +6,7 @@ import { adjustMatchScore, completeMatchSet, displayName, matchScoreText, matchW
 import { workflowText, type WorkflowInput } from "../../lib/umpire-workflow";
 import type { UmpireSummary } from "../../lib/umpire-types";
 import { UmpireScorecard } from "./umpire-scorecard";
+import { ASSIGNMENT_CHIMES, useCourtChimes } from "./use-court-chimes";
 
 type Snapshot = { authenticated: boolean; name: string; court?: number; onDuty: boolean; tournamentName: string; phase: TournamentState["status"]; match?: Match; gameNumber?: number; division?: Division; help: boolean };
 
@@ -68,9 +69,8 @@ export function UmpireDashboard({ onPrint, demoSeat, onFocusChange, onScorePendi
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [focused, setFocused] = useState(true);
-  const [alerts, setAlerts] = useState(false);
-  const audio = useRef<AudioContext | null>(null);
-  const heard = useRef("");
+  const { status: soundStatus, toggle: toggleSound, play } = useCourtChimes(ASSIGNMENT_CHIMES);
+  const lastAssignment = useRef<string | null>(null);
   const saving = useRef(false);
   const pending = useRef<{ match: Match; operation: string } | null>(null);
   const failed = useRef<typeof pending.current>(null);
@@ -115,20 +115,13 @@ export function UmpireDashboard({ onPrint, demoSeat, onFocusChange, onScorePendi
     onScorePending?.(sync !== "saved");
     return () => onScorePending?.(false);
   }, [sync, onScorePending]);
-  const delivery = flow?.phase === "assigned" ? flow.assignedAt + data?.match?.id : "";
+  const delivery = flow?.phase === "assigned" ? `${flow.assignedAt}:${data?.match?.id}` : "";
+  const signedIn = data?.authenticated === true;
   useEffect(() => {
-    if (!alerts || !delivery || heard.current === delivery || audio.current?.state !== "running") return;
-    heard.current = delivery;
-    const context = audio.current;
-    const sound = context.createOscillator();
-    const gain = context.createGain();
-    gain.gain.value = 0.08;
-    sound.frequency.value = 660;
-    sound.connect(gain).connect(context.destination);
-    sound.start();
-    sound.stop(context.currentTime + 0.2);
-  }, [alerts, delivery]);
-  useEffect(() => () => { void audio.current?.close(); }, []);
+    const previous = lastAssignment.current;
+    lastAssignment.current = signedIn ? delivery : null;
+    if (previous !== null && delivery && previous !== delivery) play("umpire-assignment");
+  }, [delivery, play, signedIn]);
 
   async function action(body: WorkflowInput) {
     if (saving.current || pending.current || inFlight.current) return;
@@ -199,20 +192,13 @@ export function UmpireDashboard({ onPrint, demoSeat, onFocusChange, onScorePendi
   const match = data.match;
   const entry = (id?: string | null) => data.division?.entries.find(item => item.id === id);
   const scoreState = { divisions: data.division ? [data.division] : [] } as unknown as TournamentState;
-  const startAlerts = async () => {
-    if (alerts) { setAlerts(false); return; }
-    try {
-      audio.current ??= new AudioContext();
-      await audio.current.resume();
-      setAlerts(true);
-    } catch { setMessage("Sound is unavailable. Assignments still appear on screen."); }
-  };
   return <div className="stack umpire-workflow">
     <section className={`card umpire-dashboard-status${focused && flow?.phase === "playing" ? " umpire-dashboard-focused" : ""}`}><h2>{data.name}</h2><p>{data.tournamentName} · {data.court ? `Court ${data.court}` : "No court assigned"} · {data.onDuty ? "On duty" : "Off duty"}</p>
       <div className="action-row"><button className="secondary" disabled={busy || Boolean(match && data.onDuty)} onClick={() => void action({ action: "duty", onDuty: !data.onDuty })}>{data.onDuty ? "End duty" : "Start duty"}</button>
-        <button className="ghost" aria-pressed={alerts} onClick={() => void startAlerts()}>{alerts ? "Disable match alerts" : "Enable match alerts"}</button>
+        <button type="button" className="ghost" aria-pressed={soundStatus === "on"} onClick={() => void toggleSound()}>{soundStatus === "on" ? "Disable match alerts" : soundStatus === "loading" ? "Cancel loading match alerts" : "Enable match alerts"}</button>
         <button className="ghost" disabled={busy || Boolean(match)} onClick={() => void action({ action: "logout" })}>Sign out</button></div>
       {message && <p role="status">{message}</p>}
+      {soundStatus === "unavailable" && <p role="status">Sound is unavailable. Assignments still appear on screen.</p>}
       {connection === "offline" && <p role="status">Reconnecting. Court and match details may be out of date.</p>}
       {sync === "offline" && <button className="ghost" onClick={() => { if (!window.confirm("Discard unsaved score changes and reload the saved score?")) return; pending.current = null; failed.current = null; setSync("saved"); setMessage("Unsaved changes discarded."); void refresh(); }}>Reload saved score</button>}
       {!match && <p role="status">{!data.court ? "Waiting for court assignment" : "Waiting for next game to be assigned"}</p>}

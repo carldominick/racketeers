@@ -206,7 +206,7 @@ export function applyWorkflowAction(state: TournamentState, match: Match, body: 
   const courtHelp = { ...state.courtHelp };
   if (!flow.releasedAt && changed.releasedAt && courtHelp[flow.court]?.matchId === match.id) delete courtHelp[flow.court];
   let result: TournamentState = { ...state, courtHelp, matches: state.matches.map(item => item.id === match.id ? next : item) };
-  if (!flow.releasedAt && changed.releasedAt) result = appendStaffNotification(result, { kind: "court_released", court: flow.court, matchId: match.id, matchLabel: match.label, gameComplete: next.validated, available: !courtOccupant(result, flow.court) });
+  if ((!flow.releasedAt && changed.releasedAt) || (!match.validated && next.validated)) result = appendStaffNotification(result, { kind: "court_released", court: flow.court, matchId: match.id, matchLabel: match.label, gameComplete: next.validated, available: !courtOccupant(result, flow.court) });
   if (changed.ruling?.outcome === "replay") {
     requireUmpire(!state.matches.some(item => item.id !== match.id && item.divisionId === match.divisionId && item.round > match.round && (item.status !== "ready" || item.dispatchedAt)), "A dependent round has already been assigned or started.");
     const replay: Match = { ...next, status: "ready", court: null, sets: [{ a: 0, b: 0, complete: false }], validated: false, umpireWorkflow: undefined, completedAt: undefined, nearCapNotified: false, umpireHistory: [...(match.umpireHistory ?? []), changed] };

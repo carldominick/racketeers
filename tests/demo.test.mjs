@@ -129,6 +129,7 @@ test('demo runs staffed dispatch, player verification, correction, handoff, fina
   await check(score('two',[{a:31,b:18,complete:true}]));
   assert.equal((await get('two')).match.umpireWorkflow.phase,'awaiting_confirmation');
   assert.equal((await snapshot(demo)).state.matches.find(match=>match.id===target.id).validated,false);
+  assert.ok(!(await snapshot(demo)).state.staffNotifications.some(event=>event.matchId===target.id&&event.gameComplete));
   await check(umpire('two',{action:'submit',a:true,b:false,clear:true}),409);
   await check(umpire('two',{action:'reportDispute',side:'b',reason:'Incorrect recorded score',note:'The second team counted 19.'}));
   await check(umpire('two',{action:'correct',sets:[{a:31,b:19,complete:true}],reason:'Compared the written tally.'}));
@@ -139,6 +140,7 @@ test('demo runs staffed dispatch, player verification, correction, handoff, fina
   await check(seat('two',submit));const complete=await snapshot(demo);
   await check(seat('two',submit));assert.equal((await snapshot(demo)).revision,complete.revision);
   assert.equal(complete.state.matches.find(match=>match.id===target.id).validated,true);
+  assert.equal(complete.state.staffNotifications.filter(event=>event.matchId===target.id&&event.gameComplete).length,1);
   assert.equal((await get('two')).match,null);
   await check(dispatch(next));await check(umpire('two',{action:'acknowledge'}));await check(umpire('two',{action:'start'}));
   await check(score('two',[{a:31,b:20,complete:true}]));
@@ -153,12 +155,16 @@ test('demo runs staffed dispatch, player verification, correction, handoff, fina
   await check(umpire('two',{action:'releaseDispute',clear:true}),403);
   await check(orgAction({action:'releaseDispute',matchId:next.id,version:current.umpireWorkflow.version,clear:true}));
   assert.equal((await get('two')).match,null);
-  const detached=(await snapshot(demo)).state.matches.find(match=>match.id===next.id);
+  const detachedState=(await snapshot(demo)).state;
+  const detached=detachedState.matches.find(match=>match.id===next.id);
+  assert.deepEqual(detachedState.staffNotifications.filter(event=>event.matchId===next.id&&event.kind==='court_released').map(event=>[event.gameComplete,event.available]),[[false,true]]);
   assert.equal(detached.umpireWorkflow.phase,'escalated');assert.equal(detached.validated,false);
   await check(dispatch(another));
   assert.equal((await get('two')).match.id,another.id);
   await check(orgAction({action:'rule',matchId:next.id,version:detached.umpireWorkflow.version,outcome:'finalized',reason:'Reviewed the recorded score sheet.',sets:[{a:31,b:20,complete:true}]}));
-  const ruled=(await snapshot(demo)).state.matches.find(match=>match.id===next.id);
+  const ruledState=(await snapshot(demo)).state;
+  const ruled=ruledState.matches.find(match=>match.id===next.id);
+  assert.deepEqual(ruledState.staffNotifications.filter(event=>event.matchId===next.id&&event.kind==='court_released').map(event=>[event.gameComplete,event.available]),[[false,true],[true,false]]);
   assert.equal(ruled.umpireWorkflow.phase,'finalized_by_ruling');assert.equal(ruled.umpireWorkflow.confirmed,undefined);
   assert.equal(ruled.umpireWorkflow.releasedAt,detached.umpireWorkflow.releasedAt);
   assert.equal((await get('two')).match.id,another.id);

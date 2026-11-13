@@ -4,7 +4,7 @@ Standalone Cloudflare deployment of the Racketeers application. Includes tournam
 
 Organizer → Prepare → Registrations → Registration tools can download CSV for all divisions or a selected division, and Excel with one sheet per division. Downloads use the entries shown, including unsaved changes when indicated. A connection or receipt-service failure does not block the roster file; unavailable payment fields are marked explicitly. When connected and saved, exports include organizer-authorized private proof links and reviewed receipt fields. These group amounts repeat across linked rows and must not be summed twice.
 
-The organizer can enable personal umpire PINs, staffed court dispatch, team-confirmed results and dispute handling. See [Umpire workflow and local review](docs/umpire-workflow.md).
+The organizer can enable personal umpire PINs, staffed court dispatch, team-confirmed results and dispute handling. Optional Soft Chimes cover new assignments on the personal umpire dashboard and finished games and court help requests on Game Day Desk. See [Umpire workflow and local review](docs/umpire-workflow.md).
 
 ## Dedicated court window and receipt review
 
