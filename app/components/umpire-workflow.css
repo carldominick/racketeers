@@ -14,3 +14,103 @@
 .umpire-roster-courts { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%, 15rem),1fr)); gap: .75rem; }
 .umpire-issued-pin { font-size: 1.8rem; font-weight: 800; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
 .umpire-dashboard-focused:not(:has([role="status"])) { display: none; }
+
+.umpire-waiting {
+  display: flex;
+  flex-direction: column;
+  min-height: min(700px, 76svh);
+  max-width: 46rem;
+  margin-inline: auto;
+  background: var(--paper);
+}
+.umpire-waiting-brand { display: flex; align-items: center; gap: .8rem; min-width: 0; }
+.umpire-waiting-brand .mark { flex: none; width: 2.5rem; height: 2.5rem; }
+.umpire-waiting-brand p { margin-top: .2rem; font-size: .84rem; }
+.umpire-waiting .umpire-more { margin: 0; }
+.umpire-waiting-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem 1.25rem;
+  padding: .8rem 1rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: .88rem;
+  font-weight: 700;
+}
+.umpire-waiting-status span { display: inline-flex; align-items: center; gap: .5rem; }
+.umpire-waiting-status i { width: .6rem; height: .6rem; border-radius: 50%; background: currentColor; }
+.umpire-waiting-status i.active { background: #7f9d00; }
+.dark .umpire-waiting-status i.active { background: var(--lime); }
+.umpire-waiting-main {
+  flex: 1;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: .7rem;
+  text-align: center;
+  padding: clamp(2rem, 8svh, 4rem) .8rem;
+  overflow-wrap: anywhere;
+}
+.umpire-waiting-icon { display: grid; place-items: center; width: 4.6rem; height: 4.6rem; margin-bottom: .55rem; border: 2px solid var(--line); border-radius: 50%; color: var(--muted); }
+.umpire-waiting-main h3 { margin: 0; font-size: clamp(1.45rem, 5.6vw, 2rem); line-height: 1.15; }
+.umpire-waiting-main p { margin: .4rem 0 0; line-height: 1.5; color: var(--muted); }
+.umpire-waiting-identity { font-size: .88rem; }
+.umpire-waiting-main button { min-height: 44px; }
+.umpire-waiting-alerts {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  min-height: 48px;
+  margin: 0 .8rem .8rem;
+  padding: .45rem .65rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+}
+.umpire-waiting-alerts strong { margin-left: auto; padding: .25rem .65rem; border-radius: 999px; background: var(--card); }
+.umpire-waiting-alerts[aria-pressed="true"] strong { background: var(--lime); color: #172014; }
+
+.umpire-assignment {
+  flex: 1;
+  display: grid;
+  align-content: start;
+  gap: .85rem;
+  min-width: 0;
+  padding: 1.15rem clamp(.9rem, 4vw, 1.3rem) 1.5rem;
+  overflow-wrap: anywhere;
+}
+.umpire-assignment p { margin: 0; }
+.umpire-assignment h3 { margin: .35rem 0 .2rem; font-size: clamp(2rem, 10vw, 2.65rem); line-height: 1.08; }
+.umpire-assignment-status { display: flex; align-items: center; gap: .6rem; font-weight: 800; }
+.umpire-assignment-status svg { flex: none; }
+.umpire-assignment-meta { color: var(--muted); line-height: 1.45; }
+.umpire-assignment-teams {
+  margin: 0;
+  padding-inline: .9rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+.umpire-assignment-teams > div { padding-block: .65rem; }
+.umpire-assignment-teams > div + div { border-top: 1px solid var(--line); }
+.umpire-assignment-teams dt { color: var(--muted); font-size: .88rem; font-weight: 750; }
+.umpire-assignment-teams dd { margin: .25rem 0 0; font-size: clamp(1.1rem, 5.2vw, 1.35rem); line-height: 1.28; font-weight: 750; }
+.umpire-assignment-teams dd span { display: block; }
+.umpire-assignment button.umpire-assignment-action { min-height: 50px; font-size: 1rem; }
+.umpire-assignment-action[aria-disabled="true"] { opacity: .55; cursor: wait; }
+.umpire-assignment-guidance { color: var(--muted); font-size: .92rem; line-height: 1.45; }
+.umpire-assignment-action + .umpire-assignment-guidance { text-align: center; }
+.umpire-assignment .umpire-assignment-report { margin: .1rem 0 0; }
+.umpire-assignment-report summary {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  padding: .45rem .75rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  text-align: center;
+}
