@@ -4,6 +4,8 @@ Standalone Cloudflare deployment of the Racketeers application. Includes tournam
 
 Organizer → Prepare → Registrations → Registration tools can download CSV for all divisions or a selected division, and Excel with one sheet per division. Downloads use the entries shown, including unsaved changes when indicated. A connection or receipt-service failure does not block the roster file; unavailable payment fields are marked explicitly. When connected and saved, exports include organizer-authorized private proof links and reviewed receipt fields. These group amounts repeat across linked rows and must not be summed twice.
 
+The organizer can enable personal umpire PINs, staffed court dispatch, team-confirmed results and dispute handling. See [Umpire workflow and local review](docs/umpire-workflow.md).
+
 ## Dedicated court window and receipt review
 
 Organizer → Run tournament → Game day desk → **Open court view** launches `/courts` separately. Keep the main desk open to assign courts while the display shows usage, reservations and available courts. Live Venue supports 12 courts in a four-by-three layout, selectable badminton courts, current players/scores, rotate/zoom/reset, and a 2D list. Player artwork shows illustrative positions, not tracking. Narrow screens start in 2D; unavailable WebGL falls back to it. Enter fullscreen hides its button; Escape exits. Light, Dark and Pure black follow the tournament theme.

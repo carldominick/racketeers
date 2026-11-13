@@ -17,12 +17,16 @@ export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array)
   const blobs = new Set<string>();
   const assets = new Map<string, {etag: string; url: string}>();
   let closed = false;
+  const umpireTokens = new Map<string, string>();
+  const presence = new Map<string, number>();
+  const umpireSecret = crypto.randomUUID();
   const blobUrl = (blob: Blob) => { const url = URL.createObjectURL(blob); blobs.add(url); return url; };
   const db = { prepare(sql: string) {
     const bind = (...v: unknown[]) => ({
       async first<T>(): Promise<T | null> {
         let result: unknown = null;
         if (sql.includes("FROM tournament_state")) result = current;
+        else if (sql.includes("FROM umpire_presence")) result = { presence: JSON.stringify(Object.fromEntries([...presence].filter(([, seen]) => seen > Number(v[0])))) };
         else if (sql.includes("FROM payment_settings")) result = { payload: settings };
         else if (sql.includes("FROM payment_receipt_details")) result = sql.includes("reference_key =") ? [...reviews.values()].find(r => r.reference_key === v[0] && !v.slice(1).includes(r.group_id)) : [...reviews.values()].filter(r => v.includes(r.group_id)).sort((a,b) => b.updated_at.localeCompare(a.updated_at))[0];
         else if (sql.includes("FROM sponsor_images")) result = sponsors.get(String(v[0]));
@@ -35,7 +39,11 @@ export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array)
         if (sql.startsWith("UPDATE tournament_state")) {
           if (v[4] !== current.revision) changes = 0;
           else current = { revision: Number(v[0]), payload: String(v[1]), updated_at: String(v[2]) };
-        } else if (sql.startsWith("INSERT INTO payment_settings")) settings = String(v[1]);
+        } else if (sql.startsWith("INSERT INTO umpire_presence")) presence.set(String(v[0]), Number(v[1]));
+        else if (sql.startsWith("DELETE FROM umpire_presence")) {
+          for (const [id, seen] of presence) if (seen <= Number(v[0])) presence.delete(id);
+        }
+        else if (sql.startsWith("INSERT INTO payment_settings")) settings = String(v[1]);
         else if (sql.startsWith("INSERT INTO payment_receipt_details")) {
           const id = String(v[5]); if (reviews.has(id)) changes = 0;
           else reviews.set(id, { group_id:id, reference_key:String(v[0]), payload:String(v[1]), proof_version:String(v[2]), revision:Number(v[3]), updated_at:String(v[4]) });
@@ -60,7 +68,7 @@ export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array)
     delete: async (key: string) => { objects.delete(key); },
   };
   const env = { DB:db, PAYMENT_PROOFS:bucket };
-  const handlers = createStateHandlers({ database: async () => db, initialPin: async () => undefined });
+  const handlers = createStateHandlers({ database: async () => db, initialPin: async () => undefined, umpireSecret: async () => umpireSecret });
   if (receipt) for (const slot of [1,2,3]) await bucket.put(slot === 1 ? "payments/groups/DEMO-PAYMENT-1/DEMO-PAYMENT-1.png" : `payments/groups/DEMO-PAYMENT-1/DEMO-PAYMENT-1.png/photos/${slot}.png`, receipt);
   const assetUrl = (path: string) => {
     if (closed || Date.now() >= expiresAt) return "";
@@ -78,6 +86,14 @@ export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array)
     if (request.signal.aborted) throw new DOMException("Aborted", "AbortError");
     const url = new URL(request.url);
     try {
+      if (url.pathname === "/api/umpires") {
+        if (!["GET", "POST"].includes(request.method)) return Response.json({ error: "Method not allowed" }, { status: 405 });
+        const seat = request.headers.get("x-demo-umpire-seat") || "main";
+        return handlers.UMPIRE(request, { token: umpireTokens.get(seat), setToken: token => {
+          if (token) umpireTokens.set(seat, token);
+          else umpireTokens.delete(seat);
+        } });
+      }
       if (url.pathname === "/api/state") {
         const handler = handlers[request.method as keyof typeof handlers];
         return handler ? await handler(request) : Response.json({error:"Method not allowed"},{status:405});
@@ -117,5 +133,5 @@ export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array)
       return Response.json({error:"This action is unavailable in the isolated demo."},{status:404});
     } catch { return Response.json({error:"The demo action failed. Reset the demo to start again."},{status:500}); }
   };
-  return { send, assetUrl, close() { closed=true;objects.clear();reviews.clear();sponsors.clear();assets.clear();for(const url of blobs)URL.revokeObjectURL(url);blobs.clear(); } };
+  return { send, assetUrl, close() { closed=true;umpireTokens.clear();presence.clear();objects.clear();reviews.clear();sponsors.clear();assets.clear();for(const url of blobs)URL.revokeObjectURL(url);blobs.clear(); } };
 }

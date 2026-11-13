@@ -1,5 +1,9 @@
 # Racketeers product and implementation context
 
+## Personal umpire workflow
+
+Managed tournaments use the umpire roster, scoped personal PINs, staff presence and court ownership. Staffed matches require acknowledged player verification before scoring and verbal confirmation from both teams before normal finalization. Escalated disputes retain their evidence separately from physical court release. See [Umpire workflow](docs/umpire-workflow.md) for transitions, storage and local Demo Mode. The previous scoring path remains available only before a tournament enables managed access.
+
 Organizer state and court alerts poll at two-second intervals while the tab is visible. Authenticated state polls confirm an unchanged revision without downloading the full tournament. Each refresh has a timeout, and the delayed status allows time for a request to finish and retry. The desk tolerates isolated refresh failures and slows retries when failures persist, including honoring a server-supplied retry time. Named account expiry still asks the organizer to sign in. Account managers can add an organizer admin from User management after confirming their current password.
 
 ## Named organizer accounts

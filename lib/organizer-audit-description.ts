@@ -31,6 +31,10 @@ const settings: Record<string, string> = {
 
 function describeRoute(method: string, path: string, action = '', image = false, exportLinks = false) {
   switch (path) {
+    case '/api/umpires': {
+      const descriptions: Record<string, string> = { enable: 'Enable personal umpire access', newTournament: 'Renew tournament umpire credentials', add: 'Add an umpire', rename: 'Rename an umpire', issuePin: 'Issue an umpire PIN', revokePin: 'Revoke an umpire PIN', deactivate: 'Change umpire roster status', assignCourt: 'Assign or hand off an umpire court', resolvePlayers: 'Resolve an incorrect player report', returnDispute: 'Return a dispute to the umpire', releaseDispute: 'Release a disputed game’s court', rule: 'Record an official ruling' };
+      return Object.hasOwn(descriptions, action) ? descriptions[action] : 'Manage umpires';
+    }
     case '/api/state':
       if (method === 'PATCH') return 'Save a game score';
       if (method === 'PUT') {

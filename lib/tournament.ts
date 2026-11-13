@@ -1,3 +1,4 @@
+import { provisionalWorkflow, type UmpireDirectory, type UmpireWorkflow } from "./umpire-types";
 import { normalizePricing } from "./registration-pricing";
 import { normalizeProjectorSettings, type ProjectorSettings } from "./projector-settings";
 import { normalizeTheme, type TournamentTheme } from "./theme";
@@ -112,6 +113,12 @@ export type Match = {
   scheduledAt: string | null;
   validated: boolean;
   pin: string;
+  umpireWorkflow?: UmpireWorkflow;
+  /** Prior umpire activity when this game is requeued or replayed. */
+  umpireHistory?: UmpireWorkflow[];
+  /** Public projection of a result that has not been confirmed. */
+  provisionalResult?: boolean;
+  voidedResult?: boolean;
   format: MatchFormat;
   scoring?: TieBreakRule;
   subBracket?: number;
@@ -144,6 +151,8 @@ export type TournamentState = {
   /** Server-only signing key for payment links after organizer account activation. */
   paymentProofShareKey?: string;
   umpirePinHash?: string;
+  umpireDirectory?: UmpireDirectory;
+  managedUmpires?: boolean;
   theme: TournamentTheme;
   startDate: string;
   endDate: string;
@@ -437,7 +446,7 @@ export function uncompleteMatchSet(match: Match, setIndex: number): Match {
 
 export function validateTournamentMatch(state: TournamentState, matchId: string): TournamentState {
   const selected = state.matches.find(match => match.id === matchId);
-  if (!selected || selected.hold || !matchWinner({ ...selected, sets: selected.sets.map(set => ({ ...set, complete: set.complete || isSetWon(set, selected.stage, selected.format, selected.scoring) })) })) return state;
+  if (!selected || selected.hold || selected.umpireWorkflow || !matchWinner({ ...selected, sets: selected.sets.map(set => ({ ...set, complete: set.complete || isSetWon(set, selected.stage, selected.format, selected.scoring) })) })) return state;
   const matches = state.matches.map((match) => match.id === matchId ? {
     ...match,
     sets: match.forfeit ? match.sets : match.sets.map((set) => ({ ...set, complete: isSetWon(set, match.stage, match.format, match.scoring) ? true : set.complete })),
@@ -450,11 +459,12 @@ export function validateTournamentMatch(state: TournamentState, matchId: string)
 }
 
 export function unvalidateTournamentMatch(state: TournamentState, matchId: string): TournamentState {
-  const matches = state.matches.map((match) => match.id === matchId ? { ...match, validated: false, status: match.forfeit ? "finished" as const : "live" as const, court: null, courtInUse: false } : match);
+  const matches = state.matches.map((match) => match.id === matchId && !match.umpireWorkflow ? { ...match, validated: false, status: match.forfeit ? "finished" as const : "live" as const, court: null, courtInUse: false } : match);
   return reseedChampionships({ ...state, matches });
 }
 
 export function matchWinner(match: Match): string | null {
+  if (match.umpireWorkflow?.phase === "voided" || match.voidedResult) return null;
   if (!match.entryAId || !match.entryBId) return null;
   if (match.forfeit && [match.entryAId, match.entryBId].includes(match.forfeit.winnerId)) return match.forfeit.winnerId;
   const completed = match.sets.filter((set) => set.complete && isSetWon(set, match.stage, match.format, match.scoring));
@@ -464,6 +474,10 @@ export function matchWinner(match: Match): string | null {
   if (aWins >= needed) return match.entryAId;
   if (bWins >= needed) return match.entryBId;
   return null;
+}
+
+export function isProvisionalMatch(match: Match) {
+  return match.provisionalResult === true || provisionalWorkflow(match.umpireWorkflow);
 }
 
 /** Freeze the legal winning score when recording a forfeiture; legacy results use their match rule. */
@@ -558,7 +572,7 @@ export function reseedChampionships(state: TournamentState): TournamentState {
       const semis = pool.filter((match) => match.stage === "semifinal");
       const bronze = pool.find((match) => match.stage === "bronze");
       if (bronze && untouched(bronze) && semis.length >= 2) {
-        const winners = semis.map(match => match.forfeit && !match.validated ? null : matchWinner(match));
+        const winners = semis.map(match => (match.forfeit || isProvisionalMatch(match)) && !match.validated ? null : matchWinner(match));
         bronze.entryAId = winners[0] ? (semis[0].entryAId === winners[0] ? semis[0].entryBId : semis[0].entryAId) : null;
         bronze.entryBId = winners[1] ? (semis[1].entryAId === winners[1] ? semis[1].entryBId : semis[1].entryAId) : null;
       }
@@ -571,7 +585,7 @@ export function reseedChampionships(state: TournamentState): TournamentState {
       const semis = pool.filter((match) => match.stage === "semifinal");
       if (untouched(semis[0])) { semis[0].entryAId = rank[0] ?? null; semis[0].entryBId = rank[3] ?? null; }
       if (untouched(semis[1])) { semis[1].entryAId = rank[1] ?? null; semis[1].entryBId = rank[2] ?? null; }
-      const winners = semis.map(match => match.forfeit && !match.validated ? null : matchWinner(match));
+      const winners = semis.map(match => (match.forfeit || isProvisionalMatch(match)) && !match.validated ? null : matchWinner(match));
       const losers = semis.map((match, index) => winners[index] ? (match.entryAId === winners[index] ? match.entryBId : match.entryAId) : null);
       const gold = pool.find((match) => match.stage === "gold");
       const bronze = pool.find((match) => match.stage === "bronze");
@@ -699,8 +713,8 @@ export function hydrateTournament(input: TournamentState): TournamentState {
   const formatByDivision = new Map(divisions.map((division) => [division.id, division]));
   const usedPins = new Set<string>();
   const matches = (input.matches ?? []).map((match) => {
-    let matchPin = /^\d{4}$/.test(match.pin ?? "") && !usedPins.has(match.pin) ? match.pin : "";
-    for (let attempt = 0; !matchPin && attempt < 100; attempt++) {
+    let matchPin = !input.managedUmpires && /^\d{4}$/.test(match.pin ?? "") && !usedPins.has(match.pin) ? match.pin : "";
+    for (let attempt = 0; !input.managedUmpires && !matchPin && attempt < 100; attempt++) {
       const candidate = String(Math.floor(1000 + Math.random() * 9000));
       if (!usedPins.has(candidate)) matchPin = candidate;
     }
@@ -768,7 +782,9 @@ export function medalResults(state: TournamentState, divisionId: string) {
 }
 
 export function isMatchUsingCourt(match: Match): boolean {
-  if (!match.court || match.hold || match.forfeit || match.validated || match.status === "finished" || matchWinner(match)) return false;
+  if (!match.court || match.hold || match.forfeit || match.validated || match.status === "finished") return false;
+  if (isProvisionalMatch(match)) return match.courtInUse === true;
+  if (matchWinner(match)) return false;
   if (typeof match.courtInUse === "boolean") return match.courtInUse;
   return match.status === "live" && (!match.sets.some(set => set.complete) || match.sets.some(set => !set.complete && (set.a > 0 || set.b > 0)));
 }

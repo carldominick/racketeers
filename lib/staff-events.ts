@@ -1,5 +1,5 @@
 import { isMatchUsingCourt, matchWinner, type StaffNotification, type TournamentState } from "./tournament";
-import { courtOccupant, gameNumber, matchupText, nextGameCalls } from "./game-day";
+import { courtOccupant, gameNumber, isFinished, matchupText, nextGameCalls } from "./game-day";
 
 export function appendStaffNotification(state: TournamentState, event: Omit<StaffNotification, "id" | "createdAt">): TournamentState {
   return { ...state, staffNotifications: [...(state.staffNotifications ?? []), { ...event, id: crypto.randomUUID(), createdAt: new Date().toISOString() }].slice(-100) };
@@ -9,12 +9,13 @@ export function appendStaffNotification(state: TournamentState, event: Omit<Staf
 export function recordCourtCompletions(previous: TournamentState, next: TournamentState): TournamentState {
   let result: TournamentState = { ...next, matches: next.matches.map(match => {
     const before = previous.matches.find(m => m.id === match.id);
-    const finished = Boolean(matchWinner(match)) || match.status === "finished";
-    const newlyFinished = finished && before && !matchWinner(before) && before.status !== "finished";
+    const finished = isFinished(match);
+    const newlyFinished = finished && before && !isFinished(before);
     return { ...match, completedAt: finished ? match.completedAt || before?.completedAt || (newlyFinished ? new Date().toISOString() : undefined) : undefined };
   }) };
   for (const match of next.matches) {
     const before = previous.matches.find(item => item.id === match.id);
+    if (match.umpireWorkflow && !match.forfeit) continue;
     if (!before || !match.court || match.court > next.courts) continue;
     const setIndex = match.sets.findIndex((set, index) => set.complete && !before.sets[index]?.complete);
     if (match.forfeit && !before.forfeit) {
@@ -36,6 +37,7 @@ export function staffNotificationText(event: StaffNotification): string {
   if (event.kind === "help_requested") return `Court ${event.court} needs help`;
   if (event.kind === "help_cleared") return `Court ${event.court} help request cleared`;
   if (event.kind === "near_cap") return `Court ${event.court} · ${event.pointsRemaining ?? 0} points from cap. ${event.nextMatchLabel ? `Prepare ${event.nextMatchLabel}` : "Prepare the next players"}`;
-  const completion = event.gameComplete ? "Game complete" : `Set ${event.setNumber ?? ""} complete`;
-  return `${completion} · Court ${event.court} ${event.available ? "is now available" : "is in use"}`;
+  const court = `Court ${event.court} ${event.available ? "is now available" : "is in use"}`;
+  if (event.gameComplete) return `Game complete · ${court}`;
+  return event.setNumber ? `Set ${event.setNumber} complete · ${court}` : court;
 }

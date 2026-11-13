@@ -161,6 +161,7 @@ export async function auditedOrganizerRequest(request: Request, db: AccountDB, n
   const actor = await accountActor(request, db);
   if (!actor) return next(request);
   const url = new URL(request.url);
+  if (url.pathname === "/api/umpires" && !request.headers.has("x-organizer-pin")) return next(request);
   const body = request.headers.get('content-type')?.startsWith('application/json')
     ? await request.clone().json() as { action?: unknown; state?: unknown; expectedRevision?: unknown } : {};
   const details = request.method === 'PUT' && body?.expectedRevision !== row.revision ? {} : body || {};
