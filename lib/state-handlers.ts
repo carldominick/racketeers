@@ -3,7 +3,7 @@ import { courtOccupant, gameDayAction, type GameDayAction } from "./game-day";
 import { normalizeProjectorSettings } from "./projector-settings";
 import { accountActor, organizerRequestMatches } from "./organizer-accounts";
 import { organizerPinMatches } from "./organizer-auth";
-import { regenerationIssue, gameHasStarted } from "./organizer-safety";
+import { regenerationIssue, gameHasStarted, resetTournamentGames, RESET_GAMES_CONFIRMATION } from "./organizer-safety";
 import { regenerateMatches, registrationDeadlineTime } from "./tournament";
 import { courtPresence, handleUmpire } from "./umpire-service";
 import { staffingIssue, type WorkflowInput } from "./umpire-workflow";
@@ -190,6 +190,16 @@ async function POST(request: Request) {
   const row = await ensureRow();
   const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
   const body = (await request.json()) as { action?: string; backupDigest?: string; reason?: string; forfeitingEntryId?: string; projector?: unknown; court?: number; help?: boolean; divisionId?: string; expectedRevision?: number; confirmation?: string; pin?: string; newPin?: string; matchId?: string; registrationId?: string; registration?: RegistrationForm };
+  if (body.action === "resetGames") {
+    if (!(await requestAuthorized(request, state))) return Response.json({ error: "Organizer access required." }, { status: 401 });
+    if (body.expectedRevision !== row.revision) return Response.json({ error: "The tournament changed. Download a new backup and review again." }, { status: 409 });
+    if (body.confirmation !== RESET_GAMES_CONFIRMATION || body.backupDigest !== await sha(backupPayload(JSON.parse(row.payload), row.payload))) return Response.json({ error: "Download the current recovery backup and type RESET GAMES." }, { status: 400 });
+    if (!state.matches.length) return Response.json({ error: "There are no games to reset." }, { status: 409 });
+    const next = resetTournamentGames(state);
+    if (!next) return Response.json({ error: "There are too few unused match PINs to safely reset every game." }, { status: 409 });
+    const saved = await saveStateAtRevision(next, row.revision);
+    return saved ? Response.json({ state: organizerState(saved.state), revision: saved.revision }) : Response.json({ error: "The tournament changed. Download a new backup and review again." }, { status: 409 });
+  }
   if (body.action === "regenerateBrackets") {
     if (!(await requestAuthorized(request, state))) return Response.json({ error: "Organizer access required." }, { status: 401 });
     if (body.expectedRevision !== row.revision) return Response.json({ error: "Tournament changed. Reload and download a new backup before regenerating." }, { status: 409 });

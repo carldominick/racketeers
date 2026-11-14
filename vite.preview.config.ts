@@ -1,6 +1,6 @@
 /** Isolated design preview. Mock data is never part of the production Worker. */
 import {createHash} from 'node:crypto';
-import {regenerationIssue} from './lib/organizer-safety';
+import {regenerationIssue,resetTournamentGames,RESET_GAMES_CONFIRMATION} from './lib/organizer-safety';
 import {regenerateMatches} from './lib/tournament';
 import {defineConfig} from 'vite';
 import {courtViewSnapshot} from './lib/court-view';
@@ -51,6 +51,29 @@ export default defineConfig({root:'preview',publicDir:'../public',server:{host:'
  let data; try { data = JSON.parse(body); } catch { res.statusCode=400;res.end(JSON.stringify({error:'Invalid request.'}));return; }
  if(req.method==='PUT'){if(data.expectedRevision!==revision){res.statusCode=409;res.end(JSON.stringify({error:'Tournament changed on another device.',state,revision}));return;}state=recordCourtCompletions(state,hydrateTournament({...data.state,courtHelp:state.courtHelp,staffNotifications:state.staffNotifications})) as typeof state;revision++;res.end(JSON.stringify({state,revision}));return;}
  if(req.method==='PATCH'){const match=state.matches.find(m=>m.id===data.matchId);if(!match){res.statusCode=404;res.end('{}');return;}if(match.hold||match.forfeit){res.statusCode=409;res.end(JSON.stringify({error:'This game is locked by the organizer.',gameLocked:true}));return;}const updated=data.action==='completeGame'?completeUmpireGame(match):applyUmpireSets(match,data.sets,data.finishSeparately===true);if(!updated){res.statusCode=409;res.end(JSON.stringify({error:'Complete the winning sets before completing the game.'}));return;}state=recordCourtCompletions(state,{...state,matches:state.matches.map(m=>m.id===match.id?updated:m)});revision++;res.end(JSON.stringify({state,revision}));return;}
+ if(data.action==='resetGames'){
+  if(req.headers['x-organizer-pin']!=='demo-only'){
+   res.statusCode=401;
+   res.end(JSON.stringify({error:'Preview organizer access required.'}));
+   return;
+  }
+  const digest=createHash('sha256').update(JSON.stringify(state)).digest('hex');
+  if(data.expectedRevision!==revision || data.backupDigest!==digest || data.confirmation!==RESET_GAMES_CONFIRMATION){
+   res.statusCode=409;
+   res.end(JSON.stringify({error:'Download the current recovery backup and type RESET GAMES.'}));
+   return;
+  }
+  const next=state.matches.length ? resetTournamentGames(state) : null;
+  if(!next){
+   res.statusCode=409;
+   res.end(JSON.stringify({error:'There are no games that can be reset.'}));
+   return;
+  }
+  state=next;
+  revision++;
+  res.end(JSON.stringify({state,revision}));
+  return;
+ }
  if(data.action==='regenerateBrackets'){const issue=regenerationIssue(state);if(req.headers['x-organizer-pin']!=='demo-only'||data.expectedRevision!==revision||issue||data.confirmation!=='REGENERATE'||data.backupDigest!==createHash('sha256').update(JSON.stringify(state)).digest('hex')){res.statusCode=409;res.end(JSON.stringify({error:issue||'Download the latest backup and confirm.'}));return;}state=regenerateMatches(state);revision++;res.end(JSON.stringify({state,revision}));return;}
  if(data.action==='updateProjectorSettings'){if(data.expectedRevision!==revision){res.statusCode=409;res.end(JSON.stringify({error:'Tournament changed. Review your settings and save again.'}));return;}state=hydrateTournament({...state,projector:data.projector});revision++;res.end(JSON.stringify({state,revision}));return;}
  if(data.action==='courtHelp'){const court=req.headers['x-organizer-pin']?data.court:state.matches.find(m=>m.id===data.matchId)?.court;if(!court){res.statusCode=400;res.end(JSON.stringify({error:'Assign a court first.'}));return;}const help={...(state.courtHelp??{})};if(data.help)help[court]={id:crypto.randomUUID(),court,requestedAt:new Date().toISOString()};else delete help[court];state=appendStaffNotification({...state,courtHelp:help},{kind:data.help?'help_requested':'help_cleared',court}) as typeof state;revision++;res.end(JSON.stringify({courtHelp:help,revision}));return;}

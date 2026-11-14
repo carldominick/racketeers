@@ -72,6 +72,8 @@ Game Day tolerates isolated refresh failures and spaces out retries if they cont
 
 Setup also offers a private tournament-state recovery download. Full recovery requires separate database tables and R2 objects: see [Backup and recovery](docs/backup-recovery.md). No automatic production restore is provided.
 
+**Prepare → Setup → Reset all games** clears scores, results, holds, forfeitures, and game court assignments. Download and save the current recovery backup, then type `RESET GAMES`. The reset preserves the phase, scheduled times, registrations, group matchups, and manual championship matchups. Automatic championship places recalculate from the reset results. Managed umpires return to waiting and keep their roster and logins. For shared umpire access, match PINs are replaced so old scorecards cannot restore prior scores.
+
 Development/build scripts prepare ignored `public/ocr/` assets from locked npm dependencies. Run `npm ci` first. For the disposable 12-court and synthetic receipt fixture, set PowerShell `$env:RACKETEERS_PREVIEW_COURTS = '1'`, then run `npm run dev -- --host 127.0.0.1`. Open `http://127.0.0.1:5173/?role=organizer`. The fixture starts Live; switch Setup to Registration to exercise receipt review. Data disappears on preview restart. This does not test production authentication. Verification is recorded in `design-qa.md` and `outputs/court-ocr-verification.md`.
 
 ## Deploy from the connected GitHub repository

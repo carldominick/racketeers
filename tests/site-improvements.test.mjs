@@ -21,6 +21,34 @@ test('regeneration blocks results, started play and active phases even after ret
  for(const status of ['live','completed'])assert.ok(regenerationIssue({...state,status}));
  assert.equal(regenerationIssue({...state,matches:[{...match,court:2,scheduledAt:'2026-01-01'}]}),null);
 });
+test('bulk game reset preserves the draw, replaces legacy PINs and clears holds, forfeits and court state',()=>{
+ const {resetTournamentGames}=modules['organizer-safety'];
+ const initial=logic.initialTournament();
+ const division={...initial.divisions[0],manualChampionshipMatchups:true};
+ const regular={...match,divisionId:division.id,stage:'regular',entryAId:'a',entryBId:'b',pin:'1245',scheduledAt:'2026-11-29T04:00:00Z',status:'finished',validated:true,court:1,sets:[{a:31,b:6,complete:true}],forfeit:{winnerId:'a'},completedAt:'2026-11-29T04:30:00Z'};
+ const final={...match,id:'final',divisionId:division.id,stage:'gold',entryAId:'c',entryBId:'d',pin:'5824',court:2,hold:{reason:'late'},dispatchedAt:'2026-11-29T04:30:00Z',awaitingUmpireCompletion:true};
+ const state={...initial,status:'live',divisions:[division],registrations:[{id:'registration',paid:true,shirtReceived:true}],matches:[regular,final],courtHelp:{1:{id:'help'}},staffNotifications:[{id:'release'}],gameDay:{...initial.gameDay,nextBracketKey:'current'}};
+ const reset=resetTournamentGames(state);
+ assert.equal(reset.status,'live');
+ assert.deepEqual(reset.registrations,state.registrations);
+ assert.deepEqual(reset.divisions,state.divisions);
+ assert.deepEqual(reset.courtHelp,{});
+ assert.deepEqual(reset.staffNotifications,[]);
+ assert.equal(reset.gameDay.nextBracketKey,undefined);
+ for(const [index,game] of reset.matches.entries()){
+  const before=state.matches[index];
+  for(const key of ['id','entryAId','entryBId','scheduledAt'])assert.equal(game[key],before[key]);
+  assert.match(game.pin,/^\d{4}$/);
+  assert.ok(state.matches.every(old=>old.pin!==game.pin));
+  assert.equal(game.court,null);
+  assert.equal(game.status,'ready');
+  assert.equal(game.validated,false);
+  assert.deepEqual(game.sets,[{a:0,b:0,complete:false}]);
+  for(const key of ['forfeit','hold','completedAt','dispatchedAt','awaitingUmpireCompletion'])assert.equal(game[key],undefined);
+ }
+ assert.notEqual(reset.matches[0].pin,reset.matches[1].pin);
+ assert.equal(state.matches[0].sets[0].a,31);
+});
 test('a save conflict retains the complete local draft and never retries at the returned revision',async()=>{
  const local={...logic.initialTournament(),tournamentName:'Local draft'},remote={...local,tournamentName:'Other desk',registrations:[{id:'public-new',name:'Alex'}]};
  const original=structuredClone(local);let calls=0;
