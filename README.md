@@ -185,6 +185,8 @@ The November UI polish retains the navy/lime palette and themes, with lighter ac
 
 `npm run dev` opens an isolated frontend preview using the production UI components and demo tournament data. Demo submissions and payment storage stay in memory; production storage and staff access are not connected. `npm run dev:worker` starts the actual Cloudflare/Vinext development runtime using local bindings. `npm run build` and `npm run deploy` still build and deploy the production Worker and its real APIs.
 
+For a local court handoff, assign a game from `/?role=organizer`. Open `/?role=umpire` in another tab, choose **More → Exit match** if the sample scorecard is open, then enter the assigned game's displayed PIN. The organizer desk shows the reserved court as in play after the umpire opens the scorecard.
+
 Preview-only viewport checks: append `?viewport=390`, `?viewport=834`, or `?viewport=1440` to the preview address. The desktop fixture scales a 1440 × 1024 frame uniformly for visual comparison. These fixtures are not production routes.
 
 ### Clubhouse theme and venue

@@ -116,6 +116,8 @@ Organizer payment proofs gain expandable Amount & reference review. Tesseract.js
 
 Preview adds disposable SQLite/R2 proof handling through the real payment handlers; `RACKETEERS_PREVIEW_COURTS=1` selects the synthetic 12-court fixture. Preview files do not enter production imports, and `?role` remains preview-only. `/courts` is a real production route.
 
+The local preview accepts the displayed PIN for each sample game. Opening a reserved game moves it into play on the same court, and completing it releases the court through the existing preview scoring flow.
+
 Automated verification: 167 tests pass; one known Windows print-card ESM loader failure occurs before assertions. All 12 new court/OCR regressions pass. Lint, build and two built-Worker render tests pass, including the court route and same-origin OCR/player assets. Final browser QA is blocked by the browser tool's local-URL policy; latest artwork/linked-card changes and responsive/fullscreen behavior still require visual checks. Earlier browser work read and saved a synthetic PHP 1250.00 receipt/reference 001234567890 without changing either player's payment flag. See `design-qa.md` and `outputs/court-ocr-verification.md`. No push, merge or deployment occurred.
 
 ## Evidence and scope
