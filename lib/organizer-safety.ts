@@ -1,4 +1,36 @@
-import type { Match, TournamentState } from "./tournament";
+import { gameDaySettings, reseedChampionships, type Match, type TournamentState } from "./tournament";
+
+export const RESET_GAMES_CONFIRMATION = "RESET GAMES";
+
+export function resetTournamentGames(state: TournamentState, now = new Date().toISOString()): TournamentState | null {
+  // Retire old match PINs so a scorecard left open on another device cannot
+  // put pre-reset scores back. Managed umpire actions use workflow versions.
+  const oldPins = new Set(state.matches.map(match => match.pin));
+  const pins = state.managedUmpires ? [] : Array.from({ length: 9000 }, (_, index) => String(1000 + index)).filter(pin => !oldPins.has(pin));
+  if (!state.managedUmpires && pins.length < state.matches.length) return null;
+  const random = state.managedUmpires ? new Uint32Array() : crypto.getRandomValues(new Uint32Array(state.matches.length));
+  const matches = state.matches.map((match, index): Match => {
+    const pinIndex = state.managedUmpires ? 0 : random[index] % pins.length;
+    const pin = state.managedUmpires ? "" : pins[pinIndex];
+    if (!state.managedUmpires) {
+      pins[pinIndex] = pins[pins.length - 1];
+      pins.pop();
+    }
+    return {
+      ...match, pin, sets: [{ a: 0, b: 0, complete: false }], status: "ready", validated: false,
+      court: null, courtInUse: false, dispatchedAt: undefined, completedAt: undefined,
+      awaitingUmpireCompletion: undefined, provisionalResult: undefined, voidedResult: undefined,
+      nearCapNotified: undefined, hold: undefined, forfeit: undefined, umpireWorkflow: undefined,
+      umpireHistory: match.umpireWorkflow
+        ? [...(match.umpireHistory ?? []), { ...match.umpireWorkflow, releasedAt: match.umpireWorkflow.releasedAt ?? now }]
+        : match.umpireHistory,
+    };
+  });
+  return reseedChampionships({
+    ...state, matches, courtHelp: {}, staffNotifications: [],
+    gameDay: { ...gameDaySettings(state), nextBracketKey: undefined },
+  });
+}
 
 export function gameHasStarted(match: Match) {
   return match.status !== "ready" || match.validated || Boolean(match.forfeit || match.completedAt || match.courtInUse) || match.sets.some(set => set.a > 0 || set.b > 0 || set.complete);

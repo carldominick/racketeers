@@ -104,6 +104,20 @@ test('built Worker enforces personal umpire access and atomically completes a st
     const operate=async body=>{const snapshot=(await check(send('/api/umpires',undefined,ump))).body;return send('/api/umpires',{...body,matchId:match.id,version:snapshot.match.umpireWorkflow.version},ump);};
     await check(operate({action:'acknowledge'}));
     await check(operate({action:'start'}));
+    await check(operate({action:'score',operation:crypto.randomUUID(),sets:[{a:10,b:7,complete:false}]}));
+    const staleGame=(await check(send('/api/umpires',undefined,ump))).body.match;
+    const backup=(await check(send('/api/state?backup=1',undefined,org))).body;
+    await check(send('/api/state',{action:'resetGames',confirmation:'RESET GAMES',expectedRevision:backup.revision,backupDigest:backup.digest},org));
+    const reset=(await state()).state.matches[0];
+    assert.equal(reset.court,null);
+    assert.deepEqual(reset.sets,[{a:0,b:0,complete:false}]);
+    assert.equal((await check(send('/api/umpires',undefined,ump))).body.match,null);
+    await check(dispatch());
+    const reassigned=(await check(send('/api/umpires',undefined,ump))).body.match;
+    assert.ok(reassigned.umpireWorkflow.version > staleGame.umpireWorkflow.version);
+    await check(send('/api/umpires',{action:'score',matchId:match.id,version:staleGame.umpireWorkflow.version,operation:crypto.randomUUID(),sets:[{a:11,b:7,complete:false}]},ump),409);
+    await check(operate({action:'acknowledge'}));
+    await check(operate({action:'start'}));
     await check(operate({action:'score',operation:crypto.randomUUID(),sets:[{a:31,b:19,complete:true}]}));
     await check(operate({action:'submit',a:true,b:true,clear:true}));
     const final=(await state()).state.matches[0];
@@ -285,6 +299,24 @@ test('built named-account activation, password change, cookies, PIN retirement a
  assert.equal((await changedPoll.json()).revision,state.revision+1);
  const audit=await runtime.dispatchFetch('https://racketeers.example/api/organizers?audit=1',{headers:{cookie}});assert.equal(audit.status,200);const events=(await audit.json()).events;
  assert.ok(events.some(e=>e.username===c.username&&e.action.includes('Confirm payment for 2 player entries')&&e.action.includes('venue')&&e.action.includes('registration deadline')&&e.outcome==='Succeeded'));
+ const organizerHeaders={cookie,'x-organizer-pin':'session'};
+ const currentBackup=await (await runtime.dispatchFetch('https://racketeers.example/api/state?backup=1',{headers:organizerHeaders})).json();
+ const resetBody={action:'resetGames',confirmation:'RESET GAMES',expectedRevision:currentBackup.revision,backupDigest:currentBackup.digest};
+ const resetGames=(body,headers=organizerHeaders)=>runtime.dispatchFetch('https://racketeers.example/api/state',{method:'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)});
+ assert.equal((await resetGames(resetBody,{})).status,401);
+ assert.equal((await resetGames({...resetBody,confirmation:'RESET'})).status,400);
+ assert.equal((await resetGames({...resetBody,backupDigest:'stale'})).status,400);
+ assert.equal((await resetGames({...resetBody,expectedRevision:state.revision})).status,409);
+ const resetResult=await resetGames(resetBody);
+ assert.equal(resetResult.status,200);
+ const resetData=await resetResult.json();
+ assert.equal(resetData.revision,currentBackup.revision+1);
+ const resetMatch=resetData.state.matches.find(game=>game.id===match.id);
+ assert.equal(resetMatch.court,null);
+ assert.notEqual(resetMatch.pin,match.pin);
+ assert.ok(resetData.state.registrations.filter(player=>paidIds.has(player.id)).every(player=>player.paid));
+ const resetAudit=await (await runtime.dispatchFetch('https://racketeers.example/api/organizers?audit=1',{headers:{cookie}})).json();
+ assert.ok(resetAudit.events.some(e=>e.username===c.username&&e.action==='Reset all games and release their courts'&&e.outcome==='Succeeded'));
  const publicState=await runtime.dispatchFetch('https://racketeers.example/api/state');const publicData=await publicState.json();assert.equal(publicData.state.organizerAccountsEnabled,true);assert.equal(publicData.state.registrations.length,0);assert.equal(publicData.state.registrationClosesAt,registrationClosesAt);
  assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/demo',{method:'POST',headers:{cookie,'x-organizer-pin':'session'}})).status,200);
  assert.equal((await post({action:'logout'},cookie)).status,200);
@@ -302,6 +334,7 @@ test('built named-account activation, password change, cookies, PIN retirement a
  assert.equal(view.paymentProofShareKey,undefined);
  assert.equal(view.umpirePinHash,undefined);
  assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/state?backup=1',{headers:{cookie,'x-organizer-pin':'session'}})).status,403);
+ assert.equal((await resetGames({...resetBody,expectedRevision:resetData.revision},{cookie,'x-organizer-pin':'session'})).status,403);
  for(const action of ['verifyMatch','viewRegistrationPin']){
   assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/state',{method:'POST',headers:{cookie,'x-organizer-pin':'session','content-type':'application/json'},body:JSON.stringify({action,pin:match.pin,registrationId:registration.id})})).status,403);
  }

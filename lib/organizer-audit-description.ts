@@ -7,6 +7,7 @@ const stateActions: Record<string, string> = {
   clearForfeit: 'Clear a forfeiture',
   updateProjectorSettings: 'Update the projector slideshow',
   regenerateBrackets: 'Regenerate brackets and matchups',
+  resetGames: 'Reset all games and release their courts',
   registerPlayer: 'Add a registration',
   updateRegistration: 'Edit a registration',
   resetRegistrations: 'Reset registrations',
