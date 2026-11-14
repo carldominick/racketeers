@@ -7,7 +7,7 @@ import {courtViewSnapshot} from './lib/court-view';
 import {previewPaymentHandler} from './preview/payment-fixture';
 import {gameDayFixture} from './preview/game-day-fixture';
 import {projectorFixture} from './preview/projector-fixture';
-import {gameDayAction,type GameDayAction} from './lib/game-day';
+import {courtOccupant,gameDayAction,isFinished,type GameDayAction} from './lib/game-day';
 import react from '@vitejs/plugin-react';
 import {appendStaffNotification,recordCourtCompletions} from './lib/staff-events';
 import {applyUmpireSets,completeUmpireGame,initialTournament,contactError,hydrateTournament} from './lib/tournament';
@@ -55,7 +55,38 @@ export default defineConfig({root:'preview',publicDir:'../public',server:{host:'
  if(data.action==='updateProjectorSettings'){if(data.expectedRevision!==revision){res.statusCode=409;res.end(JSON.stringify({error:'Tournament changed. Review your settings and save again.'}));return;}state=hydrateTournament({...state,projector:data.projector});revision++;res.end(JSON.stringify({state,revision}));return;}
  if(data.action==='courtHelp'){const court=req.headers['x-organizer-pin']?data.court:state.matches.find(m=>m.id===data.matchId)?.court;if(!court){res.statusCode=400;res.end(JSON.stringify({error:'Assign a court first.'}));return;}const help={...(state.courtHelp??{})};if(data.help)help[court]={id:crypto.randomUUID(),court,requestedAt:new Date().toISOString()};else delete help[court];state=appendStaffNotification({...state,courtHelp:help},{kind:data.help?'help_requested':'help_cleared',court}) as typeof state;revision++;res.end(JSON.stringify({courtHelp:help,revision}));return;}
  if(['dispatchGame','releaseGameCourt','holdGame','resumeGame','forfeitGame','clearForfeit'].includes(data.action)){if(data.expectedRevision!==revision){res.statusCode=409;res.end(JSON.stringify({error:'Court or game data changed.',state,revision}));return;}const result=gameDayAction(state,data.action as GameDayAction,data.matchId,data);if(!result.state){res.statusCode=409;res.end(JSON.stringify({error:result.error,state,revision}));return;}state=recordCourtCompletions(state,result.state);revision++;res.end(JSON.stringify({state,revision}));return;}
- if(data.action==='verifyMatch' && data.pin==='4317'){res.end(JSON.stringify({match:state.matches[0]}));return;}
+ if(data.action==='verifyMatch'){
+  const match=typeof data.pin==='string' && /^\d{4}$/.test(data.pin)
+    ? state.matches.find(item=>item.pin===data.pin && !item.validated)
+    : undefined;
+  if(!match){
+   res.statusCode=401;
+   res.end(JSON.stringify({error:'Match PIN did not match an available game.'}));
+   return;
+  }
+  if(match.hold || match.forfeit){
+   res.statusCode=409;
+   res.end(JSON.stringify({error:match.hold ? 'This game is on hold.' : 'This game ended by forfeiture.'}));
+   return;
+  }
+  if(isFinished(match)){
+   res.end(JSON.stringify({match}));
+   return;
+  }
+  const otherMatches=state.matches.filter(item=>item.id!==match.id);
+  if(match.court && courtOccupant({...state,matches:otherMatches},match.court)){
+   res.statusCode=409;
+   res.end(JSON.stringify({error:`Court ${match.court} is already in use or reserved.`}));
+   return;
+  }
+  const opened={...match,status:'live' as const,courtInUse:Boolean(match.court)};
+  if(match.status!==opened.status || match.courtInUse!==opened.courtInUse){
+   state={...state,matches:state.matches.map(item=>item.id===match.id ? opened : item)};
+   revision++;
+  }
+  res.end(JSON.stringify({match:opened,revision}));
+  return;
+ }
  if(data.action === 'registerPlayer' || data.action === 'updateRegistration') {
   const draft = data.registration;
   const error = !draft?.name?.trim() || !draft?.club?.trim() ? 'Enter the required player details.' : contactError(draft.facebookProfile, draft.phone);
