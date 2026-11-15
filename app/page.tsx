@@ -616,6 +616,7 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
   const [state, setState] = useState<TournamentState>(() => initialTournament());
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState("");
+  const [phaseMessage, setPhaseMessage] = useState("");
   const [revision, setRevision] = useState(1);
   const [view, setView] = useState<View>(demo ? "organizer" : "register");
   const [accessOpen, setAccessOpen] = useState(false);
@@ -948,23 +949,30 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
   const unvalidateMatch = (matchId: string) => { touchedMatchIds.current.add(matchId); commit((current) => unvalidateTournamentMatch(current, matchId)); };
   const resetMatch = (matchId: string) => { const match = stateRef.current.matches.find(m => m.id === matchId); if (!match || match.validated || match.hold || match.forfeit || !confirm(`Reset ${match.label}? Scores will be cleared. The PIN, players and court will be kept.`)) return; touchedMatchIds.current.add(matchId); commit((current) => ({ ...current, matches: current.matches.map((match) => match.id === matchId ? { ...match, sets: [{ a: 0, b: 0, complete: false }], status: "ready" as const, courtInUse: false, dispatchedAt: match.court ? new Date().toISOString() : undefined, completedAt: undefined, nearCapNotified: false, validated: false } : match) })); };
   const renewMatchPin = (matchId: string) => { if (!confirm("Replace this game PIN? The old PIN will stop working. Scores will be kept.")) return; touchedMatchIds.current.add(matchId); commit((current) => regenerateMatchPin(current, matchId)); };
-  const resetAll = async (backupRevision: number, backupDigest: string, confirmation: string) => {
+  const runSetupAction = async (body: Record<string, unknown>, expectedRevision: number) => {
     if (dirtyRef.current || saveInFlight.current || gameActionInFlight.current || organizerReadOnly || organizerSessionExpired) throw new Error("Wait for tournament changes to save, then try again.");
-    if (revisionRef.current !== backupRevision) throw new Error("The tournament changed. Download a new backup and review again.");
+    if (revisionRef.current !== expectedRevision) throw new Error("The tournament changed. Review the latest state and try again.");
     gameActionInFlight.current = true;
     setGameActionBusy(true);
     setResetBusy(true);
     try {
-      const response = await fetch("/api/state", { method: "POST", headers: { "content-type": "application/json", "x-organizer-pin": organizerPin }, body: JSON.stringify({ action: "resetGames", expectedRevision: backupRevision, backupDigest, confirmation }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Game reset failed.");
+      const response = await fetch("/api/state", {
+        method: "POST", headers: { "content-type": "application/json", "x-organizer-pin": organizerPin },
+        body: JSON.stringify({ ...body, expectedRevision }), signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        if (response.status === 409 || response.status === 401 || response.status === 403) await fetchState(organizerPin);
+        throw new Error(data?.error || "The tournament change could not be saved.");
+      }
+      const data = await readStateResponse(response);
       if (!dirtyRef.current && data.revision >= revisionRef.current) {
         const updated = { ...data.state, theme: themeOverride.current ?? data.state.theme };
         stateRef.current = updated;
         revisionRef.current = data.revision;
         setState(updated);
         setRevision(data.revision);
-        setCourtHelp({});
+        setCourtHelp(updated.courtHelp ?? {});
         setLastConfirmedAt(Date.now());
       }
     } finally {
@@ -972,6 +980,20 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
       gameActionInFlight.current = false;
       setGameActionBusy(false);
     }
+  };
+  const changePhase = async (phase: TournamentState["status"]) => {
+    if (phase === stateRef.current.status) return;
+    setPhaseMessage("");
+    try {
+      await runSetupAction({ action: "changeTournamentPhase", phase }, revisionRef.current);
+      setPhaseMessage(`Tournament phase saved as ${PHASES.find(item => item.id === phase)?.label}.`);
+    } catch (error) {
+      setPhaseMessage(error instanceof Error ? error.message : "The tournament phase could not be changed.");
+    }
+  };
+  const resetAll = async (backupRevision: number, backupDigest: string, confirmation: string, reopenRegistration: boolean) => {
+    setPhaseMessage("");
+    await runSetupAction({ action: "resetGames", backupDigest, confirmation, reopenRegistration }, backupRevision);
   };
   const updateRegistration = (registrationId: string, patch: Partial<PlayerRegistration>) => commit((current) => {
     let registrations = current.registrations.map((registration) => registration.id === registrationId ? { ...registration, ...patch } : registration);
@@ -1174,7 +1196,7 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
 
   const organizerContent = !unlocked ? <PinGate onUnlock={unlock} title={tab === "scores" ? "Group Scores & PINs" : "Organizer access"} /> : <>
     {tab === "accounts" && <OrganizerAccounts blocked={organizerReadOnly || organizerSessionExpired || dirty || sync !== "saved"} pin={organizerPin} configured={Boolean(state.organizerAccountsEnabled)} onSignOut={()=>{setOrganizerReadOnly(false);setOrganizerPin("");setUnlocked(false);setView("register");setAccessOpen(true);void fetchState("", "");}} />}
-    {tab === "setup" && <div className="stack">{!demo && <section className="card organizer-demo-link"><h2>Practice in demo mode</h2><p>Try features with fictional data in a separate tab. Sign in with organizer access. Demo changes stay in the practice tab.</p><a className="secondary" href="/demo" target="_blank" rel="noopener noreferrer">Open organizer demo</a></section>}<TournamentBackup pin={organizerPin} disabled={dirty || sync !== "saved"} /><PhaseTracker state={state} onChange={(status) => commit((current) => ({ ...current, status }))} />{tournamentEditingLocked(state.status) && <p className="phase-lock-note">Tournament setup is read-only during Live and Completed. Move the tracker back to Setup or Registration to make changes.</p>}<section className="card game-day-settings"><div className="section-head"><div><p className="eyebrow">Game day operations</p><h2>Queue & player notifications</h2><p>Keep players ready while each court approaches the end of a match.</p></div></div><div className="form-grid"><label className="check-field"><input type="checkbox" checked={gameDaySettings(state).evenRotation} onChange={e => updateGameDaySettings({ evenRotation: e.target.checked })} />Rotate evenly across brackets</label><label>Minimum player rest (minutes)<DraftNumberInput min={0} max={120} value={gameDaySettings(state).restMinutes} onCommit={restMinutes => updateGameDaySettings({ restMinutes })} /></label><label className="check-field"><input type="checkbox" checked={gameDaySettings(state).nearCapEnabled} onChange={e => updateGameDaySettings({ nearCapEnabled: e.target.checked })} />Notify next players near the cap</label><label>Notify when X points from cap<DraftNumberInput min={1} max={99} value={gameDaySettings(state).nearCapPoints} onCommit={nearCapPoints => updateGameDaySettings({ nearCapPoints })} /></label></div><p className="desk-settings-help">Warnings appear on the organizer board, Spectator and Projector views. Uses the current stage’s score cap (the target for first-to-score games). Multi-set warnings appear only when the set could finish the match. Rest is tracked from newly completed games.</p><ResetGames gameCount={state.matches.length} revision={revision} pin={organizerPin} managedUmpires={Boolean(state.managedUmpires)} disabled={dirty || sync !== "saved" || gameActionBusy || resetBusy} onReset={resetAll} /></section><fieldset className="phase-fieldset" disabled={tournamentEditingLocked(state.status)}><div className="stack"><section className="card"><div className="section-head"><div><p className="eyebrow">Tournament controls</p><h2>Badminton Setup</h2></div><span className="rule-pill">Badminton only</span></div>
+    {tab === "setup" && <div className="stack">{!demo && <section className="card organizer-demo-link"><h2>Practice in demo mode</h2><p>Try features with fictional data in a separate tab. Sign in with organizer access. Demo changes stay in the practice tab.</p><a className="secondary" href="/demo" target="_blank" rel="noopener noreferrer">Open organizer demo</a></section>}<TournamentBackup pin={organizerPin} disabled={dirty || sync !== "saved"} /><PhaseTracker state={state} onChange={dirty || sync !== "saved" || gameActionBusy ? undefined : changePhase} />{phaseMessage && <p className="phase-lock-note" role="status">{phaseMessage}</p>}{tournamentEditingLocked(state.status) && <p className="phase-lock-note">Tournament setup is read-only during Live and Completed. Move the tracker back to Setup or Registration to make changes.</p>}<section className="card game-day-settings"><div className="section-head"><div><p className="eyebrow">Game day operations</p><h2>Queue & player notifications</h2><p>Keep players ready while each court approaches the end of a match.</p></div></div><div className="form-grid"><label className="check-field"><input type="checkbox" checked={gameDaySettings(state).evenRotation} onChange={e => updateGameDaySettings({ evenRotation: e.target.checked })} />Rotate evenly across brackets</label><label>Minimum player rest (minutes)<DraftNumberInput min={0} max={120} value={gameDaySettings(state).restMinutes} onCommit={restMinutes => updateGameDaySettings({ restMinutes })} /></label><label className="check-field"><input type="checkbox" checked={gameDaySettings(state).nearCapEnabled} onChange={e => updateGameDaySettings({ nearCapEnabled: e.target.checked })} />Notify next players near the cap</label><label>Notify when X points from cap<DraftNumberInput min={1} max={99} value={gameDaySettings(state).nearCapPoints} onCommit={nearCapPoints => updateGameDaySettings({ nearCapPoints })} /></label></div><p className="desk-settings-help">Warnings appear on the organizer board, Spectator and Projector views. Uses the current stage’s score cap (the target for first-to-score games). Multi-set warnings appear only when the set could finish the match. Rest is tracked from newly completed games.</p><ResetGames gameCount={state.matches.length} revision={revision} pin={organizerPin} managedUmpires={Boolean(state.managedUmpires)} canReopenRegistration={state.status !== "registration"} disabled={dirty || sync !== "saved" || gameActionBusy || resetBusy} onReset={resetAll} /></section><fieldset className="phase-fieldset" disabled={tournamentEditingLocked(state.status)}><div className="stack"><section className="card"><div className="section-head"><div><p className="eyebrow">Tournament controls</p><h2>Badminton Setup</h2></div><span className="rule-pill">Badminton only</span></div>
       <div className="form-grid"><label>Tournament name<input value={state.tournamentName} onChange={(event) => commit({ ...state, tournamentName: event.target.value })} /></label><label className="venue-field">Location / venue<input maxLength={200} placeholder="Venue name and address" value={state.venue || ""} onChange={event => commit({ ...state, venue: event.target.value })} /></label><RegistrationContactInput value={state.registrationContactUrl || ""} onCommit={value => commit({ ...state, registrationContactUrl: value })} /><label>Number of courts<DraftNumberInput min={1} max={20} value={state.courts} onCommit={(value) => commit({ ...state, courts: value })} /></label><label>Start date<input type="date" value={state.startDate} onChange={(event) => commit({ ...state, startDate: event.target.value })} /></label><label>End date<input type="date" value={state.endDate} onChange={(event) => commit({ ...state, endDate: event.target.value })} /></label><label>Daily start (Philippine time)<input type="time" value={state.dayStart} onChange={(event) => commit({ ...state, dayStart: event.target.value })} /></label><label>Daily end<input type="time" value={state.dayEnd} onChange={(event) => commit({ ...state, dayEnd: event.target.value })} /></label><label>Estimated game duration<DraftNumberInput min={5} value={state.gameDuration} onCommit={(value) => commit({ ...state, gameDuration: value })} /></label></div>
       <div className="info-strip"><b>Badminton presets</b><span>Regular: 1 game to 31, win by 2, cap 35</span><span>Medal rounds: best of 3 to 21, win by 2, cap 30</span></div></section>
       <RegistrationDeadlineInput value={state.registrationClosesAt || ""} onCommit={registrationClosesAt => commit(current => ({ ...current, registrationClosesAt }))} />

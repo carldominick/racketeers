@@ -3,7 +3,7 @@ import { courtOccupant, gameDayAction, type GameDayAction } from "./game-day";
 import { normalizeProjectorSettings } from "./projector-settings";
 import { accountActor, organizerRequestMatches } from "./organizer-accounts";
 import { organizerPinMatches } from "./organizer-auth";
-import { regenerationIssue, gameHasStarted, resetTournamentGames, RESET_GAMES_CONFIRMATION } from "./organizer-safety";
+import { regenerationIssue, gameHasStarted, isTournamentPhase, phaseChangeIssue, resetTournamentGames, RESET_GAMES_CONFIRMATION } from "./organizer-safety";
 import { regenerateMatches, registrationDeadlineTime } from "./tournament";
 import { courtPresence, handleUmpire } from "./umpire-service";
 import { staffingIssue, type WorkflowInput } from "./umpire-workflow";
@@ -189,7 +189,17 @@ async function GET(request: Request) {
 async function POST(request: Request) {
   const row = await ensureRow();
   const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
-  const body = (await request.json()) as { action?: string; backupDigest?: string; reason?: string; forfeitingEntryId?: string; projector?: unknown; court?: number; help?: boolean; divisionId?: string; expectedRevision?: number; confirmation?: string; pin?: string; newPin?: string; matchId?: string; registrationId?: string; registration?: RegistrationForm };
+  const body = (await request.json()) as { action?: string; phase?: unknown; reopenRegistration?: boolean; backupDigest?: string; reason?: string; forfeitingEntryId?: string; projector?: unknown; court?: number; help?: boolean; divisionId?: string; expectedRevision?: number; confirmation?: string; pin?: string; newPin?: string; matchId?: string; registrationId?: string; registration?: RegistrationForm };
+  if (body.action === "changeTournamentPhase") {
+    if (!(await requestAuthorized(request, state))) return Response.json({ error: "Organizer access required." }, { status: 401 });
+    if (!isTournamentPhase(body.phase)) return Response.json({ error: "Choose a valid tournament phase." }, { status: 400 });
+    if (body.expectedRevision !== row.revision) return Response.json({ error: "The tournament changed. Review the current phase and try again." }, { status: 409 });
+    const issue = phaseChangeIssue(state, body.phase);
+    if (issue) return Response.json({ error: issue }, { status: 409 });
+    if (body.phase === state.status) return Response.json({ state: organizerState(state), revision: row.revision });
+    const saved = await saveStateAtRevision({ ...state, status: body.phase }, row.revision);
+    return saved ? Response.json({ state: organizerState(saved.state), revision: saved.revision }) : Response.json({ error: "The tournament changed. Review the current phase and try again." }, { status: 409 });
+  }
   if (body.action === "resetGames") {
     if (!(await requestAuthorized(request, state))) return Response.json({ error: "Organizer access required." }, { status: 401 });
     if (body.expectedRevision !== row.revision) return Response.json({ error: "The tournament changed. Download a new backup and review again." }, { status: 409 });
@@ -197,7 +207,7 @@ async function POST(request: Request) {
     if (!state.matches.length) return Response.json({ error: "There are no games to reset." }, { status: 409 });
     const next = resetTournamentGames(state);
     if (!next) return Response.json({ error: "There are too few unused match PINs to safely reset every game." }, { status: 409 });
-    const saved = await saveStateAtRevision(next, row.revision);
+    const saved = await saveStateAtRevision(body.reopenRegistration === true ? { ...next, status: "registration" } : next, row.revision);
     return saved ? Response.json({ state: organizerState(saved.state), revision: saved.revision }) : Response.json({ error: "The tournament changed. Download a new backup and review again." }, { status: 409 });
   }
   if (body.action === "regenerateBrackets") {
@@ -447,7 +457,8 @@ async function PUT(request: Request) {
   const registrationClosesAt = body.state.registrationClosesAt === undefined ? current.registrationClosesAt : body.state.registrationClosesAt;
   if (registrationClosesAt !== "" && registrationDeadlineTime(registrationClosesAt) === null) return Response.json({ error: "Enter a valid Philippine date and time for the registration deadline." }, { status: 400 });
   const proposed = hydrateTournament({ ...body.state, registrationClosesAt });
-  if (current.managedUmpires && proposed.status !== current.status && proposed.status !== "live" && current.matches.some(match => provisionalWorkflow(match.umpireWorkflow))) return Response.json({ error: "Resolve current umpire assignments and disputes before leaving Live." }, { status: 409 });
+  const phaseIssue = phaseChangeIssue(current, proposed.status);
+  if (phaseIssue) return Response.json({ error: phaseIssue, state: organizerState(current), revision: row.revision }, { status: 409 });
   if (proposed.managedUmpires !== current.managedUmpires || body.state.umpireDirectory !== undefined) return Response.json({ error: "Use the umpire roster to change access settings." }, { status: 409 });
   if (current.managedUmpires && proposed.courts < (current.umpireDirectory?.members.reduce((max, member) => Math.max(max, member.court ?? 0), 0) ?? 0)) return Response.json({ error: "Remove umpire assignments before reducing the court count." }, { status: 409 });
   const removedGames = current.matches.filter(match => !proposed.matches.some(next => next.id === match.id));

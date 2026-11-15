@@ -7,6 +7,7 @@ const stateActions: Record<string, string> = {
   clearForfeit: 'Clear a forfeiture',
   updateProjectorSettings: 'Update the projector slideshow',
   regenerateBrackets: 'Regenerate brackets and matchups',
+  changeTournamentPhase: 'Change the tournament phase',
   resetGames: 'Reset all games and release their courts',
   registerPlayer: 'Add a registration',
   updateRegistration: 'Edit a registration',
@@ -107,8 +108,11 @@ function matchChanges(before: unknown, after: unknown) {
   ].filter(text => typeof text === 'string');
 }
 
-export function describeOrganizerRequest(method: string, url: URL, body: { action?: unknown; state?: unknown }, previous: AuditState) {
+export function describeOrganizerRequest(method: string, url: URL, body: { action?: unknown; state?: unknown; reopenRegistration?: unknown }, previous: AuditState) {
   const action = typeof body.action === 'string' ? body.action : '';
+  if (method === 'POST' && url.pathname === '/api/state' && action === 'resetGames' && body.reopenRegistration === true) {
+    return 'Reset all games, release their courts, and switch to Registration';
+  }
   if (method !== 'PUT' || url.pathname !== '/api/state' || !body.state || typeof body.state !== 'object') {
     return describeRoute(method, url.pathname, action, url.searchParams.has('image'), url.searchParams.has('export-links'));
   }

@@ -1,6 +1,18 @@
-import { gameDaySettings, reseedChampionships, type Match, type TournamentState } from "./tournament";
+import { gameDaySettings, reseedChampionships, type Match, type TournamentPhase, type TournamentState } from "./tournament";
+import { provisionalWorkflow } from "./umpire-types";
 
 export const RESET_GAMES_CONFIRMATION = "RESET GAMES";
+
+export function isTournamentPhase(value: unknown): value is TournamentPhase {
+  return value === "setup" || value === "registration" || value === "live" || value === "completed";
+}
+
+export function phaseChangeIssue(state: TournamentState, phase: TournamentPhase): string | null {
+  if (state.managedUmpires && phase !== state.status && phase !== "live" && state.matches.some(match => provisionalWorkflow(match.umpireWorkflow))) {
+    return "Resolve active umpire assignments and disputes before leaving Live. To start over and reopen registration, use Reset all games.";
+  }
+  return null;
+}
 
 export function resetTournamentGames(state: TournamentState, now = new Date().toISOString()): TournamentState | null {
   // Retire old match PINs so a scorecard left open on another device cannot
