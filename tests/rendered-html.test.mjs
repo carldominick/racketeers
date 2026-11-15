@@ -107,11 +107,29 @@ test('built Worker enforces personal umpire access and atomically completes a st
     await check(operate({action:'score',operation:crypto.randomUUID(),sets:[{a:10,b:7,complete:false}]}));
     const staleGame=(await check(send('/api/umpires',undefined,ump))).body.match;
     const backup=(await check(send('/api/state?backup=1',undefined,org))).body;
-    await check(send('/api/state',{action:'resetGames',confirmation:'RESET GAMES',expectedRevision:backup.revision,backupDigest:backup.digest},org));
-    const reset=(await state()).state.matches[0];
+    const phaseAction = (phase, expectedRevision, headers = org) => send('/api/state',{action:'changeTournamentPhase',phase,expectedRevision},headers);
+    const blocked=(await check(phaseAction('registration',backup.revision),409)).body;
+    assert.match(blocked.error,/Reset all games/);
+    const oldClient = await state();
+    const rejectedDraft=(await check(send('/api/state',{state:{...oldClient.state,status:'registration'},expectedRevision:oldClient.revision},org,'PUT'),409)).body;
+    assert.equal(rejectedDraft.state.status,'live');
+    assert.equal(rejectedDraft.revision,backup.revision);
+    await check(phaseAction('registration',backup.revision,{}),401);
+    await check(phaseAction('unknown',backup.revision),400);
+    const resetAction={action:'resetGames',reopenRegistration:true,confirmation:'RESET GAMES',expectedRevision:backup.revision,backupDigest:backup.digest};
+    await check(send('/api/state',{...resetAction,expectedRevision:backup.revision-1},org),409);
+    const saved=(await check(send('/api/state',resetAction,org))).body;
+    const reset=saved.state.matches[0];
+    assert.equal(saved.revision,backup.revision+1);
+    assert.equal(saved.state.status,'registration');
+    assert.deepEqual(saved.state.divisions,oldClient.state.divisions);
+    assert.equal((await check(send('/api/state'))).body.state.matches.length,0);
     assert.equal(reset.court,null);
     assert.deepEqual(reset.sets,[{a:0,b:0,complete:false}]);
     assert.equal((await check(send('/api/umpires',undefined,ump))).body.match,null);
+    await check(phaseAction('live',backup.revision),409);
+    const live=(await check(phaseAction('live',saved.revision))).body;
+    assert.deepEqual(live.state.matches,saved.state.matches);
     await check(dispatch());
     const reassigned=(await check(send('/api/umpires',undefined,ump))).body.match;
     assert.ok(reassigned.umpireWorkflow.version > staleGame.umpireWorkflow.version);
@@ -335,6 +353,7 @@ test('built named-account activation, password change, cookies, PIN retirement a
  assert.equal(view.umpirePinHash,undefined);
  assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/state?backup=1',{headers:{cookie,'x-organizer-pin':'session'}})).status,403);
  assert.equal((await resetGames({...resetBody,expectedRevision:resetData.revision},{cookie,'x-organizer-pin':'session'})).status,403);
+ assert.equal((await resetGames({action:'changeTournamentPhase',phase:'registration',expectedRevision:resetData.revision},{cookie,'x-organizer-pin':'session','cf-connecting-ip':'203.0.113.13'})).status,403);
  for(const action of ['verifyMatch','viewRegistrationPin']){
   assert.equal((await runtime.dispatchFetch('https://racketeers.example/api/state',{method:'POST',headers:{cookie,'x-organizer-pin':'session','content-type':'application/json'},body:JSON.stringify({action,pin:match.pin,registrationId:registration.id})})).status,403);
  }

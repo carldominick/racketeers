@@ -10,13 +10,15 @@ type Props = {
   revision: number;
   pin: string;
   managedUmpires: boolean;
+  canReopenRegistration: boolean;
   disabled: boolean;
-  onReset: (revision: number, digest: string, confirmation: string) => Promise<void>;
+  onReset: (revision: number, digest: string, confirmation: string, reopenRegistration: boolean) => Promise<void>;
 };
 
-export function ResetGames({ gameCount, revision, pin, managedUmpires, disabled, onReset }: Props) {
+export function ResetGames({ gameCount, revision, pin, managedUmpires, canReopenRegistration, disabled, onReset }: Props) {
   const [backup, setBackup] = useState<{ revision: number; digest: string } | null>(null);
   const [confirmation, setConfirmation] = useState("");
+  const [reopenRegistration, setReopenRegistration] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const validBackup = backup?.revision === revision;
@@ -50,8 +52,10 @@ export function ResetGames({ gameCount, revision, pin, managedUmpires, disabled,
     setBackup(null);
     setMessage("");
     try {
-      await onReset(backup.revision, backup.digest, confirmation);
-      setMessage(`Reset ${gameCount} ${gameCount === 1 ? "game" : "games"} and released all courts.`);
+      const reopen = canReopenRegistration && reopenRegistration;
+      await onReset(backup.revision, backup.digest, confirmation, reopen);
+      setReopenRegistration(false);
+      setMessage(`Reset ${gameCount} ${gameCount === 1 ? "game" : "games"} and released all courts.${reopen ? " The tournament is now in Registration." : ""}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not confirm the reset. Refresh and check Game Day Desk.");
     } finally {
@@ -62,8 +66,12 @@ export function ResetGames({ gameCount, revision, pin, managedUmpires, disabled,
   return <details>
     <summary>Reset all games</summary>
     {gameCount === 0 ? <p>There are no games to reset.</p> : <form className="stack" onSubmit={event => void reset(event)}>
-      <p>Clear scores, results, holds, forfeitures, and court assignments for all {gameCount} games. The group matchups, manual championship matchups, scheduled times, registrations, payments, and tournament phase are kept. Automatic championship places will be recalculated.</p>
+      <p>Clear scores, results, holds, forfeitures, and court assignments for all {gameCount} games. The group matchups, manual championship matchups, scheduled times, registrations, and payments are kept. Automatic championship places will be recalculated.</p>
       <p>{managedUmpires ? "Umpires return to waiting for an assignment." : "Each game gets a new PIN. Share it with the umpire after assigning the game."}</p>
+      {canReopenRegistration && <label className="check-field">
+        <input type="checkbox" checked={reopenRegistration} disabled={busy || disabled} onChange={event => setReopenRegistration(event.target.checked)} />
+        Switch to Registration after resetting
+      </label>}
       <div><button type="button" disabled={busy || disabled} onClick={() => void saveBackup()}>Download recovery backup</button></div>
       <label>After saving the backup, type {RESET_GAMES_CONFIRMATION} to confirm
         <input value={confirmation} disabled={!validBackup || busy || disabled} autoComplete="off" onChange={event => setConfirmation(event.target.value)} />

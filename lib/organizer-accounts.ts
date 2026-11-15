@@ -163,7 +163,7 @@ export async function auditedOrganizerRequest(request: Request, db: AccountDB, n
   const url = new URL(request.url);
   if (url.pathname === "/api/umpires" && !request.headers.has("x-organizer-pin")) return next(request);
   const body = request.headers.get('content-type')?.startsWith('application/json')
-    ? await request.clone().json() as { action?: unknown; state?: unknown; expectedRevision?: unknown } : {};
+    ? await request.clone().json() as { action?: unknown; state?: unknown; expectedRevision?: unknown; reopenRegistration?: unknown } : {};
   const details = request.method === 'PUT' && body?.expectedRevision !== row.revision ? {} : body || {};
   const action = describeOrganizerRequest(request.method, url, details, JSON.parse(row.payload));
   const audit = await auditStart(db, actor, action);
