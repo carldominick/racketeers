@@ -32,4 +32,6 @@ Check that the downloaded files exist and can be parsed, and that the state payl
 
 ## Authorized recovery
 
+Once organizers validate receipt transfers, the tournament payload includes private `paymentTransfers` records. For a code rollback, build a corrective Worker that retains the public-state redaction and preserves those records on writes. Earlier Worker versions do not recognize this field and must not be activated against a database that contains it. A code correction does not require restoring or deleting payment screenshots.
+
 Agree on the exact recovery point, affected records, maintenance window and rollback plan before writing production data. Take a fresh complete recovery set first. Prevent staff/public writes during recovery, restore the approved database and object set together, and preserve monotonically advancing state revisions so old open clients cannot write stale snapshots. Review access hashes/recovery PINs separately: a historical snapshot must not silently reinstate superseded credentials. Verify private endpoints and public filtering, record the restored version/counts, then have staff reload before resuming. Do not use bracket regeneration as a restore operation, and do not delete retained receipts to make a restore fit. There is deliberately no one-click production restore in the UI.

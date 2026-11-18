@@ -163,6 +163,7 @@ function ScreenshotTransfer({ registrationId, pin, photo, transfer, scopes, cont
           </select></label>}
           {!transfer && scopes.map(scope => (scopes.length > 1 || scope.due === null) && <div className="payment-transfer-allocation" key={scope.key}>
             <strong>{scope.entries.map(entry => entry.name).join(" and ")} · {scope.division?.name ?? "Entry"}</strong>
+            {scopes.length > 1 && scope.due !== null && <small>{formatPesos(scope.confirmed)} confirmed of {formatPesos(scope.due)} due</small>}
             {scope.due === null && <label>Amount due (PHP)<input inputMode="decimal" value={prices[scope.key] ?? ""} onChange={event => { edit(); setPrices(current => ({ ...current, [scope.key]: event.target.value })); }} /></label>}
             {scopes.length > 1 && <label>Allocate to this entry (PHP)<input inputMode="decimal" value={split[scope.key] ?? ""} onChange={event => { edit(); setSplit(current => ({ ...current, [scope.key]: event.target.value })); }} /></label>}
           </div>)}
