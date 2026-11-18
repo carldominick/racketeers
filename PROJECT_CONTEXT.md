@@ -1,5 +1,7 @@
 # Racketeers product and implementation context
 
+The initial homepage renders a connection message while the browser waits for its first state response. The default tournament state stays internal. Later connection failures keep the last loaded view visible.
+
 ## Personal umpire workflow
 
 Managed tournaments use the umpire roster, scoped personal PINs, staff presence and court ownership. Staffed matches require acknowledged player verification before scoring and verbal confirmation from both teams before normal finalization. Escalated disputes retain their evidence separately from physical court release. Optional browser audio uses the selected Soft Chimes for new umpire assignments, finished games and active court help requests. See [Umpire workflow](docs/umpire-workflow.md) for transitions, storage and local Demo Mode. The roster reports whether the credential secret is configured to authorized organizers without sending its value. The previous scoring path and game PIN controls remain available until activation; managed scorecards also omit the blank game PIN field.
