@@ -212,6 +212,9 @@ main input:focus-visible, main select:focus-visible, main textarea:focus-visible
 /* Clubhouse Clarity registration: one event sidebar, one working form surface. */
 .registration-view {background:var(--card)}
 .registration-view .content {padding:0;max-width:none}
+.clubhouse-site .tournament-connection {display:grid;justify-items:center;gap:12px;padding:clamp(32px,8vh,80px) 20px;text-align:center}
+.tournament-connection p {margin:0;color:var(--muted)}
+.tournament-connection button {min-height:44px}
 .registration-view .topbar {min-height:94px;padding:18px 40px;box-shadow:none;border-bottom:1px solid var(--line)}
 .registration-view .brand h1 {display:none}
 .registration-view .brand p {font-size:16px;font-weight:800;letter-spacing:.2em;color:var(--ink)}

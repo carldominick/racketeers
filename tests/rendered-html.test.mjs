@@ -223,6 +223,8 @@ test('built registration starts Connecting and uses deliverable assets without c
   const html = await response.text();
   assert.match(html, /Racketeers/);
   assert.match(html, /Connecting…/);
+  assert.match(html, /Loading tournament information…/);
+  assert.doesNotMatch(html, /Player registration is locked|Who’s playing\?|Choose your division/);
   assert.doesNotMatch(html, />● Synced</);
   assert.doesNotMatch(html, /\/workspace\/|\.vinext\/fonts\/|as="font"/);
   const urls = [...new Set([...html.matchAll(/(?:src|href)="(\/_next\/static\/[^"?]+)(?:\?[^" ]*)?"/g)].map(match=>match[1]))];
