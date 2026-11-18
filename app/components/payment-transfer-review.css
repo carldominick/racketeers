@@ -1,0 +1,27 @@
+.payment-transfer-review { display: grid; gap: 10px; min-width: 0; }
+.payment-transfer-review h3, .payment-transfer-review p { margin: 0; }
+.payment-transfer-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.payment-transfer-totals div { padding: 8px; background: var(--paper); }
+.payment-transfer-totals div + div { border-inline-start: 1px solid var(--line); }
+.payment-transfer-totals div:nth-child(2) { box-shadow: inset 0 3px var(--lime-dark); }
+.payment-transfer-totals dt { font-size: .75rem; color: var(--muted); }
+.payment-transfer-totals dd { font-size: .9rem; font-weight: 700; margin: 3px 0 0; overflow-wrap: anywhere; }
+.payment-transfer-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.payment-transfer-picker button { min-height: 44px; display: grid; gap: 2px; font-size: .85rem; }
+.payment-transfer-picker small { color: var(--muted); }
+.payment-transfer-picker button[aria-pressed="true"] { border-color: var(--lime-dark); box-shadow: inset 0 -3px var(--lime-dark); }
+.payment-transfer-sheet { padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.payment-transfer-sheet > p { margin-bottom: 8px; }
+.payment-transfer-comparison { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 12px; }
+.payment-transfer-comparison figure { min-width: 0; margin: 0; }
+.payment-transfer-comparison img { display: block; width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--line); }
+.payment-transfer-comparison figcaption { font-size: .82rem; margin-block: 6px; }
+.payment-transfer-comparison figcaption a { color: inherit; text-decoration: underline; }
+.payment-transfer-comparison fieldset { display: grid; gap: 5px; min-width: 0; border: 0; padding: 0; margin: 0 0 8px; }
+.payment-transfer-comparison legend { font-weight: 700; padding: 0; margin-bottom: 5px; }
+.payment-transfer-comparison label { display: grid; gap: 3px; font-size: .82rem; }
+.payment-transfer-comparison input, .payment-transfer-comparison select { width: 100%; min-width: 0; min-height: 40px; padding: 6px; font-size: 16px; }
+.payment-transfer-comparison p { margin: 8px 0; color: var(--muted); font-size: .85rem; }
+.payment-transfer-comparison button { min-height: 44px; white-space: normal; width: 100%; }
+.payment-transfer-allocation { display: grid; gap: 4px; border-top: 1px solid var(--line); padding-top: 5px; }
+@media (max-width: 600px) { .payment-transfer-comparison { grid-template-columns: minmax(0, 1fr); } }

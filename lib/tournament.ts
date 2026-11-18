@@ -168,6 +168,8 @@ export type TournamentState = {
   medalPoints: MedalPoints;
   divisions: Division[];
   registrations: PlayerRegistration[];
+  /** Organizer-only validated receipt transfers. Writes use the revision-checked receipt action. */
+  paymentTransfers?: import("./registration-payment").PaymentTransfer[];
   matches: Match[];
   updatedAt: string;
 };

@@ -8,10 +8,11 @@ import { regenerateMatches, registrationDeadlineTime } from "./tournament";
 import { courtPresence, handleUmpire } from "./umpire-service";
 import { staffingIssue, type WorkflowInput } from "./umpire-workflow";
 import { provisionalWorkflow } from "./umpire-types";
+import { confirmPaymentTransfer, trackedPaymentIds, undoPaymentTransfer, type PaymentPhoto, type ReceiptPaymentChange } from "./registration-payment";
 import { matchWinner, isMatchUsingCourt, applyUmpireSets, completeUmpireGame, tournamentEditingLocked, setupConfiguration, contactError, syncPlayerContacts, resetRegistrations, hydrateTournament, initialTournament, isSetWon, scoringRule, matchScoreLimit, makeRegistration, makeUniqueRegistration, makeRegistrationEditPin, syncRegistrationsToEntries, type PlayerRegistration, type TournamentState } from "./tournament";
 
 export type StateDatabase = { prepare(sql: string): { run(): Promise<{meta: {changes: number}}>; bind(...values: unknown[]): { first<T>(): Promise<T | null>; run(): Promise<{meta: {changes: number}}> } } };
-export function createStateHandlers(dependencies: { database: () => Promise<StateDatabase>; initialPin: () => Promise<string | undefined>; umpireSecret?: () => Promise<string> }) {
+export function createStateHandlers(dependencies: { database: () => Promise<StateDatabase>; initialPin: () => Promise<string | undefined>; umpireSecret?: () => Promise<string>; paymentProof?: (request: Request) => Promise<Response> }) {
 const ROW_ID = "racketeers";
 const comparable = (value: unknown) => JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 type EntryForm = Partial<PlayerRegistration> & { partnerFacebookProfile?: string; partnerPhone?: string; partnerShirtSize?: string; partnerDesiredLevel?: string; partnerClub?: string; sourceRegistrationId?: string; samePartner?: boolean; partnerSecondShirt?: "black" | "tournament" | "none" };
@@ -76,6 +77,7 @@ function publicState(state: TournamentState, staff = false) {
   delete safe.umpirePinHash;
   delete safe.umpireDirectory;
   delete safe.paymentProofShareKey;
+  delete safe.paymentTransfers;
   delete safe.organizerAccountsActivation;
   safe.registrations = [];
   delete safe.staffNotifications;
@@ -190,6 +192,37 @@ async function POST(request: Request) {
   const row = await ensureRow();
   const state = hydrateTournament(JSON.parse(row.payload) as TournamentState);
   const body = (await request.json()) as { action?: string; phase?: unknown; reopenRegistration?: boolean; backupDigest?: string; reason?: string; forfeitingEntryId?: string; projector?: unknown; court?: number; help?: boolean; divisionId?: string; expectedRevision?: number; confirmation?: string; pin?: string; newPin?: string; matchId?: string; registrationId?: string; registration?: RegistrationForm };
+  if (body.action === "confirmReceiptTransfer" || body.action === "undoReceiptTransfer") {
+    if (!(await requestAuthorized(request, state))) return Response.json({ error: "Organizer write access is required." }, { status: 401 });
+    if (tournamentEditingLocked(state.status)) return Response.json({ error: "Payment edits are locked during Live and Completed." }, { status: 423 });
+    if (body.expectedRevision !== row.revision) return Response.json({ error: "The tournament changed. Reload the latest registration and review again." }, { status: 409 });
+    const registrationId = typeof body.registrationId === "string" ? body.registrationId : "";
+    if (!state.registrations.some(entry => entry.id === registrationId)) return Response.json({ error: "Registration not found." }, { status: 404 });
+    const mutation = body as unknown as ReceiptPaymentChange;
+    let next: TournamentState | null;
+    if (mutation.action === "confirmReceiptTransfer") {
+      if (!dependencies.paymentProof) return Response.json({ error: "Screenshot storage is unavailable." }, { status: 503 });
+      if (![1, 2, 3, 4].includes(mutation.slot)) return Response.json({ error: "Choose a payment screenshot." }, { status: 400 });
+      const url = new URL("/api/payment-proof", request.url);
+      url.search = new URLSearchParams({ registrationId, metadata: "1", slot: String(mutation.slot) }).toString();
+      const proof = await dependencies.paymentProof(new Request(url, { headers: {
+        "x-organizer-pin": request.headers.get("x-organizer-pin") || "",
+        cookie: request.headers.get("cookie") || "",
+      } }));
+      if (!proof.ok) return proof;
+      const { receiptGroupId, linkedRegistrationIds, photos } = await proof.json() as { receiptGroupId: string; linkedRegistrationIds: string[]; photos: PaymentPhoto[] };
+      const photo = photos.find(item => item.slot === mutation.slot);
+      if (!photo?.proofVersion || photo.proofVersion !== mutation.proofVersion) return Response.json({ error: "The payment screenshot changed. Reload it before confirming." }, { status: 409 });
+      const result = confirmPaymentTransfer(state, { groupId: receiptGroupId, ids: linkedRegistrationIds, photo }, mutation);
+      if ("error" in result) return Response.json({ error: result.error }, { status: result.status });
+      next = result.state;
+    } else {
+      next = undoPaymentTransfer(state, registrationId, mutation.transferId);
+    }
+    if (!next) return Response.json({ error: "This transfer has already changed. Reload the review." }, { status: 409 });
+    const saved = await saveStateAtRevision(next, row.revision);
+    return saved ? Response.json({ state: organizerState(saved.state), revision: saved.revision }) : Response.json({ error: "Another organizer saved changes. Reload and review before retrying." }, { status: 409 });
+  }
   if (body.action === "changeTournamentPhase") {
     if (!(await requestAuthorized(request, state))) return Response.json({ error: "Organizer access required." }, { status: 401 });
     if (!isTournamentPhase(body.phase)) return Response.json({ error: "Choose a valid tournament phase." }, { status: 400 });
@@ -463,7 +496,9 @@ async function PUT(request: Request) {
   if (current.managedUmpires && proposed.courts < (current.umpireDirectory?.members.reduce((max, member) => Math.max(max, member.court ?? 0), 0) ?? 0)) return Response.json({ error: "Remove umpire assignments before reducing the court count." }, { status: 409 });
   const removedGames = current.matches.filter(match => !proposed.matches.some(next => next.id === match.id));
   if (removedGames.some(match => gameHasStarted(match) || match.umpireWorkflow || match.umpireHistory?.length) || removedGames.length > 0 && proposed.matches.some(match => !current.matches.some(previous => previous.id === match.id))) return Response.json({ error: "Use the reviewed bracket regeneration workflow. Started games cannot be replaced.", state: organizerState(current), revision: row.revision }, { status: 409 });
-  proposed.registrations = proposed.registrations.map(r => { const previous = current.registrations.find(p => p.id === r.id); return { ...r, registrationPinHash: previous?.registrationPinHash, registrationPinRecovery: previous?.registrationPinRecovery, paymentGroupId: previous?.paymentGroupId }; });
+  const tracked = trackedPaymentIds(current);
+  proposed.paymentTransfers = current.paymentTransfers;
+  proposed.registrations = proposed.registrations.map(r => { const previous = current.registrations.find(p => p.id === r.id); return { ...r, paid: previous && tracked.has(r.id) ? previous.paid : r.paid, registrationPinHash: previous?.registrationPinHash, registrationPinRecovery: previous?.registrationPinRecovery, paymentGroupId: previous?.paymentGroupId }; });
   if (tournamentEditingLocked(current.status)) {
     const registrationsChanged = comparable(proposed.registrations) !== comparable(current.registrations);
     const setupChanged = comparable(setupConfiguration(proposed)) !== comparable(setupConfiguration(current));

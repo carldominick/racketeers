@@ -16,7 +16,7 @@ const state={status:'registration',divisions:[{id:'d',name:'Open Doubles',mode:'
 
 test('payment confirmation follows shared reciprocal partners within one division', async () => {
  await build({entryPoints:['lib/registration-payment.ts'],outfile:path.join(dir,'registration-payment.mjs'),bundle:true,platform:'node',format:'esm'});
- const {registrationPaymentEntries,registrationPaymentScopes} = await import(pathToFileURL(path.join(dir,'registration-payment.mjs')));
+ const {registrationPaymentEntries,registrationPaymentScopes,confirmPaymentTransfer,undoPaymentTransfer} = await import(pathToFileURL(path.join(dir,'registration-payment.mjs')));
  const [alex,sam] = state.registrations.map(player => ({...player,paymentGroupId:'shared'}));
  const secondEntry = {...alex,id:'second-entry',divisionId:'second-division'};
  const separate = {...sam,paymentGroupId:'separate'};
@@ -33,6 +33,17 @@ test('payment confirmation follows shared reciprocal partners within one divisio
  const sharedScopes=registrationPaymentScopes(registrations,divisions,[sam.id,alex.id,secondEntry.id]);
  assert.deepEqual(sharedScopes.map(scope=>scope.entries.map(entry=>entry.id)),[[alex.id,sam.id],[secondEntry.id]]);
  assert.deepEqual(registrationPaymentScopes([alex,sam],divisions,[alex.id]),[]);
+
+ const firstPair = [alex,sam].map(player => ({...player,paid:true}));
+ const linked = {...secondEntry,partnerId:null,paid:false};
+ const paymentState = {...state,divisions,registrations:[...firstPair,linked]};
+ const photo = {slot:1,filename:'test.png',proofVersion:'version-1'};
+ const mutation = {action:'confirmReceiptTransfer',slot:1,proofVersion:photo.proofVersion,
+   details:{amount:'1100.00',reference:'0145012',provider:'Maya',date:'2026-11-16'},
+   allocations:[{scope:'one/two',cents:60000,due:190000},{scope:linked.id,cents:50000,due:50000}]};
+ const saved = confirmPaymentTransfer(paymentState,{groupId:'shared',ids:[alex.id,sam.id,linked.id],photo},mutation);
+ assert.deepEqual(saved.state.registrations.map(player=>player.paid),[true,true,true]);
+ assert.deepEqual(undoPaymentTransfer(saved.state,linked.id,saved.state.paymentTransfers[0].id).registrations.map(player=>player.paid),[true,true,false]);
 });
 
 test('organizer roster groups reciprocal partners within divisions and shows each player’s own payment and shirt status',()=>{
@@ -233,9 +244,9 @@ test('batch OCR offers all-division scanning and opt-in rereading, with no autom
 
 test('a staged batch result retains its editable OCR fields, screenshot preview action and explicit review save',()=>{
  const reading={record:{groupId:'g',revision:0,proofVersion:'photo-v1',details:null,stale:false,reviewedAt:null,duplicateReference:false},details:{amount:'1250.00',reference:'001234567890',provider:'GCash',date:''},warnings:['Check every field']};
- const html=renderToStaticMarkup(React.createElement(ReceiptReview,{registrationId:'one',pin:'private-test-value',initialReading:reading,renderPayment:()=>React.createElement('button',{type:'button'},'Confirm payment received')}));
+ const html=renderToStaticMarkup(React.createElement(ReceiptReview,{registrationId:'one',pin:'private-test-value',initialReading:reading}));
  assert.match(html,/Unsaved changes/);assert.match(html,/value="001234567890"/);assert.match(html,/value="1250.00"/);
  assert.match(html,/View screenshot for review/);assert.match(html,/Check every field/);assert.match(html,/<button[^>]*class="primary"[^>]*>Save reviewed details/);
  assert.doesNotMatch(html,/private-test-value/);
- assert.match(html,/<fieldset class="receipt-payment-confirmation" disabled="">.*Confirm payment received/s);
+ assert.doesNotMatch(html,/Confirm payment received|Validate screenshot and confirm/);
 });

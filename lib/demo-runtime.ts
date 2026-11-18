@@ -68,7 +68,7 @@ export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array)
     delete: async (key: string) => { objects.delete(key); },
   };
   const env = { DB:db, PAYMENT_PROOFS:bucket };
-  const handlers = createStateHandlers({ database: async () => db, initialPin: async () => undefined, umpireSecret: async () => umpireSecret });
+  const handlers = createStateHandlers({ database: async () => db, initialPin: async () => undefined, umpireSecret: async () => umpireSecret, paymentProof: request => handlePaymentProof(request, env) });
   if (receipt) for (const slot of [1,2,3]) await bucket.put(slot === 1 ? "payments/groups/DEMO-PAYMENT-1/DEMO-PAYMENT-1.png" : `payments/groups/DEMO-PAYMENT-1/DEMO-PAYMENT-1.png/photos/${slot}.png`, receipt);
   const assetUrl = (path: string) => {
     if (closed || Date.now() >= expiresAt) return "";

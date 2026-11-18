@@ -5,7 +5,7 @@ import { useEffect } from "react";
 const pending = new Set<object>();
 const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); };
 const navigate = (event: MouseEvent) => {
-  if (!(event.target instanceof Element) || !event.target.closest("nav button, a[href]")) return;
+  if (!(event.target instanceof Element) || !event.target.closest('nav button, a[href]:not([target="_blank"]), .prepare-player-link, .prepare-details-close')) return;
   if (!confirm("Leave this page? Unsaved payment readings will be discarded and any reading in progress will stop.")) { event.preventDefault(); event.stopPropagation(); }
 };
 export function useReceiptNavigationGuard(enabled: boolean) {

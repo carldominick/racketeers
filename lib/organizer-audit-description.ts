@@ -10,6 +10,8 @@ const stateActions: Record<string, string> = {
   changeTournamentPhase: 'Change the tournament phase',
   resetGames: 'Reset all games and release their courts',
   registerPlayer: 'Add a registration',
+  confirmReceiptTransfer: 'Validate a payment screenshot and record the received transfer',
+  undoReceiptTransfer: 'Undo a payment screenshot validation and received transfer',
   updateRegistration: 'Edit a registration',
   resetRegistrations: 'Reset registrations',
   replaceRegistrationPin: 'Replace a registration PIN',

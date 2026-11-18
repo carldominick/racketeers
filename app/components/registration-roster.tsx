@@ -20,6 +20,7 @@ const modes = { singles: "Singles", doubles: "Doubles", team: "Team" };
 type Props = {
   divisions: Division[];
   registrations: PlayerRegistration[];
+  trackedPayments?: Set<string>;
   locked: boolean;
   canEdit: boolean;
   onShirtReceived: (registrationId: string, received: boolean) => void;
@@ -27,7 +28,7 @@ type Props = {
   onSelect?: (registrationId: string) => void;
 };
 
-export function RegistrationRoster({ divisions, registrations, locked, canEdit, onShirtReceived, selectedId, onSelect }: Props) {
+export function RegistrationRoster({ divisions, registrations, trackedPayments, locked, canEdit, onShirtReceived, selectedId, onSelect }: Props) {
   const headingId = useId();
   const [query, setQuery] = useState("");
   const [divisionFilter, setDivisionFilter] = useState("");
@@ -67,7 +68,7 @@ export function RegistrationRoster({ divisions, registrations, locked, canEdit, 
         {divisions.map(division => <option key={division.id} value={division.id}>{division.name}</option>)}
       </select></label>}
       <label>Payment<select value={payment} onChange={event => setPayment(event.target.value)}>
-        <option value="">All statuses</option><option value="unconfirmed">Not confirmed</option><option value="paid">Paid</option>
+        <option value="">All statuses</option><option value="unconfirmed">Not fully paid</option><option value="paid">Paid</option>
       </select></label>
       {onSelect && <label>Shirt<select value={shirts} onChange={event => setShirts(event.target.value)}>
         <option value="">All statuses</option><option value="awaiting">Awaiting pickup</option><option value="received">Received</option>
@@ -98,7 +99,7 @@ export function RegistrationRoster({ divisions, registrations, locked, canEdit, 
                       onChange={event => onShirtReceived(player.id, event.target.checked)} />
                   </label></td>
                   <td>{hasShirt ? player.shirtSize || "—" : "No shirt"}</td>
-                  <td><span className={`roster-payment-status${player.paid ? " paid" : ""}`}>{player.paid ? "Paid" : "Not confirmed"}</span></td>
+                  <td><span className={`roster-payment-status${player.paid ? " paid" : ""}`}>{player.paid ? "Paid" : trackedPayments?.has(player.id) ? "Partially paid" : "Not confirmed"}</span></td>
                 </tr>;
               })}
               {pair.length === 1 && division.mode !== "singles" && <tr className="roster-unpaired"><td colSpan={4}>Unpaired</td></tr>}

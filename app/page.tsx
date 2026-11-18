@@ -35,8 +35,7 @@ import { RegistrationDeadlineBanner, RegistrationDeadlineInput } from "./compone
 import { RegistrationRoster } from "./components/registration-roster";
 import { PrepareDetails } from "./components/prepare-details";
 import { PrepareDraw } from "./components/prepare-draw";
-import { registrationPaymentEntries, registrationPaymentScopes } from "../lib/registration-payment";
-import type { RenderReceiptPayment } from "./components/receipt-review";
+import { registrationPaymentEntries, trackedPaymentIds, type ReceiptPaymentControls } from "../lib/registration-payment";
 import { PaymentSettings } from "./components/payment-settings";
 import { Projector } from "./components/projector";
 import { ProjectorSettings } from "./components/projector-settings";
@@ -552,7 +551,7 @@ function MatchCard({ match, state, organizer = false, scoreEditable = false, onC
   </article>;
 }
 
-function RegistrationDetails({ player, state, registrationBlocked, busy, organizerPin, onClose, onUpdate, onPayment, onMove, onEntryLevel, onSecondEntry, onPinChanged, onRemove, renderPayment }: {
+function RegistrationDetails({ player, state, registrationBlocked, busy, organizerPin, onClose, onUpdate, onPayment, onMove, onEntryLevel, onSecondEntry, onPinChanged, onRemove, paymentControls }: {
   player: PlayerRegistration;
   state: TournamentState;
   registrationBlocked: boolean;
@@ -566,7 +565,7 @@ function RegistrationDetails({ player, state, registrationBlocked, busy, organiz
   onSecondEntry: () => void;
   onPinChanged: () => void;
   onRemove: () => void;
-  renderPayment: RenderReceiptPayment;
+  paymentControls: ReceiptPaymentControls;
 }) {
   const [registrationDetail, setRegistrationDetail] = useState<"payment" | "player">("payment");
   const division = state.divisions.find(item => item.id === player.divisionId);
@@ -579,6 +578,8 @@ function RegistrationDetails({ player, state, registrationBlocked, busy, organiz
   const sharedPayment = covered.length > 1;
   const paymentConfirmed = covered.every(entry => entry.paid);
   const partialPayment = !paymentConfirmed && covered.some(entry => entry.paid);
+  const trackedIds = trackedPaymentIds(state);
+  const tracked = covered.some(entry => trackedIds.has(entry.id));
   const entry = division.entries.find(candidate => candidate.registrationIds?.includes(player.id));
 
   return <PrepareDetails key={player.id} title={player.name} context={pair ? `${division.name} · Partner: ${pair.name}` : division.name}
@@ -588,10 +589,10 @@ function RegistrationDetails({ player, state, registrationBlocked, busy, organiz
       <button type="button" aria-pressed={registrationDetail === "player"} onClick={() => setRegistrationDetail("player")}>Player &amp; pairing</button>
     </div>
     <fieldset className="phase-fieldset prepare-detail-fields" disabled={registrationBlocked} hidden={registrationDetail !== "payment"}>
-      <div className="payment-confirmation"><strong>{paymentConfirmed ? "Payment confirmed" : partialPayment ? "Payment partially confirmed" : "Payment not confirmed"}</strong>{sharedPayment && <small>Shared payment for {covered.map(entry => entry.name).join(" and ")}</small>}<button type="button" className={paymentConfirmed ? "ghost" : "secondary"} onClick={() => onPayment(!paymentConfirmed)}>{paymentConfirmed ? "Undo payment confirmation" : sharedPayment ? "Confirm payment for both players" : "Confirm payment received"}</button>{partialPayment && <button type="button" className="ghost" onClick={() => onPayment(false)}>Undo existing confirmation</button>}</div><label className="check-field"><input type="checkbox" checked={player.shirtReceived} disabled={player.secondShirt === "none"} onChange={(event) => onUpdate({ shirtReceived: event.target.checked })} /><span>{player.secondShirt === "none" ? "No shirt requested for this entry" : "Game shirt received"}</span></label>
+      <div className="payment-confirmation"><strong>{paymentConfirmed ? "Payment confirmed" : tracked ? "Partially paid" : partialPayment ? "Payment partially confirmed" : "Payment not confirmed"}</strong>{sharedPayment && <small>Shared payment for {covered.map(entry => entry.name).join(" and ")}</small>}{!tracked && <details><summary>Manual payment confirmation</summary><button type="button" className={paymentConfirmed ? "ghost" : "secondary"} onClick={() => onPayment(!paymentConfirmed)}>{paymentConfirmed ? "Undo payment confirmation" : sharedPayment ? "Confirm payment for both players" : "Confirm payment received"}</button>{partialPayment && <button type="button" className="ghost" onClick={() => onPayment(false)}>Undo existing confirmation</button>}</details>}</div><label className="check-field"><input type="checkbox" checked={player.shirtReceived} disabled={player.secondShirt === "none"} onChange={(event) => onUpdate({ shirtReceived: event.target.checked })} /><span>{player.secondShirt === "none" ? "No shirt requested for this entry" : "Game shirt received"}</span></label>
       <label>Shirt size<select disabled={player.secondShirt === "none"} value={player.shirtSize} onChange={(event) => onUpdate({ shirtSize: event.target.value })}>{["XS", "S", "M", "L", "XL", "2XL", "3XL"].map((size) => <option key={size}>{size}</option>)}</select></label>
       {player.secondShirt && <label>Second-entry shirt<select value={player.secondShirt} onChange={event => onUpdate({ secondShirt: event.target.value as "black" | "tournament" | "none" })}>{player.secondShirt === "black" && <option value="black">Black shirt (existing selection)</option>}<option value="tournament">Second tournament shirt</option><option value="none">No shirt</option></select></label>}
-      <PaymentProof registrationId={player.id} pin={organizerPin} organizer canUpload renderPayment={renderPayment} />
+      <PaymentProof registrationId={player.id} pin={organizerPin} organizer canUpload paymentControls={paymentControls} />
     </fieldset>
     <fieldset className="phase-fieldset prepare-detail-fields" disabled={registrationBlocked} hidden={registrationDetail !== "player"}>
       <label>Club / group<input required maxLength={80} value={player.club || ""} onChange={event => onUpdate({ club: event.target.value })} /></label>{player.personId && <p>Linked player: {player.personId}</p>}<label>Player name<input value={player.name} onChange={(event) => onUpdate({ name: event.target.value })} /></label>{division.mode !== "singles" && <label>Partner / Pair<select value={player.partnerId ?? ""} onChange={(event) => onUpdate({ partnerId: event.target.value || null, partnerName: "" })}><option value="">Unpaired</option>{availablePartners.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>}{division.mode === "team" && <label>Team name<input value={player.teamName} onChange={(event) => onUpdate({ teamName: event.target.value })} /></label>}<label>Organizer&apos;s final level<select value={player.playerLevel} onChange={(event) => onUpdate({ playerLevel: event.target.value })}>{cleanLevelNames([...divisionLevelOptions(division), player.playerLevel, player.desiredLevel]).map((level) => <option key={level}>{level}</option>)}</select></label><ContactFields facebookProfile={player.facebookProfile} phone={player.phone} onChange={patch => onUpdate(patch)} />{division.subBracketCount > 1 && <label>Pool override<select value={player.poolOverride ?? ""} onChange={(event) => onUpdate({ poolOverride: event.target.value === "" ? null : Number(event.target.value) })}><option value="">Automatic balancing</option>{Array.from({ length: division.subBracketCount }, (_, pool) => <option key={pool} value={pool}>{subBracketName(pool)}</option>)}</select></label>}
@@ -951,12 +952,12 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
   const unvalidateMatch = (matchId: string) => { touchedMatchIds.current.add(matchId); commit((current) => unvalidateTournamentMatch(current, matchId)); };
   const resetMatch = (matchId: string) => { const match = stateRef.current.matches.find(m => m.id === matchId); if (!match || match.validated || match.hold || match.forfeit || !confirm(`Reset ${match.label}? Scores will be cleared. The PIN, players and court will be kept.`)) return; touchedMatchIds.current.add(matchId); commit((current) => ({ ...current, matches: current.matches.map((match) => match.id === matchId ? { ...match, sets: [{ a: 0, b: 0, complete: false }], status: "ready" as const, courtInUse: false, dispatchedAt: match.court ? new Date().toISOString() : undefined, completedAt: undefined, nearCapNotified: false, validated: false } : match) })); };
   const renewMatchPin = (matchId: string) => { if (!confirm("Replace this game PIN? The old PIN will stop working. Scores will be kept.")) return; touchedMatchIds.current.add(matchId); commit((current) => regenerateMatchPin(current, matchId)); };
-  const runSetupAction = async (body: Record<string, unknown>, expectedRevision: number) => {
+  const runSetupAction = async (body: Record<string, unknown>, expectedRevision: number, showOverlay = true) => {
     if (dirtyRef.current || saveInFlight.current || gameActionInFlight.current || organizerReadOnly || organizerSessionExpired) throw new Error("Wait for tournament changes to save, then try again.");
     if (revisionRef.current !== expectedRevision) throw new Error("The tournament changed. Review the latest state and try again.");
     gameActionInFlight.current = true;
     setGameActionBusy(true);
-    setResetBusy(true);
+    if (showOverlay) setResetBusy(true);
     try {
       const response = await fetch("/api/state", {
         method: "POST", headers: { "content-type": "application/json", "x-organizer-pin": organizerPin },
@@ -978,7 +979,7 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
         setLastConfirmedAt(Date.now());
       }
     } finally {
-      setResetBusy(false);
+      if (showOverlay) setResetBusy(false);
       gameActionInFlight.current = false;
       setGameActionBusy(false);
     }
@@ -1190,16 +1191,11 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
 
   const registrationLocked = tournamentEditingLocked(state.status);
   const registrationBlocked = registrationLocked || organizerReadOnly || organizerSessionExpired;
-  const renderReceiptPayment: RenderReceiptPayment = registrationIds => registrationPaymentScopes(state.registrations, state.divisions, registrationIds).map(({ entries, division }) => {
-    const paid = entries.every(entry => entry.paid);
-    const names = entries.map(entry => entry.name).join(" and ");
-    const label = division ? `${names} · ${division.name}` : names;
-    return <div className="action-row" key={entries[0].id}>
-      <strong>{label}</strong>
-      {paid ? <span>Paid</span> : <button type="button" className="secondary" aria-label={`Confirm payment received for ${label}`}
-        disabled={registrationBlocked || dirty || sync !== "saved"} onClick={() => setRegistrationPayment(entries[0], true)}>Confirm payment received</button>}
-    </div>;
-  });
+  const paymentControls: ReceiptPaymentControls = {
+    state,
+    disabled: registrationBlocked || dirty || sync !== "saved" || gameActionBusy,
+    change: (registrationId, mutation) => runSetupAction({ ...mutation, registrationId }, revisionRef.current, false),
+  };
   const registrationScope = state.divisions.some(division => division.id === registrationDivisionFilter) ? registrationDivisionFilter : "all";
   const prepareDivision = state.divisions.find(division => division.id === prepareDivisionId) ?? state.divisions[0];
   const registrationDivisions = state.divisions.filter(division => registrationScope === "all" || division.id === registrationScope);
@@ -1250,7 +1246,7 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
         <span><strong>{visibleRegistrations.filter(player => player.secondShirt !== "none" && !player.shirtReceived).length}</strong> Shirts to hand out</span>
       </div>
       <div className="prepare-workspace prepare-registration-workspace">
-        <RegistrationRoster divisions={registrationDivisions} registrations={visibleRegistrations}
+        <RegistrationRoster divisions={registrationDivisions} registrations={visibleRegistrations} trackedPayments={trackedPaymentIds(state)}
           locked={registrationLocked} canEdit={!organizerReadOnly && !organizerSessionExpired}
           selectedId={selectedRegistrationId} onSelect={id => {
             registrationTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -1266,7 +1262,7 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
           }}
           onUpdate={patch => updateRegistration(selectedRegistration.id, patch)}
           onPayment={paid => setRegistrationPayment(selectedRegistration, paid)}
-          renderPayment={renderReceiptPayment}
+          paymentControls={paymentControls}
           onMove={destination => moveRegisteredPair(selectedRegistration.id, destination)}
           onEntryLevel={(divisionId, entryId, levelOverride) => updateEntry(divisionId, entryId, { levelOverride })}
           onSecondEntry={() => setRegistrationDialog({ divisionId: selectedRegistration.divisionId, player: selectedRegistration })}
@@ -1277,8 +1273,8 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
         <summary>Registration tools</summary>
         <fieldset className="phase-fieldset stack" disabled={registrationBlocked}>
           <section className="card registration-export"><div className="section-head"><div><p className="eyebrow">Validation files</p><h2>Export registered players</h2><p>CSV includes every selected division. Excel keeps each division on its own sheet. Downloads use the entries shown here; when connected and saved, they also include private payment links and reviewed receipt fields.</p></div><div className="action-row"><button type="button" className="secondary" disabled={registrationExportBusy} onClick={() => void downloadRegistrationExport("csv")}>{registrationExportBusy ? "Preparing…" : "Download CSV"}</button><button type="button" className="primary" disabled={registrationExportBusy} onClick={() => void downloadRegistrationExport("xlsx")}>{registrationExportBusy ? "Preparing…" : "Download Excel"}</button></div></div>{registrationExportMessage && <p role="status">{registrationExportMessage}</p>}</section>
-          <PaymentReviewQueue state={state} pin={organizerPin} renderPayment={renderReceiptPayment} />
-          <ReceiptBatchReview registrations={state.registrations} pin={organizerPin} locked={registrationLocked} renderPayment={renderReceiptPayment} />
+          <PaymentReviewQueue state={state} pin={organizerPin} paymentControls={paymentControls} />
+          <ReceiptBatchReview registrations={state.registrations} pin={organizerPin} locked={registrationLocked} />
           {registrationDivisions.some(division => division.entries.some(entry => !entry.registrationIds?.length)) &&
             <section className="card"><h3>Draw entry levels</h3>
               {registrationDivisions.flatMap(division => division.entries.filter(entry => !entry.registrationIds?.length).map(entry =>
