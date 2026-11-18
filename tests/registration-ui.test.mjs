@@ -16,7 +16,7 @@ const state={status:'registration',divisions:[{id:'d',name:'Open Doubles',mode:'
 
 test('payment confirmation follows shared reciprocal partners within one division', async () => {
  await build({entryPoints:['lib/registration-payment.ts'],outfile:path.join(dir,'registration-payment.mjs'),bundle:true,platform:'node',format:'esm'});
- const {registrationPaymentEntries} = await import(pathToFileURL(path.join(dir,'registration-payment.mjs')));
+ const {registrationPaymentEntries,registrationPaymentScopes} = await import(pathToFileURL(path.join(dir,'registration-payment.mjs')));
  const [alex,sam] = state.registrations.map(player => ({...player,paymentGroupId:'shared'}));
  const secondEntry = {...alex,id:'second-entry',divisionId:'second-division'};
  const separate = {...sam,paymentGroupId:'separate'};
@@ -28,6 +28,11 @@ test('payment confirmation follows shared reciprocal partners within one divisio
  assert.deepEqual(registrationPaymentEntries([alex,sam],alex,'singles'),[alex]);
  const [legacyAlex,legacySam] = state.registrations;
  assert.deepEqual(registrationPaymentEntries([legacyAlex,legacySam],legacySam,'doubles'),[legacySam,legacyAlex]);
+ const registrations=[alex,sam,secondEntry,{...unrelated,id:'unrelated'}];
+ const divisions=[...state.divisions,{id:secondEntry.divisionId,name:'Second division',mode:'doubles'}];
+ const sharedScopes=registrationPaymentScopes(registrations,divisions,[sam.id,alex.id,secondEntry.id]);
+ assert.deepEqual(sharedScopes.map(scope=>scope.entries.map(entry=>entry.id)),[[alex.id,sam.id],[secondEntry.id]]);
+ assert.deepEqual(registrationPaymentScopes([alex,sam],divisions,[alex.id]),[]);
 });
 
 test('organizer roster groups reciprocal partners within divisions and shows each player’s own payment and shirt status',()=>{
@@ -228,8 +233,9 @@ test('batch OCR offers all-division scanning and opt-in rereading, with no autom
 
 test('a staged batch result retains its editable OCR fields, screenshot preview action and explicit review save',()=>{
  const reading={record:{groupId:'g',revision:0,proofVersion:'photo-v1',details:null,stale:false,reviewedAt:null,duplicateReference:false},details:{amount:'1250.00',reference:'001234567890',provider:'GCash',date:''},warnings:['Check every field']};
- const html=renderToStaticMarkup(React.createElement(ReceiptReview,{registrationId:'one',pin:'private-test-value',initialReading:reading}));
+ const html=renderToStaticMarkup(React.createElement(ReceiptReview,{registrationId:'one',pin:'private-test-value',initialReading:reading,renderPayment:()=>React.createElement('button',{type:'button'},'Confirm payment received')}));
  assert.match(html,/Unsaved changes/);assert.match(html,/value="001234567890"/);assert.match(html,/value="1250.00"/);
  assert.match(html,/View screenshot for review/);assert.match(html,/Check every field/);assert.match(html,/<button[^>]*class="primary"[^>]*>Save reviewed details/);
- assert.doesNotMatch(html,/private-test-value/);assert.match(html,/Confirm payment received separately/);
+ assert.doesNotMatch(html,/private-test-value/);
+ assert.match(html,/<fieldset class="receipt-payment-confirmation" disabled="">.*Confirm payment received/s);
 });
