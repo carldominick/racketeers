@@ -18,7 +18,7 @@ const env = {ASSETS:{async fetch(request) {
 }}};
 const server = fileURLToPath(new URL('../dist/server/',import.meta.url));
 const serverFiles = await readdir(server,{recursive:true});
-const runtime = new Miniflare({
+const runtimeOptions = {
   modules:[{type:'ESModule',path:path.join(server,'index.js')},...serverFiles.filter(name=>name!=='index.js' && name.endsWith('.js')).map(name=>({type:'ESModule',path:path.join(server,name)}))],
   modulesRoot:server,
   compatibilityDate:'2026-08-01',
@@ -27,8 +27,75 @@ const runtime = new Miniflare({
   d1Databases:{DB:'reliability-disposable'},
   r2Buckets:{PAYMENT_PROOFS:'reliability-disposable'},
   bindings:{INITIAL_ORGANIZER_PIN:'12345678'},
-});
+};
+const runtime = new Miniflare(runtimeOptions);
 test.after(()=>runtime.dispose());
+test('built Worker validates each receipt and updates the shared balance and roster at one revision', async () => {
+  const disposable = new Miniflare(runtimeOptions);
+  const base = 'https://racketeers.example';
+  const auth = { 'x-organizer-pin': '12345678' };
+  const send = (endpoint, headers = {}, body, method = body ? 'POST' : 'GET') =>
+    disposable.dispatchFetch(base + endpoint, { method, headers: { ...headers, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  try {
+    const initial = await (await send('/api/state', auth)).json();
+    const division = { ...initial.state.divisions[0], id: 'receipt-test', registrationPricing: { entry: '950', tournamentShirt: '0' } };
+    const pair = ['payment-a', 'payment-b'].map((id, index, ids) => ({
+      id, name: `Sample player ${index + 1}`, divisionId: division.id, paid: false,
+      shirtReceived: false, shirtSize: 'M', partnerId: ids[1 - index], partnerName: '', paymentGroupId: 'payment-a',
+    }));
+    const db = await disposable.getD1Database('DB');
+    const raw = await db.prepare('SELECT payload FROM tournament_state WHERE id = ?').bind('racketeers').first();
+    await db.prepare('UPDATE tournament_state SET payload = ? WHERE id = ?')
+      .bind(JSON.stringify({ ...JSON.parse(raw.payload), status: 'registration', divisions: [division], registrations: pair }), 'racketeers').run();
+    const r2 = await disposable.getR2Bucket('PAYMENT_PROOFS');
+    const key = 'payments/groups/payment-a/payment-a.png';
+    await r2.put(key, 'test receipt first');
+    await r2.put(`${key}/photos/2.png`, 'test receipt second');
+    await r2.put(`${key}/photos/3.png`, 'test receipt second');
+    const photos = async () => (await (await send('/api/payment-proof?registrationId=payment-a&metadata=1', auth)).json()).photos;
+    const [first, originalSecond, third] = await photos();
+    const image = await send('/api/payment-proof?registrationId=payment-b&slot=1', auth);
+    assert.equal(image.headers.get('X-Payment-Proof-Version'), first.proofVersion);
+    const input = (photo, revision, amount, reference, status = 'completed') => ({
+      action: 'confirmReceiptTransfer', registrationId: 'payment-a', expectedRevision: revision, slot: photo.slot, proofVersion: photo.proofVersion,
+      details: { amount, reference, provider: 'GCash', date: '2026-11-16', transferStatus: status },
+      allocations: [{ scope: 'payment-a/payment-b', cents: Math.round(Number(amount) * 100) }],
+    });
+    const action = (body, headers = auth) => send('/api/state', headers, body);
+    const firstInput = input(first, initial.revision, '1000.00', '000-123456');
+    assert.equal((await action(firstInput, {})).status, 401);
+    assert.equal((await action({ ...firstInput, details: { ...firstInput.details, transferStatus: 'pending' } })).status, 400);
+    const firstResponse = await action(firstInput);
+    assert.equal(firstResponse.status, 200);
+    const partial = await firstResponse.json();
+    assert.deepEqual(partial.state.registrations.map(entry => entry.paid), [false, false]);
+    assert.equal(partial.state.paymentTransfers[0].allocations[0].due, 190000);
+    assert.equal(partial.state.paymentTransfers[0].details.reference, '000-123456');
+    assert.equal((await action(firstInput)).status, 409);
+    assert.equal((await action(input(originalSecond, partial.revision, '900.00', '000123456'))).status, 409);
+    await r2.put(`${key}/photos/2.png`, 'changed receipt two');
+    assert.equal((await action(input(originalSecond, partial.revision, '900.00', '000456789'))).status, 409);
+    const [, second] = await photos();
+    const secondResponse = await action(input(second, partial.revision, '900.00', '000456789'));
+    assert.equal(secondResponse.status, 200);
+    const paid = await secondResponse.json();
+    assert.deepEqual(paid.state.registrations.map(entry => entry.paid), [true, true]);
+    assert.equal(paid.state.paymentTransfers.length, 2);
+    const publicState = await (await send('/api/state')).json();
+    assert.equal(publicState.state.paymentTransfers, undefined);
+    assert.equal((await send('/api/payment-proof?registrationId=payment-a&slot=2')).status, 401);
+    await r2.put(`${key}/photos/3.png`, 'changed receipt two');
+    const [, , replacementThird] = await photos();
+    assert.notEqual(third.proofVersion, replacementThird.proofVersion);
+    assert.equal((await action(input(replacementThird, paid.revision, '900.00', '000999999'))).status, 409);
+    const undoResponse = await action({ action: 'undoReceiptTransfer', registrationId: 'payment-b', expectedRevision: paid.revision, transferId: paid.state.paymentTransfers[1].id });
+    assert.equal(undoResponse.status, 200);
+    const undone = await undoResponse.json();
+    assert.deepEqual(undone.state.registrations.map(entry => entry.paid), [false, false]);
+    assert.equal(undone.state.paymentTransfers.length, 1);
+    assert.equal(await (await r2.get(`${key}/photos/2.png`)).text(), 'changed receipt two');
+  } finally { await disposable.dispose(); }
+});
 test('built demo entry requires the real organizer and preview query parameters do not unlock it',async()=>{
  await runtime.dispatchFetch('https://racketeers.example/api/state');
  const request=pin=>runtime.dispatchFetch('https://racketeers.example/api/demo',{method:'POST',headers:pin?{'x-organizer-pin':pin}:{}});

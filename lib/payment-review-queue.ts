@@ -3,6 +3,7 @@ import { readReceiptRecord, ReceiptRequestError } from "./receipt-batch";
 import type { ReceiptRecord } from "./receipt-details";
 import type { Division, PlayerRegistration } from "./tournament";
 import { paymentGroupCharges, priceCents } from "./registration-pricing";
+import { groupPaymentTransfers, paymentTransferScopes, type PaymentTransfer } from "./registration-payment";
 export type PaymentQueueItem = { registrationId: string; ids: string[]; record: ReceiptRecord | null };
 export const PAYMENT_FILTERS = { all: "All payments", missing: "Missing screenshot", review: "Needs review / uncertain fields", pending: "Pending transfer", date: "Missing date", amount: "Missing / different amount", duplicate: "Duplicate reference", unconfirmed: "Payment not confirmed" } as const;
 export type PaymentFilter = keyof typeof PAYMENT_FILTERS;
@@ -24,10 +25,18 @@ export async function loadPaymentQueue(registrations: PlayerRegistration[], pin:
   }
   return items;
 }
-export function paymentExceptions(item: PaymentQueueItem, divisions: Division[], registrations: PlayerRegistration[]): PaymentFilter[] {
+export function paymentExceptions(item: PaymentQueueItem, divisions: Division[], registrations: PlayerRegistration[], paymentTransfers?: PaymentTransfer[]): PaymentFilter[] {
   const record = item.record, details = record?.details;
   const issues: PaymentFilter[] = [];
   if (!record) issues.push("missing");
+  const state = { divisions, registrations, paymentTransfers };
+  const transfers = groupPaymentTransfers(state, item.ids, record?.groupId);
+  if (transfers.length) {
+    if (record?.photos?.some(photo => !transfers.some(transfer => transfer.slot === photo.slot && transfer.proofVersion === photo.proofVersion))) issues.push("review");
+    if (paymentTransferScopes(state, item.ids).some(scope => scope.due === null || scope.confirmed !== scope.due)) issues.push("amount");
+    if (registrations.some(player => item.ids.includes(player.id) && !player.paid)) issues.push("unconfirmed");
+    return issues;
+  }
   if (record && (!record.reviewedAt || record.stale || !details?.amount || !details.reference || !details.provider || !details.date)) issues.push("review");
   if (details?.transferStatus === "pending") issues.push("pending");
   if (record && !details?.date) issues.push("date");

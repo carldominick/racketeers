@@ -5,6 +5,7 @@ export type ReceiptDetails = {
 export type ReceiptRecord = {
   groupId: string; details: ReceiptDetails | null; revision: number; proofVersion: string;
   stale: boolean; reviewedAt: string | null; duplicateReference: boolean; linkedRegistrationIds?: string[];
+  photos?: import("./registration-payment").PaymentPhoto[];
 };
 export type ReceiptReading = { details: ReceiptDetails; warnings: string[] };
 export const emptyReceipt = (): ReceiptDetails => ({ amount: "", reference: "", provider: "", date: "" });

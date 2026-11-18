@@ -2,10 +2,10 @@
 import { useEffect, useRef, useState } from "react";
 import { readReceiptBatch, type BatchProgress, type BatchReading, type ReceiptCandidate } from "../../lib/receipt-batch";
 import { createReceiptReader } from "../../lib/receipt-ocr";
-import { ReceiptReview, type RenderReceiptPayment } from "./receipt-review";
+import { ReceiptReview } from "./receipt-review";
 import { useReceiptNavigationGuard } from "./use-receipt-navigation-guard";
 
-export function ReceiptBatchReview({ registrations, pin, locked = false, renderPayment }: { registrations: ReceiptCandidate[]; pin: string; locked?: boolean; renderPayment?: RenderReceiptPayment }) {
+export function ReceiptBatchReview({ registrations, pin, locked = false }: { registrations: ReceiptCandidate[]; pin: string; locked?: boolean }) {
   const [results, setResults] = useState<BatchReading[]>([]);
   const [progress, setProgress] = useState<BatchProgress | null>(null);
   const [phase, setPhase] = useState("");
@@ -49,6 +49,6 @@ export function ReceiptBatchReview({ registrations, pin, locked = false, renderP
     {busy && <p aria-hidden="true">{phase}</p>}
     {progress && <><progress aria-label="Registrations checked for screenshots" value={progress.checked} max={progress.total || 1} /><p role="status">{busy ? "Checking" : progress.stopped ? "Stopped after checking" : "Checked"} {progress.checked} of {progress.total} registrations. Read {progress.read} screenshots; skipped {progress.missing} without uploads, {progress.reviewed} saved reviews and {progress.shared} shared or previously read entries. {progress.failed > 0 && `${progress.failed} could not be read.`}</p></>}
     {issues.length > 0 && <div role="alert"><strong>Some screenshots need attention</strong><ul>{issues.slice(0,10).map((issue,index) => <li key={index}>{issue}</li>)}</ul>{issues.length > 10 && <p>{issues.length - 10} more could not be read. Retry the remaining screenshots or review their player cards individually.</p>}</div>}
-    {results.length > 0 && <div className="receipt-batch-results"><p><strong>{results.length} screenshot readings</strong> · Open Amount &amp; reference below each name to review and save.</p>{results.map(result => <article key={result.record.groupId}><h3>{result.label}</h3><ReceiptReview renderPayment={renderPayment} registrationId={result.registrationId} pin={pin} initialReading={result} /></article>)}</div>}
+    {results.length > 0 && <div className="receipt-batch-results"><p><strong>{results.length} screenshot readings</strong> · Open Amount &amp; reference below each name to review and save.</p>{results.map(result => <article key={result.record.groupId}><h3>{result.label}</h3><ReceiptReview registrationId={result.registrationId} pin={pin} initialReading={result} /></article>)}</div>}
   </section>;
 }

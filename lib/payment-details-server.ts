@@ -12,7 +12,7 @@ export async function handlePaymentDetails(request: Request, env: ProofEnvironme
       headers: { "x-organizer-pin": request.headers.get("x-organizer-pin") || "", cookie: request.headers.get("cookie") || "" },
     }), env);
     if (!metadata.ok) return metadata;
-    const proof = await metadata.json() as { linkedRegistrationIds: string[]; receiptGroupId: string; proofVersion: string };
+    const proof = await metadata.json() as { linkedRegistrationIds: string[]; receiptGroupId: string; proofVersion: string; photos?: import("./registration-payment").PaymentPhoto[] };
     const groups = [...new Set([proof.receiptGroupId, ...proof.linkedRegistrationIds])].filter(Boolean);
     if (!groups.length) return reply({ error: "Registration not found." }, 404);
     await env.DB.prepare("CREATE TABLE IF NOT EXISTS payment_receipt_details (group_id TEXT PRIMARY KEY, reference_key TEXT NOT NULL, payload TEXT NOT NULL, proof_version TEXT NOT NULL, revision INTEGER NOT NULL, updated_at TEXT NOT NULL)").run();
@@ -23,7 +23,7 @@ export async function handlePaymentDetails(request: Request, env: ProofEnvironme
     const duplicate = async (details: ReceiptDetails) => details.reference ? Boolean(await env.DB.prepare(`SELECT group_id FROM payment_receipt_details WHERE reference_key = ? AND group_id NOT IN (${placeholders}) LIMIT 1`).bind(receiptReferenceKey(details.reference), ...groups).first()) : false;
     if (request.method === "GET") {
       const details = current ? JSON.parse(current.payload) as ReceiptDetails : null;
-      return reply({ groupId, details, revision: current?.revision || 0, proofVersion: proof.proofVersion, stale: Boolean(current && current.proof_version !== proof.proofVersion), reviewedAt: current?.updated_at || null, duplicateReference: details ? await duplicate(details) : false, linkedRegistrationIds: proof.linkedRegistrationIds });
+      return reply({ groupId, details, revision: current?.revision || 0, proofVersion: proof.proofVersion, stale: Boolean(current && current.proof_version !== proof.proofVersion), reviewedAt: current?.updated_at || null, duplicateReference: details ? await duplicate(details) : false, linkedRegistrationIds: proof.linkedRegistrationIds, photos: proof.photos });
     }
     const raw = await request.text();
     if (raw.length > 4096) return reply({ error: "Payment details are too large." }, 413);

@@ -2,8 +2,10 @@
 import { apiFetch as fetch } from "../../lib/client-request";
 
 /* eslint-disable @next/next/no-img-element -- Authenticated blob previews must not pass through an image proxy. */
-import { useEffect, useRef, useState } from "react";
-import { ReceiptReview, type RenderReceiptPayment } from "./receipt-review";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ReceiptReview } from "./receipt-review";
+import { PaymentTransferReview } from "./payment-transfer-review";
+import { groupPaymentTransfers, linkedPaymentIds, type PaymentPhoto, type ReceiptPaymentControls } from "../../lib/registration-payment";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 export function paymentPhotoSelectionError(files: File[], selected: File[], maximum = 4) {
@@ -66,10 +68,10 @@ export async function uploadPaymentImages(id: string, pin: string, images: Blob[
   try { for (const image of images) { await uploadPaymentImage(id, pin, image, organizer, slots[uploaded]); uploaded++; } }
   catch (error) { throw new Error(`${uploaded} of ${images.length} photos uploaded. ${error instanceof Error ? error.message : "Upload failed."} Check the saved photos before retrying.`); }
 }
-export function PaymentProof({ registrationId, pin, organizer = false, canUpload = false, renderPayment }: { registrationId: string; pin: string; organizer?: boolean; canUpload?: boolean; renderPayment?: RenderReceiptPayment }) {
+export function PaymentProof({ registrationId, pin, organizer = false, canUpload = false, paymentControls, onPendingChange }: { registrationId: string; pin: string; organizer?: boolean; canUpload?: boolean; paymentControls?: ReceiptPaymentControls; onPendingChange?: (id: string, pending: boolean) => void }) {
   const [linkedIds, setLinkedIds] = useState<string[]>([]);
   const [filename, setFilename] = useState("");
-  const [photos, setPhotos] = useState<{ slot: number; filename: string }[]>([]);
+  const [photos, setPhotos] = useState<PaymentPhoto[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [previewName, setPreviewName] = useState("");
   const [message, setMessage] = useState("");
@@ -78,6 +80,11 @@ export function PaymentProof({ registrationId, pin, organizer = false, canUpload
   const [enabled, setEnabled] = useState(false);
   const [revision, setRevision] = useState(0);
   const inFlight = useRef(false);
+  const pending = useRef(false);
+  const pendingChanged = useCallback((id: string, active: boolean) => {
+    pending.current = active;
+    onPendingChange?.(id, active);
+  }, [onPendingChange]);
   useEffect(() => {
     const abort = new AbortController();
     const refresh = () => { setPreview(""); setRevision(n => n + 1); };
@@ -129,5 +136,46 @@ export function PaymentProof({ registrationId, pin, organizer = false, canUpload
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to load screenshot."); }
     finally { setBusy(false); }
   };
-  return <section className="payment-proof"><strong>Payment screenshots · {photos.length} of 4</strong><div className="registration-id-display"><span>Registration ID</span><code>{registrationId}</code></div>{linkedIds.length > 1 && <small>Shared by linked players and entries</small>}{photos.map(photo => <div className="payment-photo-row" key={photo.slot}><button type="button" className="secondary" disabled={busy} onClick={() => void view(photo.slot, photo.filename)}>View photo {photo.slot}</button>{canUpload && enabled && <PhotoUploadButton variant="secondary" label={`Replace photo ${photo.slot}`} disabled={busy} onSelect={file => { if (inFlight.current) return; inFlight.current = true; setBusy(true); void preparePaymentImage(file).then(image => uploadPaymentImage(registrationId, pin, image, organizer, photo.slot)).then(() => { setMessage("Photo replaced. Payment confirmation is unchanged."); }).catch(error => setMessage(error.message)).finally(() => { window.dispatchEvent(new Event("payment-proof-updated")); setBusy(false); inFlight.current = false; }); }} />}</div>)}{!filename && <span>{enabled ? "No screenshots uploaded" : "Screenshot uploads are not available yet"}</span>}{organizer && filename && <button type="button" className="danger" disabled={busy} onClick={() => void removePhoto()}>Delete all payment photos</button>}{canUpload && enabled && photos.length < 4 && <><PaymentPhotoPicker files={files} maximum={Math.max(0, 4 - photos.length)} disabled={busy} onChange={setFiles} /><button type="button" className="primary" disabled={busy || !files.length || files.length + photos.length > 4} onClick={() => void upload()}>Upload selected photos</button><small>{4 - photos.length} photo slots available</small></>}{busy && <p role="status">Processing screenshots…</p>}{message && <p role="status">{message}</p>}{organizer && filename && <><p>OCR reads the primary screenshot only. Review every photo above before confirming payment.</p><ReceiptReview renderPayment={renderPayment} key={revision} registrationId={registrationId} pin={pin} /></>}{preview && <div className="payment-proof-preview"><button type="button" className="ghost" onClick={() => setPreview("")}>Close screenshot</button><img src={preview} alt="Uploaded payment screenshot" /><a href={preview} download={previewName}>Download {previewName}</a></div>}</section>;
+  const replace = async (slot: number, file: File) => {
+    if (inFlight.current) return;
+    inFlight.current = true; setBusy(true);
+    try {
+      await uploadPaymentImage(registrationId, pin, await preparePaymentImage(file), organizer, slot);
+      setMessage("Photo replaced. Payment confirmation is unchanged.");
+    } catch (error) { setMessage((error as Error).message); }
+    finally { window.dispatchEvent(new Event("payment-proof-updated")); setBusy(false); inFlight.current = false; }
+  };
+  const ids = linkedIds.length ? linkedIds : paymentControls ? linkedPaymentIds(paymentControls.state, registrationId) : [];
+  const hasReview = organizer && paymentControls && (photos.length > 0 || groupPaymentTransfers(paymentControls.state, ids).length > 0);
+  const managePhotos = <>
+    {(!paymentControls || canUpload) && photos.map(photo => <div className="payment-photo-row" key={photo.slot}>
+      {!paymentControls && <button type="button" className="secondary" disabled={busy} onClick={() => void view(photo.slot, photo.filename)}>View photo {photo.slot}</button>}
+      {canUpload && enabled && <PhotoUploadButton variant="secondary" label={`Replace photo ${photo.slot}`} disabled={busy} onSelect={file => void replace(photo.slot, file)} />}
+    </div>)}
+    {organizer && canUpload && filename && <button type="button" className="danger" disabled={busy} onClick={() => void removePhoto()}>Delete all payment photos</button>}
+    {canUpload && enabled && photos.length < 4 && <>
+      <PaymentPhotoPicker files={files} maximum={4 - photos.length} disabled={busy} onChange={setFiles} />
+      <button type="button" className="primary" disabled={busy || !files.length || files.length + photos.length > 4} onClick={() => void upload()}>Upload selected photos</button>
+      <small>{4 - photos.length} photo slots available</small>
+    </>}
+  </>;
+  return <section className="payment-proof">
+    <strong>Payment screenshots · {photos.length} of 4</strong>
+    <div className="registration-id-display"><span>Registration ID</span><code>{registrationId}</code></div>
+    {linkedIds.length > 1 && <small>Shared by linked players and entries</small>}
+    {hasReview && <PaymentTransferReview key={revision} registrationId={registrationId} pin={pin}
+      ids={ids} photos={photos} controls={paymentControls} onPendingChange={pendingChanged} />}
+    {organizer && paymentControls && <button type="button" className="secondary" disabled={busy} onClick={() => {
+      if (!pending.current || window.confirm("Discard the unsaved payment review and reload screenshots?")) setRevision(value => value + 1);
+    }}>Reload payment screenshots</button>}
+    {!filename && <span>{enabled ? "No screenshots uploaded" : "Screenshot uploads are not available yet"}</span>}
+    {paymentControls && filename && canUpload ? <details><summary>Manage screenshots</summary>{managePhotos}</details> : managePhotos}
+    {busy && <p role="status">Processing screenshots…</p>}
+    {message && <p role="status">{message}</p>}
+    {organizer && !paymentControls && filename && <ReceiptReview key={revision} registrationId={registrationId} pin={pin} />}
+    {preview && <div className="payment-proof-preview">
+      <button type="button" className="ghost" onClick={() => setPreview("")}>Close screenshot</button>
+      <img src={preview} alt="Uploaded payment screenshot" /><a href={preview} download={previewName}>Download {previewName}</a>
+    </div>}
+  </section>;
 }

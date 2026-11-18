@@ -14,6 +14,8 @@ export type ProofEnvironment = {
 };
 const headers = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
 const reply = (body: unknown, status = 200) => Response.json(body, { status, headers });
+const photoSlots = [1, 2, 3, 4];
+const slotKey = (key: string, slot: number) => slot === 1 ? key : `${key}/photos/${slot}.png`;
 async function hash(pin: string) {
   return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin))), b => b.toString(16).padStart(2, "0")).join("");
 }
@@ -113,7 +115,7 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
           const other = groupMembers.find(r => r.id === member.partnerId && r.partnerId === member.id && r.divisionId === member.divisionId);
           return other ? [pairKey([member.id, other.id])] : [];
         });
-        const keys = [...new Set([key, ...[2,3,4].map(slot => `${key}/photos/${slot}.png`), ...legacyPairs, ...linkedRegistrationIds.map(linkedId => `payments/${linkedId}.png`)])];
+        const keys = [...new Set([key, ...legacyPairs, ...linkedRegistrationIds.map(linkedId => `payments/${linkedId}.png`)].flatMap(primary => photoSlots.map(slot => slotKey(primary, slot))))];
         const uploaded = await Promise.all(keys.map(candidate => env.PAYMENT_PROOFS!.head(candidate)));
         if (!uploaded.some(Boolean)) continue;
         const token = await makeProofShareToken(state, id);
@@ -144,30 +146,40 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
       return other ? [pairKey([member.id, other.id])] : [];
     });
     const primaryKeys = [...new Set([key, ...legacyPairs, ...linkedRegistrationIds.map(id => `payments/${id}.png`)])];
-    // Nest extra slots below the full primary key, avoiding legacy registration-ID collisions.
-    const photoKey = (number: number) => number === 1 ? key : `${key}/photos/${number}.png`;
-    const keys = slot ? (slot === "1" ? primaryKeys : [photoKey(Number(slot))]) : [...primaryKeys, ...[2,3,4].map(photoKey)];
+    const slots = slot ? [Number(slot)] : photoSlots;
+    const keys = slots.flatMap(number => primaryKeys.map(primary => ({ key: slotKey(primary, number), slot: number })));
     if (request.method === "DELETE") {
       if (!organizer) return reply({ error: "Only organizers can delete payment photos." }, 403);
-      for (const candidate of keys) await env.PAYMENT_PROOFS.delete(candidate);
+      for (const candidate of keys) await env.PAYMENT_PROOFS.delete(candidate.key);
       return reply({ ok: true });
     }
     if (request.method === "GET") {
       const metadataOnly = url.searchParams.get("metadata") === "1";
-      const available = await Promise.all(keys.map(async candidate => ({ key: candidate, metadata: await env.PAYMENT_PROOFS!.head(candidate) })));
-      const primary = available.filter(item => primaryKeys.includes(item.key) && item.metadata).sort((a, b) => b.metadata!.uploaded.getTime() - a.metadata!.uploaded.getTime())[0];
-      const photos = [primary && { ...primary, slot: 1 }, ...[2,3,4].map(number => { const item = available.find(item => item.key === photoKey(number) && item.metadata); return item && { ...item, slot: number }; })].filter(Boolean) as { key: string; metadata: StoredProof; slot: number }[];
+      const available = await Promise.all(keys.map(async candidate => ({ ...candidate, metadata: await env.PAYMENT_PROOFS!.head(candidate.key) })));
+      const photos = slots.flatMap(number => {
+        const newest = available.filter(item => item.slot === number && item.metadata).sort((a, b) => b.metadata!.uploaded.getTime() - a.metadata!.uploaded.getTime())[0];
+        return newest?.metadata ? [{ ...newest, metadata: newest.metadata }] : [];
+      });
       const selected = slot ? photos.find(photo => photo.slot === Number(slot)) : photos[0];
       const object = selected && (metadataOnly ? selected.metadata : await env.PAYMENT_PROOFS.get(selected.key));
       if (!object) return reply({ error: "No payment screenshot uploaded." }, 404);
       const version = (photo: { key: string; metadata: StoredProof }) => `${photo.key}:${photo.metadata.etag || `${photo.metadata.uploaded.toISOString()}:${photo.metadata.size}`}`;
-      if (metadataOnly) return reply({ filename, size: object.size, uploadedAt: object.uploaded.toISOString(), photos: photos.map(photo => ({ slot: photo.slot, filename: photo.slot === 1 ? filename : filename.replace(/\.png$/, `-${photo.slot}.png`) })), linkedRegistrationIds, receiptGroupId: registration.paymentGroupId || linkedRegistrationIds[0], proofVersion: await hash(photos.map(version).join("|")) });
+      if (metadataOnly) {
+        const listed = await Promise.all(photos.map(async photo => ({
+          slot: photo.slot,
+          filename: photo.slot === 1 ? filename : filename.replace(/\.png$/, `-${photo.slot}.png`),
+          proofVersion: await hash(version(photo)),
+          contentVersion: photo.metadata.etag ? await hash(photo.metadata.etag) : undefined,
+        })));
+        return reply({ filename, size: object.size, uploadedAt: object.uploaded.toISOString(), photos: listed, linkedRegistrationIds, receiptGroupId: registration.paymentGroupId || linkedRegistrationIds[0], proofVersion: await hash(photos.map(version).join("|")) });
+      }
       if (sharedLink && !slot && photos.length > 1) {
         const images = photos.map(photo => `<figure><img style="max-width:100%" src="?share=${encodeURIComponent(shareToken)}&amp;slot=${photo.slot}" alt="Payment screenshot ${photo.slot}"><figcaption>Photo ${photo.slot}</figcaption></figure>`).join("");
         return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Payment screenshots</title><body><h1>Payment screenshots</h1>${images}</body></html>`, { headers: { ...headers, "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox" } });
       }
       const downloadName = selected!.slot === 1 ? filename : filename.replace(/\.png$/, `-${selected!.slot}.png`);
-      return new Response(object.body, { headers: { ...headers, "Content-Type": "image/png", "Content-Disposition": `inline; filename="${downloadName}"`, "Content-Security-Policy": "default-src 'none'; sandbox" } });
+      const photoVersion = await hash(version({ key: selected!.key, metadata: object }));
+      return new Response(object.body, { headers: { ...headers, "Content-Type": "image/png", "Content-Disposition": `inline; filename="${downloadName}"`, "Content-Security-Policy": "default-src 'none'; sandbox", "X-Payment-Proof-Version": photoVersion } });
     }
     if (!organizer && state.status !== "registration") return reply({ error: "Payment uploads are locked outside the Registration phase." }, 423);
     if (request.headers.get("content-type") !== "image/png") return reply({ error: "Upload a PNG screenshot." }, 415);
@@ -179,7 +191,7 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const width = view.getUint32(16), height = view.getUint32(20);
     if (!width || !height || width * height > 24_000_000) return reply({ error: "Screenshot dimensions are too large." }, 415);
-    await env.PAYMENT_PROOFS.put(photoKey(Number(slot || 1)), bytes, { httpMetadata: { contentType: "image/png", contentDisposition: `inline; filename="${filename}"` } });
+    await env.PAYMENT_PROOFS.put(slotKey(key, Number(slot || 1)), bytes, { httpMetadata: { contentType: "image/png", contentDisposition: `inline; filename="${filename}"` } });
     // Proof storage is separate from whole-tournament saves. Uploads never mark a payment as verified.
     return reply({ ok: true, filename, linkedRegistrationIds });
   } catch {
