@@ -25,7 +25,7 @@ export type UmpireWorkflow = {
   startedAt?: string;
   releasedAt?: string;
   confirmed?: { a: true; b: true; at: string; umpireId: string };
-  dispute?: { side: "a" | "b" | "both"; reason: string; notes: string; at: string; umpireId: string; scores: SetScore[]; escalatedAt?: string; resolvedAt?: string };
+  dispute?: { side: "a" | "b" | "both"; reason: string; notes: string; at: string; umpireId: string; scores: SetScore[]; reviewStartedAt?: string; reviewedBy?: string; escalatedAt?: string; resolvedAt?: string };
   priorDisputes?: NonNullable<UmpireWorkflow["dispute"]>[];
   playerIssue?: { note: string; at: string; umpireId: string; resolvedAt?: string; resolvedBy?: string };
   scoreHistory?: ScoreAudit[];

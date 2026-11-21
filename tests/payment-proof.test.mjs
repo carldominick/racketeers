@@ -34,11 +34,11 @@ test('multi-photo client fills only empty slots, blocks excess and reports parti
  }finally{globalThis.fetch=original;}
 });
 const hash = async pin => Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pin))).toString('hex');
-const state = {status:'registration',organizerPinHash:await hash('876543'),registrations:[{id:'player-test',registrationPinHash:await hash('12345678'),paid:false},{id:'player-other',registrationPinHash:await hash('87654321')}]};
+const state = {status:'registration',organizerPinHash:await hash('876543'),paymentProofShareKey:'disposable-independent-payment-signing-key',registrations:[{id:'player-test',registrationPinHash:await hash('12345678'),paid:false},{id:'player-other',registrationPinHash:await hash('87654321')}]};
 const objects=new Map(); let writes=0;
-const env={DB:{prepare:()=>({bind:()=>({first:async()=>({payload:JSON.stringify(state)})})})},PAYMENT_PROOFS:{head:async key=>objects.get(key)??null,get:async key=>{const value=objects.get(key);return value?{...value,body:new Blob([value.bytes]).stream()}:null;},put:async(key,bytes,options)=>{writes++;objects.set(key,{bytes,size:bytes.length,uploaded:new Date(),options});}}};
+const env={DB:{prepare:()=>({bind:()=>({first:async()=>({payload:JSON.stringify(state)})})})},PAYMENT_PROOFS:{head:async key=>objects.get(key)??null,get:async key=>{const value=objects.get(key);return value?{...value,body:new Blob([value.bytes]).stream()}:null;},put:async(key,bytes,options)=>{writes++;objects.set(key,{bytes,size:bytes.length,uploaded:new Date(),etag:String(writes),options});}}};
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=','base64');
-const req=(options={})=>new Request(`https://test/api/payment-proof?registrationId=${options.id??'player-test'}${options.metadata?'&metadata=1':''}`,{method:options.method??'GET',headers:{...(options.organizer?{'x-organizer-pin':options.organizer}:{'x-registration-pin':options.pin??'12345678'}),...(options.method==='POST'?{'content-type':options.type??'image/png'}:{})},...(options.method==='POST'?{body:options.body??png}:{})});
+const req=(options={})=>new Request(`https://test/api/payment-proof?registrationId=${options.id??'player-test'}${options.metadata?'&metadata=1':''}`,{method:options.method??'GET',headers:{...(options.organizer?{'x-organizer-pin':options.organizer}:{'x-registration-pin':options.pin??'12345678'}),...(options.proofVersion?{'x-payment-proof-version':options.proofVersion}:{}),...(options.method==='POST'?{'content-type':options.type??'image/png'}:{})},...(options.method==='POST'?{body:options.body??png}:{})});
 
 test('four photo slots preserve legacy proof, ownership, versions and signed galleries',async()=>{
  const files=new Map();
@@ -74,8 +74,11 @@ test('payment screenshots stay private and use registration ID filenames',async(
  assert.equal((await handlePaymentProof(req({organizer:'876543'}),env)).status,200);
  const meta=await (await handlePaymentProof(req({metadata:true}),env)).json();assert.equal(meta.filename,'player-test.png');
 });
-test('replacement overwrites the same key without creating additional files',async()=>{
- await handlePaymentProof(req({method:'POST'}),env);assert.equal(objects.size,1);
+test('replacement requires the reviewed version and keeps the same key',async()=>{
+ const {photos}=await (await handlePaymentProof(req({metadata:true}),env)).json();
+ assert.equal((await handlePaymentProof(req({method:'POST'}),env)).status,409);
+ assert.equal((await handlePaymentProof(req({method:'POST',proofVersion:photos[0].proofVersion}),env)).status,200);
+ assert.equal(objects.size,1);
 });
 test('uploads require correct PIN and cannot target another registration',async()=>{
  const before=writes;

@@ -144,6 +144,27 @@ test("schedule uses every available court without duplicate time slots", () => {
   }
 });
 
+test("schedule stops at each Philippine closing time and exposes overflow", () => {
+  const initial = fixtureTournament();
+  const state = logic.assignSchedule({ ...initial, matches: initial.matches.slice(0, 8), courts: 1,
+    startDate:"2026-11-21", endDate:"2026-11-22", dayStart:"08:00", dayEnd:"10:00", gameDuration:60 });
+  assert.deepEqual(state.matches.slice(0,4).map(game=>game.scheduledAt),
+    ["2026-11-21T00:00:00.000Z","2026-11-21T01:00:00.000Z","2026-11-22T00:00:00.000Z","2026-11-22T01:00:00.000Z"]);
+  assert.ok(state.matches.length > 4);
+  assert.ok(state.matches.slice(4).every(game=>game.scheduledAt===null && game.court===null));
+});
+
+test("punctuation-equivalent team names have distinct persistent IDs", () => {
+  const division={...fixtureDivision("Team fixture","team"),registrationManaged:true,entries:[]};
+  const registrations=["North-East","North East"].map(teamName=>({...logic.makeRegistration(division.id),teamName}));
+  const state=logic.syncRegistrationsToEntries({...logic.initialTournament(),divisions:[division],registrations});
+  const entries=state.divisions[0].entries;
+  assert.equal(new Set(entries.map(entry=>entry.id)).size,2);
+  const rebuilt=logic.syncRegistrationsToEntries({...state,registrations:registrations.toReversed()});
+  assert.deepEqual(Object.fromEntries(rebuilt.divisions[0].entries.map(entry=>[entry.teamName,entry.id])),
+    Object.fromEntries(entries.map(entry=>[entry.teamName,entry.id])));
+});
+
 test("unfinished court assignments block overlapping games", () => {
   const state = fixtureTournament();
   const [first, second] = state.matches;

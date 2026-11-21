@@ -54,6 +54,15 @@ test('built Worker validates each receipt and updates the shared balance and ros
     await r2.put(`${key}/photos/3.png`, 'test receipt second');
     const photos = async () => (await (await send('/api/payment-proof?registrationId=payment-a&metadata=1', auth)).json()).photos;
     const [first, originalSecond, third] = await photos();
+    const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=','base64');
+    const photoEndpoint='/api/payment-proof?registrationId=payment-a&slot=4';
+    const add=async version=>disposable.dispatchFetch(base+photoEndpoint,{
+      method:'POST',headers:{...auth,'content-type':'image/png',...(version?{'x-payment-proof-version':version}:{})},body:png
+    });
+    assert.deepEqual((await Promise.all([add(),add()])).map(reply=>reply.status).sort(),[200,409]);
+    const fourth=(await photos()).find(photo=>photo.slot===4);
+    assert.equal((await add('stale')).status,409);
+    assert.equal((await add(fourth.proofVersion)).status,200);
     const image = await send('/api/payment-proof?registrationId=payment-b&slot=1', auth);
     assert.equal(image.headers.get('X-Payment-Proof-Version'), first.proofVersion);
     const input = (photo, revision, amount, reference, status = 'completed') => ({
@@ -81,6 +90,10 @@ test('built Worker validates each receipt and updates the shared balance and ros
     const paid = await secondResponse.json();
     assert.deepEqual(paid.state.registrations.map(entry => entry.paid), [true, true]);
     assert.equal(paid.state.paymentTransfers.length, 2);
+    const unpair={...paid.state,registrations:paid.state.registrations.map(entry=>({...entry,partnerId:null}))};
+    const detached=await send('/api/state',auth,{state:unpair,expectedRevision:paid.revision},'PUT');
+    assert.equal(detached.status,409);
+    assert.match((await detached.json()).error,/detach a confirmed payment/);
     const publicState = await (await send('/api/state')).json();
     assert.equal(publicState.state.paymentTransfers, undefined);
     assert.equal((await send('/api/payment-proof?registrationId=payment-a&slot=2')).status, 401);

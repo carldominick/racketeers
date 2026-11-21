@@ -265,13 +265,39 @@ test('automatic championship no-shows require confirmed prior results while manu
  assert.ok(desk.gameDayAction(state,'forfeitGame','final',{forfeitingEntryId:'A0'}).state);
 });
 
-test('returning a held unresolved championship refreshes entrants confirmed while it was held',()=>{
+test('a provisional opening game gets qualified entrants while held and remains off court until resumed',()=>{
  let state=fixture();state.matches.push({...state.matches[0],id:'final',stage:'gold',round:3,entryAId:null,entryBId:null});
  state=desk.gameDayAction(state,'holdGame','final').state;
  state={...state,matches:state.matches.map(m=>m.divisionId==='A'&&m.stage==='regular'?{...m,status:'finished',validated:true,sets:[{a:31,b:20,complete:true}]}:m)};
- state=logic.reseedChampionships(state);assert.equal(state.matches.at(-1).entryAId,null);
+ state=logic.reseedChampionships(state);
+ const held=state.matches.at(-1);
+ assert.ok(held.entryAId && held.entryBId && held.hold);
+ assert.equal(desk.gameEligibility(state,held).ready,false);
  state=desk.gameDayAction(state,'resumeGame','final').state;
  const final=state.matches.at(-1);assert.ok(final.entryAId&&final.entryBId);assert.equal(final.hold,undefined);assert.equal(final.court,null);assert.equal(desk.gameEligibility(state,final).ready,true);
+});
+
+test('a provisional semifinal hold cannot preserve a nonqualifier in the other semifinal',()=>{
+ const entryIds=['A','B','C','D','E'];
+ const division={...logic.makeDivision('Qualification','singles'),bracketFormat:'custom',customGroupGameCount:2,
+  championshipFormat:'ladderized',knockoutSize:4,entries:entryIds.map(id=>({id,name:id,players:[id]}))};
+ let state=logic.regenerateMatches({...logic.initialTournament(),status:'live',gameDay:{restMinutes:0},divisions:[division]});
+ const [first,last]=state.matches.filter(game=>game.stage==='regular');
+ state.matches=state.matches.map(game=>game.id===first.id?{...game,entryAId:'C',entryBId:'D'}:game.id===last.id?{...game,entryAId:'E',entryBId:'A'}:game);
+ const validate=(s,id,a,b)=>logic.validateTournamentMatch({...s,matches:s.matches.map(game=>game.id===id?{...game,sets:[{a,b,complete:true}]}:game)},id);
+ const semifinal=s=>s.matches.filter(game=>game.stage==='semifinal');
+ state=validate(state,first.id,31,29);
+ const [held,other]=semifinal(state);
+ const provisional=desk.gameDayAction(state,'holdGame',held.id,{reason:'Fixture hold'}).state;
+ const corrected=validate(provisional,last.id,31,10);
+ const final=semifinal(corrected);
+ assert.deepEqual(final.map(game=>[game.entryAId,game.entryBId]),[['E','D'],['C','B']]);
+ assert.equal(final[0].hold.reason,'Fixture hold');
+ assert.ok(desk.dispatchGame(corrected,other.id,1).state);
+ const stale={...corrected,matches:corrected.matches.map(game=>game.id===other.id?{...game,entryAId:'A'}:game)};
+ assert.match(desk.dispatchGame(stale,other.id,1).error,/draw to be reviewed/);
+ const assigned=desk.dispatchGame(corrected,other.id,1).state;
+ assert.equal(logic.publishedQualificationChanged(assigned,logic.unvalidateTournamentMatch(assigned,last.id)),true);
 });
 
 test.after(()=>rm(dir,{recursive:true,force:true}));

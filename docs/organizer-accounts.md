@@ -13,7 +13,7 @@ Organizer access uses named accounts after activation. Deployment makes activati
 
 Account IDs and privileges stay fixed when usernames change. Racketeers can navigate organizer tabs, read the roster, settings and audit history, and expand information. Editing buttons, fields, sponsor uploads, printing and other actions inside organizer tabs are disabled. Server checks independently reject mutations, including requests with alternate umpire credentials while signed in as this viewer. It must change its generated password at first sign-in, before entering the organizer; subsequent account edits require a manager.
 
-Choose Organizer or Umpire in Staff access. Organizer opens the username and password form, with an existing organizer PIN option before account activation. Umpire opens the staff PIN form and asks for the match PIN when opening a scorecard. A signed-in named organizer can start the existing isolated demo from its entry page with the legacy PIN field blank; the viewer cannot start a demo. User management is hidden inside the isolated demo because it cannot modify live account storage.
+Open **Staff access → Organizer** for the organizer username and password form. Before account activation, the existing organizer PIN option is also available. Open **Staff access → Umpire** for the personal PIN or the shared staff PIN and match PIN. A signed-in named organizer can start the existing isolated demo from its entry page with the legacy PIN field blank; the viewer cannot start a demo. User management is hidden inside the isolated demo because it cannot modify live account storage.
 
 ## Activation and recovery
 

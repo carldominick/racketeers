@@ -10,8 +10,8 @@ import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 const require=createRequire(import.meta.url);
 const dir=await mkdtemp(path.join(tmpdir(),'registration-ui-'));
-await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf8'))+'\nexport { PublicRegistration, RegistrationSecondEntryOwner, TournamentCountdown, UmpireScorecard, ReceiptBatchReview, RegistrationCharges, RegistrationRoster };\nexport {ReceiptReview} from "./components/receipt-review";',resolveDir:path.resolve('app'),loader:'tsx'},outfile:path.join(dir,'page.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
-const {default:Home,PublicRegistration,RegistrationSecondEntryOwner,TournamentCountdown,UmpireScorecard,ReceiptBatchReview,ReceiptReview,RegistrationCharges,RegistrationRoster}=await import(pathToFileURL(path.join(dir,'page.mjs')));
+await build({jsx:'automatic',stdin:{contents:(await readFile('app/page.tsx','utf8'))+'\nexport { StaffAccessDialog, PublicRegistration, RegistrationSecondEntryOwner, TournamentCountdown, UmpireScorecard, ReceiptBatchReview, RegistrationCharges, RegistrationRoster };\nexport {ReceiptReview} from "./components/receipt-review";',resolveDir:path.resolve('app'),loader:'tsx'},outfile:path.join(dir,'page.mjs'),bundle:true,platform:'node',format:'esm',plugins:[{name:'shared-react',setup(build){build.onResolve({filter:/^react($|\/)/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
+const {default:Home,StaffAccessDialog,PublicRegistration,RegistrationSecondEntryOwner,TournamentCountdown,UmpireScorecard,ReceiptBatchReview,ReceiptReview,RegistrationCharges,RegistrationRoster}=await import(pathToFileURL(path.join(dir,'page.mjs')));
 const state={status:'registration',divisions:[{id:'d',name:'Open Doubles',mode:'doubles'}],registrations:[{id:'one',name:'Alex',facebookProfile:'https://facebook.com/alex.test',phone:'09123456789',divisionId:'d',partnerId:'two',club:'Cebu Club',shirtSize:'L',desiredLevel:'Intermediate'},{id:'two',name:'Sam',facebookProfile:'https://facebook.com/sam.test',phone:'09123456780',divisionId:'d',partnerId:'one',club:'Rackets',shirtSize:'S',desiredLevel:'Advanced'}]};
 
 test('payment confirmation follows shared reciprocal partners within one division', async () => {
@@ -96,6 +96,14 @@ test('opening page shows registration without a PIN dialog and offers staff acce
  assert.doesNotMatch(html,/role="dialog"/);assert.match(html,/class="active">Registration/);
  const nav=html.match(/<nav class="view-switch"[^>]*>(.*?)<\/nav>/s)[1];
  assert.match(nav,/>Staff access</);assert.match(nav,/>Registration</);assert.match(nav,/>Spectator</);assert.doesNotMatch(nav,/>Organizer<|>Umpire<|>Projector</);
+});
+test('Staff access offers the umpire and organizer sign-ins in either umpire PIN mode',()=>{
+ for (const personalUmpirePin of [false,true]) {
+  const html=renderToStaticMarkup(React.createElement(StaffAccessDialog,{accountsEnabled:false,personalUmpirePin,renewingOrganizer:false,onClose(){},onOrganizerLogin(){},onPinLogin(){}}));
+  assert.equal((html.match(/<strong>Umpire<\/strong>/g)||[]).length,1);
+  assert.match(html,/<strong>Organizer<\/strong>/);
+  assert.doesNotMatch(html,/<input/);
+ }
 });
 test('public and organizer registration share required player fields and preserve event documents',()=>{
  for(const organizerPin of ['', 'test-only']){

@@ -9,7 +9,7 @@ import { demoFixture } from "./demo-fixture";
 type Row = { group_id: string; reference_key: string; payload: string; proof_version: string; revision: number; updated_at: string };
 export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array) {
   const state = await demoFixture();
-  let current = { revision: 1, payload: JSON.stringify(state), updated_at: state.updatedAt };
+  let current = { revision: 1, payload: JSON.stringify({ ...state, paymentProofShareKey: crypto.randomUUID() }), updated_at: state.updatedAt };
   let settings = JSON.stringify({ bankName: "Demo bank (practice only)", accountName: "Practice only", accountNumber: "0000000000", instructions: "Use fictional information and sample images only. No money is collected in this demo." });
   const reviews = new Map<string, Row>();
   const sponsors = new Map<string, {id: string; name: string; created_at: string}>();
@@ -61,8 +61,10 @@ export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array)
   const bucket = {
     head: async (key: string) => { const value = objects.get(key); return value ? {size:value.bytes.length, uploaded:value.uploaded, etag:value.etag} : null; },
     get: async (key: string) => { const value = objects.get(key); return value ? {size:value.bytes.length, uploaded:value.uploaded, etag:value.etag, body:new Blob([Uint8Array.from(value.bytes)]).stream()} : null; },
-    put: async (key: string, value: Uint8Array | ReadableStream<Uint8Array>) => {
+    put: async (key: string, value: Uint8Array | ReadableStream<Uint8Array>, options?: { httpMetadata?: unknown; onlyIf?: { etagMatches?: string; etagDoesNotMatch?: string } }) => {
       const bytes = value instanceof Uint8Array ? Uint8Array.from(value) : new Uint8Array(await new Response(value).arrayBuffer());
+      const existing = objects.get(key);
+      if (options?.onlyIf?.etagMatches && existing?.etag !== options.onlyIf.etagMatches || options?.onlyIf?.etagDoesNotMatch === "*" && existing) return null;
       objects.set(key, {bytes,uploaded:new Date(),etag:crypto.randomUUID()});
     },
     delete: async (key: string) => { objects.delete(key); },

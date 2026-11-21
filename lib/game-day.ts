@@ -42,17 +42,21 @@ export function matchupReadiness(state: TournamentState, match: Match): Eligibil
 }
 const isWaitingForReassignment = (state: TournamentState, match: Match) => Boolean(state.managedUmpires && match.status === "live" && !match.court && !match.umpireWorkflow && match.umpireHistory?.length);
 export function gameEligibility(state: TournamentState, match: Match, now = Date.now(), ignoreOwnDispatch = false): Eligibility {
+  return indexedEligibility(state, match, now, ignoreOwnDispatch, playerKeys.bind(null, state));
+}
+
+function indexedEligibility(state: TournamentState, match: Match, now: number, ignoreOwnDispatch: boolean, getPlayers: (match: Match) => Set<string>): Eligibility {
   if (state.status === "completed") return { ready: false, reason: "Tournament completed" };
   if (isFinished(match)) return { ready: false, reason: "Result complete" };
   if (match.hold) return { ready: false, reason: "On hold" };
   if (!ignoreOwnDispatch && ((match.status === "live" && !isWaitingForReassignment(state, match)) || isDispatched(match) || isMatchUsingCourt(match))) return { ready: false, reason: "Already assigned / in progress" };
   const matchup = matchupReadiness(state, match);
   if (!matchup.ready) return matchup;
-  const players = playerKeys(state, match);
-  const busy = state.matches.find(m => m.id !== match.id && !isFinished(m) && (m.status === "live" || isDispatched(m)) && overlaps(players, playerKeys(state, m)));
+  const players = getPlayers(match);
+  const busy = state.matches.find(m => m.id !== match.id && (m.status === "live" || isDispatched(m)) && !isFinished(m) && overlaps(players, getPlayers(m)));
   if (busy) return { ready: false, reason: `Players busy in Game ${gameNumber(state, busy)}` };
   const rest = gameDaySettings(state).restMinutes * 60000;
-  const end = Math.max(0, ...state.matches.filter(m => m.id !== match.id && isFinished(m) && (!m.forfeit || m.sets.some(set => set.a || set.b || set.complete)) && m.completedAt && overlaps(players, playerKeys(state, m))).map(m => Date.parse(m.completedAt!) || 0));
+  const end = rest ? Math.max(0, ...state.matches.filter(m => m.id !== match.id && m.completedAt && isFinished(m) && (!m.forfeit || m.sets.some(set => set.a || set.b || set.complete)) && overlaps(players, getPlayers(m))).map(m => Date.parse(m.completedAt!) || 0)) : 0;
   if (rest && end && now < end + rest) return { ready: false, reason: "Players resting", eligibleAt: new Date(end + rest).toISOString() };
   return { ready: true, reason: "Ready" };
 }
@@ -63,14 +67,24 @@ export function gameQueue(state: TournamentState, now = Date.now()) {
   const settings = gameDaySettings(state);
   const cursor = Math.max(0, allKeys.indexOf(settings.nextBracketKey ?? ""));
   const keys = [...allKeys.slice(cursor), ...allKeys.slice(0, cursor)];
-  const eligible = pending.filter(m => gameEligibility(state, m, now).ready);
+  const playerIndex = new Map<Match, Set<string>>();
+  const getPlayers = (match: Match) => {
+    let players = playerIndex.get(match);
+    if (!players) {
+      players = playerKeys(state, match);
+      playerIndex.set(match, players);
+    }
+    return players;
+  };
+  const eligibility = pending.map(match => ({ match, ready: indexedEligibility(state, match, now, false, getPlayers).ready }));
+  const eligible = eligibility.filter(item => item.ready).map(item => item.match);
   const compare = (a: Match, b: Match) => (a.scheduledAt ?? "z").localeCompare(b.scheduledAt ?? "z") || gameNumber(state, a) - gameNumber(state, b);
   const groups = new Map(keys.map(key => [key, eligible.filter(m => bracketKey(m) === key).sort(compare)]));
   const ready: Match[] = [];
   if (settings.evenRotation) {
     while ([...groups.values()].some(games => games.length)) for (const key of keys) { const next = groups.get(key)?.shift(); if (next) ready.push(next); }
   } else ready.push(...eligible.sort(compare));
-  return { ready, held: pending.filter(m => m.hold), waiting: pending.filter(m => !m.hold && !gameEligibility(state, m, now).ready), rotation: keys.map(key => ({ key, match: state.matches.find(m => bracketKey(m) === key)!, next: ready.find(m => bracketKey(m) === key) })) };
+  return { ready, held: pending.filter(m => m.hold), waiting: eligibility.filter(item => !item.ready && !item.match.hold).map(item => item.match), rotation: keys.map(key => ({ key, match: state.matches.find(m => bracketKey(m) === key)!, next: ready.find(m => bracketKey(m) === key) })) };
 }
 
 /** Simulate dispatch so recommendations also respect rotation and player overlap with each other. */
@@ -104,7 +118,7 @@ export function gameDayAction(state: TournamentState, action: GameDayAction, mat
       updated = { ...match, court: null, dispatchedAt: undefined, courtInUse: false }; break;
     case "holdGame":
       if (!unstarted || match.hold) return { error: "Only games that have not started can be placed on hold." };
-      updated = { ...match, hold: { reason: (details.reason ?? "").trim().slice(0, 160), heldAt: new Date(now).toISOString() }, court: null, dispatchedAt: undefined, courtInUse: false }; break;
+      updated = { ...match, hold: { reason: (details.reason ?? "").trim().slice(0, 160), heldAt: new Date(now).toISOString(), ...(isDispatched(match) || match.umpireWorkflow ? { publishedMatchup: true } : {}) }, court: null, dispatchedAt: undefined, courtInUse: false }; break;
     case "resumeGame":
       if (!match.hold) return { error: "This game is not on hold." };
       updated = { ...match, hold: undefined, court: null, dispatchedAt: undefined, courtInUse: false }; break;

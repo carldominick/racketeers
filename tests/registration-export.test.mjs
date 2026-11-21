@@ -78,3 +78,33 @@ test('expired organizer access remains an error rather than silently exporting f
  for(const status of [401,403])await assert.rejects(prepareRegistrationExport({state:roster,divisionId:'all',pin:'fictional',includePaymentData:true,request:async()=>Response.json({},{status})}),/access expired/);
  await assert.rejects(prepareRegistrationExport({state:roster,divisionId:'removed',pin:'fictional',includePaymentData:false}),/no divisions/);
 });
+
+test('CSV and Excel export confirmed allocations once and keep amounts distinct from receipt review',async()=>{
+ const entries=roster.registrations.slice(0,2);
+ const state={...roster,divisions:[{...roster.divisions[0],mode:'doubles'}],registrations:entries,
+  paymentTransfers:[60000,45000].map((cents,index)=>({id:'transfer-'+index,groupId:'group',slot:index+1,proofVersion:'photo-'+index,
+   details:{amount:(cents/100).toFixed(2),reference:'0000'+index},allocations:[{ids:['elena','miguel'],due:190000,cents,previouslyPaid:[]}]}))};
+ const {sheets}=await prepareRegistrationExport({state,divisionId:'all',pin:'fixture',includePaymentData:true,request:async url=>{
+  if(url.includes('export-links'))return Response.json({links:{miguel:'https://example.invalid/proof?share=fixture',elena:'https://example.invalid/proof?share=fixture'}});
+  return Response.json({groupId:'group',proofVersion:'group-version',revision:0,details:null,linkedRegistrationIds:['miguel','elena'],photos:[{slot:1,proofVersion:'photo-0'},{slot:2,proofVersion:'photo-1'}]});
+ }});
+ const csv=registrationSheetCsv(sheets[0]);
+ const xml=new TextDecoder().decode(unzipSync(buildRegistrationWorkbook(sheets))['xl/worksheets/sheet1.xml']);
+ for(const report of [csv,xml]){
+  for(const value of ['1900.00','1050.00','850.00','00000','00001','Accepted evidence','slot=2'])assert.ok(report.includes(value),value);
+  assert.equal(report.split('1050.00').length,2);
+ }
+});
+
+test('payment export batches requests even when 1,001 entries share a group',async()=>{
+ const registrations=Array.from({length:1001},(_,i)=>({id:'player-'+i,divisionId:'open',name:'Fixture '+i,paid:false,paymentGroupId:'fixture'}));
+ const batches=[];
+ const result=await prepareRegistrationExport({state:{divisions:[{id:'open',name:'Open',mode:'singles'}],registrations},
+  divisionId:'all',pin:'fixture',includePaymentData:true,request:async (url,options)=>{
+   if(url.includes('export-links')){batches.push(JSON.parse(options.body).registrationIds.length);return Response.json({links:{}});}
+   return Response.json({groupId:'fixture',proofVersion:'group-version',revision:0,details:null,linkedRegistrationIds:registrations.map(r=>r.id)});
+  }});
+ assert.deepEqual(batches,[...Array(20).fill(50),1]);
+ assert.equal(result.sheets[0].rows.length,1001);
+ assert.equal(result.warning,'');
+});

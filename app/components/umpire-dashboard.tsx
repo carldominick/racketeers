@@ -6,7 +6,7 @@ import { Check } from "@phosphor-icons/react/dist/csr/Check";
 import { DotsThree } from "@phosphor-icons/react/dist/csr/DotsThree";
 import { apiFetch } from "../../lib/client-request";
 import { adjustMatchScore, completeMatchSet, displayName, matchScoreText, matchWinner, scoringRule, uncompleteMatchSet, type Division, type Match, type SetScore, type TournamentState } from "../../lib/tournament";
-import { workflowText, type WorkflowInput } from "../../lib/umpire-workflow";
+import { umpireWorkflowLabel, type WorkflowInput } from "../../lib/umpire-workflow";
 import type { UmpireSummary } from "../../lib/umpire-types";
 import { UmpireScorecard } from "./umpire-scorecard";
 import { ASSIGNMENT_CHIMES, useCourtChimes } from "./use-court-chimes";
@@ -14,9 +14,10 @@ import "./umpire-workflow.css";
 
 type Snapshot = { authenticated: boolean; name: string; court?: number; onDuty: boolean; tournamentName: string; phase: TournamentState["status"]; match?: Match; gameNumber?: number; division?: Division; help: boolean };
 
-export async function umpireRequest(body?: WorkflowInput, organizerPin?: string, demoSeat?: string) {
+export async function umpireRequest(body?: WorkflowInput, organizerPin?: string, demoSeat?: string, signal?: AbortSignal) {
   const response = await apiFetch("/api/umpires", {
     method: body ? "POST" : "GET", cache: "no-store",
+    signal,
     headers: { ...(body ? { "content-type": "application/json" } : {}), ...(organizerPin ? { "x-organizer-pin": organizerPin } : {}), ...(demoSeat ? { "x-demo-umpire-seat": demoSeat } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -65,7 +66,7 @@ function ConfirmResult({ busy, onAction }: { busy: boolean; onAction: (action: W
   </div>;
 }
 
-export function UmpireDashboard({ onPrint, demoSeat, onFocusChange, onScorePending }: { onPrint?: (match: Match, division?: Division, gameNumber?: number) => void; demoSeat?: string; onFocusChange?: (focused: boolean) => void; onScorePending?: (pending: boolean) => void }) {
+export function UmpireDashboard({ onPrint, demoSeat, onFocusChange, onScorePending, onSignIn }: { onPrint?: (match: Match, division?: Division, gameNumber?: number) => void; demoSeat?: string; onFocusChange?: (focused: boolean) => void; onScorePending?: (pending: boolean) => void; onSignIn?: () => void }) {
   const [data, setData] = useState<Snapshot>();
   const [pin, setPin] = useState("");
   const [message, setMessage] = useState("");
@@ -83,23 +84,34 @@ export function UmpireDashboard({ onPrint, demoSeat, onFocusChange, onScorePendi
   const [sync, setSync] = useState<"saved" | "saving" | "offline">("saved");
   const current = useRef<Snapshot | undefined>(undefined);
   const sequence = useRef(0);
+  const pollRequest = useRef<AbortController | null>(null);
   const refresh = useCallback(async () => {
+    if (pollRequest.current || saving.current || inFlight.current) return;
+    const controller = new AbortController();
+    pollRequest.current = controller;
     const token = ++sequence.current;
     try {
-      const snapshot = await umpireRequest(undefined, undefined, demoSeat) as Snapshot;
+      const snapshot = await umpireRequest(undefined, undefined, demoSeat, AbortSignal.any([controller.signal, AbortSignal.timeout(8000)])) as Snapshot;
+      if (controller.signal.aborted) return;
       if (token === sequence.current) setConnection("online");
-      if (token !== sequence.current || saving.current || inFlight.current || pending.current) return;
+      if (token !== sequence.current || saving.current || inFlight.current || pending.current || failed.current) return;
       current.current = snapshot;
       setData(snapshot);
     } catch {
-      if (token === sequence.current) setConnection("offline");
+      if (!controller.signal.aborted && token === sequence.current) setConnection("offline");
+    } finally {
+      if (pollRequest.current === controller) pollRequest.current = null;
     }
   }, [demoSeat]);
   useEffect(() => {
     const first = setTimeout(() => void refresh(), 0);
     const poll = setInterval(() => void refresh(), 2000);
     window.addEventListener("online", refresh);
-    return () => { clearTimeout(first); clearInterval(poll); window.removeEventListener("online", refresh); };
+    return () => {
+      clearTimeout(first); clearInterval(poll); window.removeEventListener("online", refresh);
+      pollRequest.current?.abort();
+      pollRequest.current = null;
+    };
   }, [refresh]);
   useEffect(() => {
     if (sync === "saved") return;
@@ -187,10 +199,12 @@ export function UmpireDashboard({ onPrint, demoSeat, onFocusChange, onScorePendi
 
   if (!data?.authenticated) return <section className="card gate">
     <h2>Racketeers umpire sign-in</h2>
+    {onSignIn ? (connection === "connecting" ? <p role="status">Connecting to the umpire dashboard…</p> :
+      <button type="button" className="primary" onClick={onSignIn}>Open Staff access</button>) :
     <form onSubmit={event => { event.preventDefault(); void action({ action: "login", pin }); }}>
       <label>Personal umpire PIN<input type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{6}" required maxLength={6} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, ""))} /></label>
       <button className="primary" disabled={busy || pin.length !== 6}>Sign in</button>
-    </form>{message && <p role="status">{message}</p>}{connection === "offline" && <p role="status">Unable to connect. Check your connection.</p>}
+    </form>}{message && <p role="status">{message}</p>}{connection === "offline" && <p role="status">Unable to connect. Check your connection.</p>}
   </section>;
 
   const match = data.match;
@@ -311,12 +325,15 @@ export function UmpireDashboard({ onPrint, demoSeat, onFocusChange, onScorePendi
       {notices}
     </section>
     {match && flow && flow.phase !== "playing" && <section className="card" aria-label="Current game">
-      <h2>Game {data.gameNumber} · {workflowText[flow.phase]}</h2>
+      <h2>Game {data.gameNumber} · {umpireWorkflowLabel(flow)}</h2>
       <p>{data.division?.name} · {match.label} · {match.format === "best_of_3_21" ? "Best of three" : "Single set"} · First to {scoringRule(match.format, match.scoring).target}</p>
       <p><strong>Team A:</strong> {displayName(entry(match.entryAId))}</p><p><strong>Team B:</strong> {displayName(entry(match.entryBId))}</p>
       {["awaiting_confirmation", "disputed", "escalated"].includes(flow.phase) && <><p>Recorded score <strong>{matchScoreText(match)}</strong></p><p>Winner <strong>{displayName(entry(matchWinner(match)))}</strong></p></>}
       {flow.phase === "awaiting_confirmation" && <ConfirmResult key={flow.version} busy={busy} onAction={body => void action(body)} />}
-      {flow.phase === "disputed" && <><p>{flow.dispute?.reason}. {flow.dispute?.notes}</p><details><summary>Correct recorded score</summary><ScoreCorrection match={match} busy={busy} onSave={(sets, reason) => void action({ action: "correct", sets, reason })} /></details><button className="secondary" disabled={busy} onClick={() => void action({ action: "escalate" })}>Escalate to organizer</button></>}
+      {flow.phase === "disputed" && <><p>{flow.dispute?.reason}. {flow.dispute?.notes}</p>
+        {flow.dispute?.reviewStartedAt ? <><details><summary>Correct recorded score</summary><ScoreCorrection match={match} busy={busy} onSave={(sets, reason) => void action({ action: "correct", sets, reason })} /></details><button className="secondary" disabled={busy} onClick={() => void action({ action: "escalate" })}>Escalate to organizer</button></> :
+          <button className="primary" disabled={busy} onClick={() => void action({ action: "reviewDispute" })}>Start dispute review</button>}
+      </>}
       {flow.phase === "escalated" && <p>Waiting for an organizer ruling or court release.</p>}
       {Boolean(flow.scoreHistory?.length || flow.setHistory?.length) && <details><summary>Score history</summary>
         {flow.setHistory?.map((item, index) => <p key={index}>Set {item.index + 1} {item.reopened ? "reopened" : "completed"} at {item.score.a}–{item.score.b}</p>)}
