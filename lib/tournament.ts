@@ -128,7 +128,7 @@ export type Match = {
   dispatchedAt?: string;
   completedAt?: string;
   nearCapNotified?: boolean;
-  hold?: { reason: string; heldAt: string };
+  hold?: { reason: string; heldAt: string; publishedMatchup?: boolean };
   /** Awarded result; sets retain played scores for correction and rest calculations. */
   forfeit?: { winnerId: string; reason: "no_show"; recordedAt: string; points?: number };
 };
@@ -156,6 +156,7 @@ export type TournamentState = {
   umpirePinHash?: string;
   umpireDirectory?: UmpireDirectory;
   managedUmpires?: boolean;
+  lastGameResetId?: string;
   theme: TournamentTheme;
   startDate: string;
   endDate: string;
@@ -526,7 +527,7 @@ export function gameHasStarted(match: Match) {
 }
 
 export function matchupIsLocked(match: Match) {
-  return gameHasStarted(match) || Boolean(match.dispatchedAt || match.umpireWorkflow);
+  return gameHasStarted(match) || Boolean(match.dispatchedAt || match.umpireWorkflow || match.hold?.publishedMatchup);
 }
 
 export function freezeAssignedScoring(state: TournamentState): TournamentState {
@@ -570,10 +571,41 @@ function bracketSeedOrder(size: number) {
   return seeds;
 }
 
+function automaticOpeningGames(division: Division, championship: Match[]) {
+  if (division.championshipFormat === "ladderized") return ladderRounds(championship)[0] ?? [];
+  if (division.championshipFormat === "direct_medals") return championship.filter(game => game.stage === "gold" || game.stage === "bronze").sort((a, b) => Number(a.stage === "bronze") - Number(b.stage === "bronze"));
+  return championship.filter(game => game.stage === "semifinal");
+}
+
+function openingPositions(state: TournamentState, division: Division, games: Match[]) {
+  const rank = [...new Set(championshipRanking(state, division))];
+  const order = division.championshipFormat === "ladderized" ? bracketSeedOrder(games.length * 2) :
+    division.championshipFormat === "direct_medals" ? games.flatMap(game => game.stage === "gold" ? [1, 2] : [3, 4]) : [1, 4, 2, 3];
+  return games.map((game, index) => ({ game, a: rank[order[index * 2] - 1] ?? null, b: rank[order[index * 2 + 1] - 1] ?? null }));
+}
+
+export function publishedQualificationChanged(before: TournamentState, after: TournamentState) {
+  return before.divisions.some(division => {
+    if (division.manualChampionshipMatchups || !groupGamesSettled(before.matches, division)) return false;
+    const championship = before.matches.filter(game => game.divisionId === division.id && game.stage !== "regular");
+    if (!championship.some(matchupIsLocked)) return false;
+    const next = after.divisions.find(item => item.id === division.id);
+    if (!next || next.manualChampionshipMatchups) return false;
+    const games = automaticOpeningGames(division, championship);
+    const original = openingPositions(before, division, games);
+    const revised = openingPositions(after, next, games);
+    return !groupGamesSettled(after.matches, next) || original.some(({ a, b }, index) => a !== revised[index].a || b !== revised[index].b);
+  });
+}
+
 export function championshipPrerequisitesMet(state: TournamentState, match: Match, division: Division) {
   if (division.manualChampionshipMatchups || match.stage === "regular") return true;
   if (!groupGamesSettled(state.matches, division)) return false;
   const championship = state.matches.filter(game => game.divisionId === division.id && game.stage !== "regular");
+  if (state.matches.some(game => game.divisionId === division.id && game.stage === "regular")) {
+    const opening = openingPositions(state, division, automaticOpeningGames(division, championship));
+    if (opening.some(({ game, a, b }) => game.entryAId !== a || game.entryBId !== b)) return false;
+  }
   if (division.championshipFormat !== "ladderized") {
     return championship.every(game => game.round >= match.round || game.validated);
   }
@@ -626,22 +658,20 @@ export function reseedChampionships(state: TournamentState): TournamentState {
   for (const division of state.divisions) {
     if (division.manualChampionshipMatchups) continue;
     const working = { ...state, matches };
-    const rank = [...new Set(championshipRanking(working, division))];
     const pool = matches.filter((match) => match.divisionId === division.id && match.stage !== "regular");
     const untouched = (match?: Match) => match && !matchupIsLocked(match) && !match.hold;
+    const opening = automaticOpeningGames(division, pool);
+    if (!pool.some(matchupIsLocked)) {
+      for (const { game, a, b } of openingPositions(working, division, opening)) {
+        game.entryAId = a;
+        game.entryBId = b;
+      }
+    }
     if (division.championshipFormat === "ladderized") {
       const rounds = ladderRounds(pool);
       const groupComplete = groupGamesSettled(matches, division);
       rounds.forEach((current, roundIndex) => {
-        if (roundIndex === 0) {
-          if (!current.every(untouched)) return;
-          const seeds = bracketSeedOrder(current.length * 2);
-          current.forEach((match, index) => {
-            match.entryAId = rank[seeds[index * 2] - 1] ?? null;
-            match.entryBId = rank[seeds[index * 2 + 1] - 1] ?? null;
-          });
-          return;
-        }
+        if (roundIndex === 0) return;
         current.forEach((match, index) => {
           if (!untouched(match)) return;
           match.entryAId = groupComplete ? ladderOutcome(rounds, roundIndex - 1, index * 2) ?? null : null;
@@ -655,15 +685,8 @@ export function reseedChampionships(state: TournamentState): TournamentState {
         bronze.entryAId = winners[0] ? (semis[0].entryAId === winners[0] ? semis[0].entryBId : semis[0].entryAId) : null;
         bronze.entryBId = winners[1] ? (semis[1].entryAId === winners[1] ? semis[1].entryBId : semis[1].entryAId) : null;
       }
-    } else if (division.championshipFormat === "direct_medals") {
-      const gold = pool.find((match) => match.stage === "gold");
-      const bronze = pool.find((match) => match.stage === "bronze");
-      if (untouched(gold)) { gold!.entryAId = rank[0] ?? null; gold!.entryBId = rank[1] ?? null; }
-      if (untouched(bronze)) { bronze!.entryAId = rank[2] ?? null; bronze!.entryBId = rank[3] ?? null; }
-    } else {
+    } else if (division.championshipFormat !== "direct_medals") {
       const semis = pool.filter((match) => match.stage === "semifinal");
-      if (untouched(semis[0])) { semis[0].entryAId = rank[0] ?? null; semis[0].entryBId = rank[3] ?? null; }
-      if (untouched(semis[1])) { semis[1].entryAId = rank[1] ?? null; semis[1].entryBId = rank[2] ?? null; }
       const winners = semis.map(match => (match.forfeit || isProvisionalMatch(match)) && !match.validated ? null : matchWinner(match));
       const losers = semis.map((match, index) => winners[index] ? (match.entryAId === winners[index] ? match.entryBId : match.entryAId) : null);
       const gold = pool.find((match) => match.stage === "gold");
@@ -723,7 +746,18 @@ export function syncRegistrationsToEntries(state: TournamentState): TournamentSt
       const team = player.teamName.trim() || "Unassigned Team";
       teams.set(team, [...(teams.get(team) ?? []), player]);
     }
-    const entries = [...teams.entries()].map(([teamName, members]) => ({ id: `entry-${division.id}-${teamName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, name: teamName, teamName, players: members.map((member) => member.name), registrationIds: members.map((member) => member.id), playerLevels: members.map((member) => member.playerLevel), desiredLevels: members.map((member) => member.desiredLevel), shirtSizes: members.map((member) => member.shirtSize), poolOverride: members.find((member) => member.poolOverride != null)?.poolOverride ?? null, levelOverride: division.entries.find((entry) => entry.teamName === teamName)?.levelOverride }));
+    const usedIds = new Set<string>();
+    const reservedIds = new Set(division.entries.map(entry => entry.id));
+    const entries = [...teams.entries()].map(([teamName, members]) => {
+      const old = division.entries.find(entry => entry.teamName === teamName);
+      const base = `entry-${division.id}-${teamName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+      let id = old && !usedIds.has(old.id) ? old.id : base;
+      if (!old || usedIds.has(old.id)) {
+        for (let suffix = 2; usedIds.has(id) || reservedIds.has(id); suffix++) id = `${base}-${suffix}`;
+      }
+      usedIds.add(id);
+      return { id, name: teamName, teamName, players: members.map(member => member.name), registrationIds: members.map(member => member.id), playerLevels: members.map(member => member.playerLevel), desiredLevels: members.map(member => member.desiredLevel), shirtSizes: members.map(member => member.shirtSize), poolOverride: members.find(member => member.poolOverride != null)?.poolOverride ?? null, levelOverride: old?.levelOverride };
+    });
     return { ...division, playerCount: players.length, teamCount: entries.length, pairCount: Math.ceil(players.length / Math.max(1, division.playersPerPair)), entries };
   });
   return { ...state, divisions };
@@ -836,13 +870,29 @@ export function removeDivision(state: TournamentState, divisionId: string): Tour
 }
 
 export function assignSchedule(state: TournamentState): TournamentState {
-  const start = new Date(`${state.startDate}T${state.dayStart}:00`);
-  const end = new Date(`${state.endDate}T${state.dayEnd}:00`);
+  const start = Date.parse(`${state.startDate}T${state.dayStart}:00+08:00`);
+  const dailyEnd = Date.parse(`${state.startDate}T${state.dayEnd}:00+08:00`);
+  const lastStart = Date.parse(`${state.endDate}T${state.dayStart}:00+08:00`);
   const duration = Math.max(5, state.gameDuration) * 60_000;
-  const matches = state.matches.map((match, index) => {
-    const slot = Math.floor(index / Math.max(1, state.courts));
-    const time = new Date(start.getTime() + slot * duration);
-    return { ...match, court: (index % Math.max(1, state.courts)) + 1, scheduledAt: time <= end ? time.toISOString() : null };
+  const slotsPerDay = Math.floor((dailyEnd - start) / duration);
+  const day = 24 * 60 * 60_000;
+  const courts = Math.max(1, state.courts);
+  const reservations = state.matches.filter(match => (matchupIsLocked(match) || match.hold) && match.court && match.scheduledAt);
+  let position = 0;
+  const matches = state.matches.map(match => {
+    if (matchupIsLocked(match) || match.hold) return match;
+    while (slotsPerDay > 0) {
+      const slot = Math.floor(position / courts);
+      const dayStart = start + Math.floor(slot / slotsPerDay) * day;
+      if (dayStart > lastStart || !Number.isFinite(dayStart) || !Number.isFinite(lastStart)) break;
+      const time = dayStart + (slot % slotsPerDay) * duration;
+      const court = position % courts + 1;
+      position++;
+      if (!reservations.some(item => item.court === court && Math.abs(Date.parse(item.scheduledAt!) - time) < duration)) {
+        return { ...match, court, scheduledAt: new Date(time).toISOString() };
+      }
+    }
+    return { ...match, court: null, scheduledAt: null };
   });
   return { ...state, matches };
 }

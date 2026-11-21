@@ -9,13 +9,14 @@ export type ProofEnvironment = {
     delete(key: string): Promise<unknown>;
     head(key: string): Promise<StoredProof | null>;
     get(key: string): Promise<StoredProof | null>;
-    put(key: string, value: Uint8Array, options: { httpMetadata: { contentType: string; contentDisposition: string } }): Promise<unknown>;
+    put(key: string, value: Uint8Array, options: { httpMetadata: { contentType: string; contentDisposition: string }; onlyIf?: { etagMatches?: string; etagDoesNotMatch?: string } }): Promise<unknown>;
   };
 };
 const headers = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
 const reply = (body: unknown, status = 200) => Response.json(body, { status, headers });
 const photoSlots = [1, 2, 3, 4];
 const slotKey = (key: string, slot: number) => slot === 1 ? key : `${key}/photos/${slot}.png`;
+const version = (photo: { key: string; metadata: StoredProof }) => `${photo.key}:${photo.metadata.etag || `${photo.metadata.uploaded.toISOString()}:${photo.metadata.size}`}`;
 async function hash(pin: string) {
   return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin))), b => b.toString(16).padStart(2, "0")).join("");
 }
@@ -55,7 +56,7 @@ async function proofShareSignature(secret: string, payload: string) {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 async function makeProofShareToken(state: TournamentState, registrationId: string) {
-  const secret = state.organizerAccountsEnabled ? state.paymentProofShareKey : state.organizerPinHash;
+  const secret = state.paymentProofShareKey;
   if (!secret) throw new Error("Payment link signing is unavailable.");
   const expires = Date.now() + 7 * 24 * 60 * 60 * 1000;
   const payload = base64UrlEncode(JSON.stringify({ registrationId, expires }));
@@ -63,7 +64,7 @@ async function makeProofShareToken(state: TournamentState, registrationId: strin
   return `${payload}.${signature}`;
 }
 async function verifyProofShareToken(state: TournamentState, token: string) {
-  const secret = state.organizerAccountsEnabled ? state.paymentProofShareKey : state.organizerPinHash;
+  const secret = state.paymentProofShareKey;
   if (!secret || token.length > 1024) return "";
   const [payload, signature, extra] = token.split(".");
   if (!payload || !signature || extra) return "";
@@ -101,7 +102,18 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
       let body: { registrationIds?: unknown };
       try { body = await request.json() as { registrationIds?: unknown }; } catch { return reply({ error: "Provide the registration IDs to export." }, 400); }
       if (!Array.isArray(body.registrationIds) || body.registrationIds.length > 1000 || body.registrationIds.some(id => typeof id !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(id))) return reply({ error: "The registration ID list is invalid." }, 400);
+      if (!state.paymentProofShareKey) {
+        const key = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, "0")).join("");
+        await env.DB.prepare("UPDATE tournament_state SET payload = json_set(payload, '$.paymentProofShareKey', ?), revision = revision + 1 WHERE id = ? AND payload = ?").bind(key, "racketeers", row.payload).run();
+        const latest = await env.DB.prepare("SELECT payload FROM tournament_state WHERE id = ?").bind("racketeers").first<{ payload: string }>();
+        const current = latest && JSON.parse(latest.payload) as TournamentState;
+        if (!current?.paymentProofShareKey || !await organizerRequestMatches(request, env.DB, current, organizerPin)) {
+          return reply({ error: "Payment link signing could not be prepared. Refresh and try again." }, 409);
+        }
+        state.paymentProofShareKey = current.paymentProofShareKey;
+      }
       const links: Record<string, string> = {};
+      const hasEvidence = new Map<string, boolean>();
       for (const id of [...new Set(body.registrationIds as string[])]) {
         const registration = state.registrations.find(player => player.id === id);
         if (!registration) continue;
@@ -116,8 +128,14 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
           return other ? [pairKey([member.id, other.id])] : [];
         });
         const keys = [...new Set([key, ...legacyPairs, ...linkedRegistrationIds.map(linkedId => `payments/${linkedId}.png`)].flatMap(primary => photoSlots.map(slot => slotKey(primary, slot))))];
-        const uploaded = await Promise.all(keys.map(candidate => env.PAYMENT_PROOFS!.head(candidate)));
-        if (!uploaded.some(Boolean)) continue;
+        if (!hasEvidence.has(key)) {
+          let uploaded = false;
+          for (const candidate of keys) {
+            if (await env.PAYMENT_PROOFS.head(candidate)) { uploaded = true; break; }
+          }
+          hasEvidence.set(key, uploaded);
+        }
+        if (!hasEvidence.get(key)) continue;
         const token = await makeProofShareToken(state, id);
         links[id] = new URL(`/api/payment-proof?share=${encodeURIComponent(token)}`, url.origin).toString();
       }
@@ -163,7 +181,6 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
       const selected = slot ? photos.find(photo => photo.slot === Number(slot)) : photos[0];
       const object = selected && (metadataOnly ? selected.metadata : await env.PAYMENT_PROOFS.get(selected.key));
       if (!object) return reply({ error: "No payment screenshot uploaded." }, 404);
-      const version = (photo: { key: string; metadata: StoredProof }) => `${photo.key}:${photo.metadata.etag || `${photo.metadata.uploaded.toISOString()}:${photo.metadata.size}`}`;
       if (metadataOnly) {
         const listed = await Promise.all(photos.map(async photo => ({
           slot: photo.slot,
@@ -191,7 +208,22 @@ export async function handlePaymentProof(request: Request, env: ProofEnvironment
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const width = view.getUint32(16), height = view.getUint32(20);
     if (!width || !height || width * height > 24_000_000) return reply({ error: "Screenshot dimensions are too large." }, 415);
-    await env.PAYMENT_PROOFS.put(slotKey(key, Number(slot || 1)), bytes, { httpMetadata: { contentType: "image/png", contentDisposition: `inline; filename="${filename}"` } });
+    const number = Number(slot || 1);
+    const expected = request.headers.get("x-payment-proof-version");
+    const existing = (await Promise.all(primaryKeys.map(async primary => {
+      const candidate = slotKey(primary, number);
+      return { key: candidate, metadata: await env.PAYMENT_PROOFS!.head(candidate) };
+    }))).filter(photo => photo.metadata !== null).sort((a, b) => b.metadata!.uploaded.getTime() - a.metadata!.uploaded.getTime())[0];
+    const conflict = () => reply({ error: "This photo slot changed. Reload the photos before uploading again." }, 409);
+    if (expected) {
+      if (!existing?.metadata?.etag || await hash(version({ key: existing.key, metadata: existing.metadata })) !== expected) return conflict();
+    } else if (existing) {
+      return conflict();
+    }
+    const destination = existing?.key ?? slotKey(key, number);
+    const onlyIf = expected ? { etagMatches: existing.metadata!.etag } : { etagDoesNotMatch: "*" };
+    const uploaded = await env.PAYMENT_PROOFS.put(destination, bytes, { onlyIf, httpMetadata: { contentType: "image/png", contentDisposition: `inline; filename="${filename}"` } });
+    if (uploaded === null) return conflict();
     // Proof storage is separate from whole-tournament saves. Uploads never mark a payment as verified.
     return reply({ ok: true, filename, linkedRegistrationIds });
   } catch {

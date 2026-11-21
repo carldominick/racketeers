@@ -51,8 +51,8 @@ export async function preparePaymentImage(file: File): Promise<Blob> {
     return blob;
   } finally { image.close(); }
 }
-export async function uploadPaymentImage(id: string, pin: string, image: Blob, organizer = false, slot = 1) {
-  const response = await fetch(`/api/payment-proof?registrationId=${encodeURIComponent(id)}&slot=${slot}`, { method: "POST", headers: { "content-type": "image/png", [organizer ? "x-organizer-pin" : "x-registration-pin"]: pin }, body: image });
+export async function uploadPaymentImage(id: string, pin: string, image: Blob, organizer = false, slot = 1, proofVersion?: string) {
+  const response = await fetch(`/api/payment-proof?registrationId=${encodeURIComponent(id)}&slot=${slot}`, { method: "POST", headers: { "content-type": "image/png", [organizer ? "x-organizer-pin" : "x-registration-pin"]: pin, ...(proofVersion ? { "x-payment-proof-version": proofVersion } : {}) }, body: image });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "Upload failed. Please try again.");
   return data;
@@ -140,7 +140,9 @@ export function PaymentProof({ registrationId, pin, organizer = false, canUpload
     if (inFlight.current) return;
     inFlight.current = true; setBusy(true);
     try {
-      await uploadPaymentImage(registrationId, pin, await preparePaymentImage(file), organizer, slot);
+      const proofVersion = photos.find(photo => photo.slot === slot)?.proofVersion;
+      if (!proofVersion) throw new Error("Reload the photos before replacing this screenshot.");
+      await uploadPaymentImage(registrationId, pin, await preparePaymentImage(file), organizer, slot, proofVersion);
       setMessage("Photo replaced. Payment confirmation is unchanged.");
     } catch (error) { setMessage((error as Error).message); }
     finally { window.dispatchEvent(new Event("payment-proof-updated")); setBusy(false); inFlight.current = false; }

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { courtOccupant, gameNumber, matchupText } from "../../lib/game-day";
 import { matchScoreText, type Match, type TournamentState } from "../../lib/tournament";
 import type { UmpireSummary } from "../../lib/umpire-types";
-import { workflowText, type WorkflowInput } from "../../lib/umpire-workflow";
+import { umpireWorkflowLabel, type WorkflowInput } from "../../lib/umpire-workflow";
 import { ScoreCorrection, umpireRequest } from "./umpire-dashboard";
 import "./umpire-workflow.css";
 
@@ -63,7 +63,7 @@ export function UmpireRoster({ state, roster, busy, demo, personalAccessConfigur
         event.preventDefault();
         const values = new FormData(event.currentTarget);
         void save({ action: "assignCourt", court, umpireId: String(values.get("umpire") ?? ""), reason: String(values.get("reason") ?? "") });
-      }}><h3>Court {court}</h3><p>{match ? `Game ${gameNumber(state, match)} · ${match.umpireWorkflow ? workflowText[match.umpireWorkflow.phase] : "In use"}` : "Idle"}</p>
+      }}><h3>Court {court}</h3><p>{match ? `Game ${gameNumber(state, match)} · ${match.umpireWorkflow ? umpireWorkflowLabel(match.umpireWorkflow) : "In use"}` : "Idle"}</p>
         <label>Assigned umpire<select name="umpire" defaultValue={current?.id ?? ""}><option value="">Unassigned</option>{roster.filter(member => !member.inactive).map(member => <option key={member.id} value={member.id}>{member.name}{member.onDuty && member.connected ? " · On duty" : ""}</option>)}</select></label>
         {match && <label>Handoff reason<input name="reason" required maxLength={300} /></label>}
         <button className="secondary" disabled={busy}>{match ? "Hand off current game" : "Save court assignment"}</button>
@@ -101,7 +101,7 @@ export function OrganizerUmpireReviews({ state, roster, busy, onAction }: Pick<P
     {relevant.map(match => {
       const flow = match.umpireWorkflow;
       const name = (id?: string) => roster.find(member => member.id === id)?.name ?? id;
-      return <details key={match.id}><summary>Game {gameNumber(state, match)} · {flow ? workflowText[flow.phase] : "Replay history"}</summary>
+      return <details key={match.id}><summary>Game {gameNumber(state, match)} · {flow ? umpireWorkflowLabel(flow) : "Replay history"}</summary>
         <p>{matchupText(state, match)} · {matchScoreText(match)}</p>
         {flow && <><p>{name(flow.umpireId)} · Court {flow.court}{flow.releasedAt ? " released" : ""}</p>
           {flow.playerIssue && <p>{flow.playerIssue.note}</p>}

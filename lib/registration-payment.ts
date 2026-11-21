@@ -74,6 +74,19 @@ export function trackedPaymentIds(state: TournamentState) {
   return new Set((state.paymentTransfers ?? []).flatMap(transfer => transfer.allocations.flatMap(allocation => allocation.ids)));
 }
 
+export function changesConfirmedBillingScope(before: TournamentState, after: TournamentState) {
+  const ids = trackedPaymentIds(before);
+  if (!ids.size) return false;
+  const next = new Map(after.registrations.map(player => [player.id, player]));
+  return before.registrations.some(player => {
+    if (!ids.has(player.id)) return false;
+    const updated = next.get(player.id);
+    return !updated || player.divisionId !== updated.divisionId || player.partnerId !== updated.partnerId ||
+      player.paymentGroupId !== updated.paymentGroupId ||
+      before.divisions.find(division => division.id === player.divisionId)?.mode !== after.divisions.find(division => division.id === player.divisionId)?.mode;
+  });
+}
+
 export function receiptCents(amount: string) {
   const [whole, fraction] = amount.split(".");
   return Number(whole) * 100 + Number(fraction);

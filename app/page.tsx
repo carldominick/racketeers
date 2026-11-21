@@ -161,7 +161,13 @@ function PinGate({ onUnlock, title = "Organizer access" }: { onUnlock: (pin: str
   return <section className="gate card">
     <div className="gate-icon"><Key size={30} aria-hidden="true" /></div><p className="eyebrow">Protected area</p><h2>{title}</h2>
     <p>Enter the organizer PIN to view and manage tournament controls.</p>
-    <form onSubmit={async (event) => { event.preventDefault(); setBusy(true); const ok = await onUnlock(pin); setBusy(false); setError(ok ? "" : "That PIN did not match."); }}>
+    <form onSubmit={async (event) => {
+      event.preventDefault();
+      setBusy(true);
+      try { setError(await onUnlock(pin) ? "" : "That PIN did not match."); }
+      catch (error) { setError(error instanceof Error ? error.message : "Organizer access could not be loaded. Try again."); }
+      finally { setBusy(false); }
+    }}>
       <input aria-label="Organizer PIN" type="password" inputMode="numeric" value={pin} onChange={(event) => setPin(event.target.value)} placeholder="Enter PIN" />
       <button className="primary" disabled={busy || !pin}>{busy ? "Checking…" : "Unlock"}</button>
     </form>{error && <p className="error">{error}</p>}
@@ -682,6 +688,8 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
   const refreshVersion = useRef(0);
   const refreshRetry = useRef({ failures: 0, retryAt: 0 });
   const refreshSnapshot = useRef<{ pin: string; revision: number } | null>(null);
+  const privateDraft = useRef(demo);
+  const removedRegistrations = useRef(new Set<string>());
   const themeOverride = useRef<TournamentState["theme"] | null>(null);
   const stateRef = useRef(state);
   const revisionRef = useRef(revision);
@@ -733,9 +741,11 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
         revisionRef.current = data.revision;
         setRevision(data.revision);
         refreshSnapshot.current = data.organizer && pin ? { pin, revision: data.revision } : null;
+        privateDraft.current = Boolean(data.organizer && pin);
         setSync("saved");
+        return privateDraft.current;
       }
-      return data.organizer;
+      return false;
     } catch {
       if (version === refreshVersion.current) {
         const retry = pollFailure(refreshRetry.current.failures, Date.now(), retryAfter);
@@ -774,18 +784,20 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
   }, [printMode]);
 
   const saveLatest = useCallback(async () => {
-    if (organizerAuthPaused.current || !organizerPin || saveInFlight.current || !dirtyRef.current || conflictRef.current) return;
+    if (organizerAuthPaused.current || !organizerPin || !privateDraft.current || saveInFlight.current || !dirtyRef.current || conflictRef.current) return;
     saveInFlight.current = true;
     const next = stateRef.current;
     const saveVersion = localVersionRef.current;
     setSync("saving");
     try {
-      const data = await writeOrganizerDraft(next, revisionRef.current, organizerPin);
+      const deletions = [...removedRegistrations.current];
+      const data = await writeOrganizerDraft(next, revisionRef.current, organizerPin, undefined, deletions);
       if (data.kind === "conflict") {
         conflictRef.current = true;
         setSaveConflict({ state: data.state, revision: data.revision, error: data.error || "Another device changed the tournament." });
         setSync("offline"); return;
       }
+      for (const id of deletions) removedRegistrations.current.delete(id);
       revisionRef.current = data.revision; setRevision(data.revision);
       if (localVersionRef.current === saveVersion) { stateRef.current = data.state; setState(data.state); touchedMatchIds.current.clear(); dirtyRef.current = false; setDirty(false); setSync("saved"); setLastConfirmedAt(Date.now()); }
     } catch (error) {
@@ -813,6 +825,8 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
     try {
       const data = await readStateResponse(await fetch("/api/state", { headers: { "x-organizer-pin": organizerPin }, signal: AbortSignal.timeout(10000) }));
       if (!data.organizer) throw new Error();
+      privateDraft.current = true;
+      removedRegistrations.current.clear();
       stateRef.current = data.state; setState(data.state); revisionRef.current = data.revision; setRevision(data.revision);
       dirtyRef.current = false; setDirty(false); touchedMatchIds.current.clear(); conflictRef.current = false; setSaveConflict(null); setSync("saved"); setLastConfirmedAt(Date.now());
     } catch { setGameActionMessage("Could not load the latest tournament. Your unsaved draft is retained."); }
@@ -846,8 +860,9 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
     finally { setPinChangeBusy(false); }
   };
 
-  const commit = (next: TournamentState | ((current: TournamentState) => TournamentState)) => {
-    if (conflictRef.current) return;
+  const commit = (next: TournamentState | ((current: TournamentState) => TournamentState), deletions: string[] = []) => {
+    if (conflictRef.current || !privateDraft.current) return;
+    for (const id of deletions) removedRegistrations.current.add(id);
     localVersionRef.current += 1;
     dirtyRef.current = true;
     setSync("saving");
@@ -892,8 +907,11 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
     if (!response.ok) return false;
     if (pin === "session") { const accountResponse = await fetch("/api/organizers"); const accountData = await accountResponse.json(); if (!accountResponse.ok) return false; if(accountData.actor.read_only && (dirtyRef.current || umpireFailed.current || umpirePending.current)) return false; setOrganizerReadOnly(Boolean(accountData.actor.read_only)); } else setOrganizerReadOnly(false);
     const renewing = organizerAuthPaused.current;
+    if (!(renewing && dirtyRef.current && privateDraft.current) && !await fetchState(pin)) {
+      throw new Error("Organizer data could not be loaded. Check your connection and sign in again.");
+    }
     organizerAuthPaused.current=false;setOrganizerSessionExpired(false);
-    setOrganizerPin(pin); setUnlocked(true); await fetchState(pin);
+    setOrganizerPin(pin); setUnlocked(true);
     if (renewing && dirtyRef.current && !conflictRef.current) await saveLatest();
     setTab(tournamentEditingLocked(stateRef.current.status) ? "scores" : "setup"); return true;
   };
@@ -903,29 +921,43 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
     setAccessOpen(false);
   };
   const enterStaffPin = async (role: "organizer" | "umpire", pin: string) => {
-    if (role === "umpire" && (state.managedUmpires || /^\d{6}$/.test(pin))) {
-      await umpireRequest({ action: "login", pin });
-      setView("umpire");
-      setAccessOpen(false);
-      return;
-    }
-    const response = await fetch("/api/state", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "verifyAccess", pin }),
-    });
-    const data = await response.json();
-    if (!response.ok && response.status !== 401) throw new Error(data.error || "Unable to check the staff PIN.");
-    if (!response.ok || data.role !== role) {
-      throw new Error(role === "umpire" ? "Umpire staff PIN did not match." : "Organizer PIN did not match.");
-    }
     if (role === "organizer") return enterOrganizer(pin);
-    setUmpireAccessPin(pin);
-    await fetchState("", pin);
+    if (state.managedUmpires) {
+      await umpireRequest({ action: "login", pin });
+    } else {
+      const response = await fetch("/api/state", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "verifyAccess", pin }),
+      });
+      const data = await response.json();
+      if (!response.ok && response.status !== 401) throw new Error(data.error || "Unable to check the staff PIN.");
+      if (!response.ok || data.role !== "umpire") throw new Error("Umpire staff PIN did not match.");
+      setUmpireAccessPin(pin);
+      await fetchState("", pin);
+    }
     setView("umpire");
     setAccessOpen(false);
   };
-  const signOut = async () => { if (organizerPin === "session") { const response = await fetch("/api/organizers", {method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"logout"})}); if(!response.ok) { setAccessMessage("Sign-out failed. Retry while connected."); return; } } setOrganizerPin(""); setUnlocked(false); setUmpireAccessPin(""); setUmpireUnlocked(false); setUmpirePin(""); setView("register"); setAccessMessage(""); setAccessOpen(true); void fetchState("", ""); };
+  const signOut = async () => {
+    try {
+      if (state.managedUmpires) {
+        const official = await umpireRequest();
+        if (official.authenticated) await umpireRequest({ action: "logout" });
+      }
+      if (organizerPin === "session") {
+        const response = await fetch("/api/organizers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "logout" }) });
+        if (!response.ok) throw new Error("Sign-out failed. Retry while connected.");
+      }
+    } catch (error) {
+      setAccessMessage(error instanceof Error ? error.message : "Sign-out failed. Retry while connected.");
+      return;
+    }
+    privateDraft.current = false;
+    setOrganizerPin(""); setUnlocked(false); setUmpireAccessPin(""); setUmpireUnlocked(false); setUmpirePin("");
+    setView("register"); setAccessMessage(""); setAccessOpen(true);
+    void fetchState("", "");
+  };
   const saveProjectorSettings = async (projector: ProjectorPreferences) => {
     if (dirtyRef.current) await saveLatest();
     if (dirtyRef.current || saveInFlight.current) throw new Error("Wait for tournament changes to save, then retry.");
@@ -965,16 +997,22 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
     setGameActionBusy(true);
     if (showOverlay) setResetBusy(true);
     try {
+      const headers = { "content-type": "application/json", "x-organizer-pin": organizerPin };
+      const reconcileReset = async () => {
+        if (!body.resetId) throw new Error("The tournament change could not be saved.");
+        const latest = await fetch("/api/state", { headers, signal: AbortSignal.timeout(8000) }).then(readStateResponse).catch(() => null);
+        if (latest?.organizer && latest.state.lastGameResetId === body.resetId) return latest;
+        throw new Error("The reset outcome could not be confirmed. Reload and check Game Day before starting another reset.");
+      };
       const response = await fetch("/api/state", {
-        method: "POST", headers: { "content-type": "application/json", "x-organizer-pin": organizerPin },
-        body: JSON.stringify({ ...body, expectedRevision }), signal: AbortSignal.timeout(15000),
-      });
-      if (!response.ok) {
+        method: "POST", headers, body: JSON.stringify({ ...body, expectedRevision }), signal: AbortSignal.timeout(15000),
+      }).catch(() => null);
+      if (response && !response.ok && response.status < 500) {
         const data = await response.json().catch(() => null);
         if (response.status === 409 || response.status === 401 || response.status === 403) await fetchState(organizerPin);
         throw new Error(data?.error || "The tournament change could not be saved.");
       }
-      const data = await readStateResponse(response);
+      const data = response?.ok ? await readStateResponse(response).catch(reconcileReset) : await reconcileReset();
       if (!dirtyRef.current && data.revision >= revisionRef.current) {
         const updated = { ...data.state, theme: themeOverride.current ?? data.state.theme };
         stateRef.current = updated;
@@ -1002,7 +1040,7 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
   };
   const resetAll = async (backupRevision: number, backupDigest: string, confirmation: string, reopenRegistration: boolean) => {
     setPhaseMessage("");
-    await runSetupAction({ action: "resetGames", backupDigest, confirmation, reopenRegistration }, backupRevision);
+    await runSetupAction({ action: "resetGames", resetId: crypto.randomUUID(), backupDigest, confirmation, reopenRegistration }, backupRevision);
   };
   const updateRegistration = (registrationId: string, patch: Partial<PlayerRegistration>) => commit((current) => {
     let registrations = current.registrations.map((registration) => registration.id === registrationId ? { ...registration, ...patch } : registration);
@@ -1052,7 +1090,7 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
       anchor.click();
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      setRegistrationExportMessage([includesUnsavedChanges ? "Export includes unsaved changes shown here." : "Export ready.", warning || "Includes reviewed payment fields. Group amounts repeat for linked players; do not sum duplicate group rows. Proof links expire after 7 days."].join(" "));
+      setRegistrationExportMessage([includesUnsavedChanges ? "Export includes unsaved changes shown here." : "Export ready.", warning || "Billing totals appear once per scope. Legacy review amounts can repeat across linked players. Proof links expire after 7 days."].join(" "));
     } catch (error) {
       setRegistrationExportMessage(error instanceof Error ? error.message : "Unable to export registrations.");
     } finally {
@@ -1092,11 +1130,12 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
     } catch (error) { setResetMessage(error instanceof Error ? error.message : "Unable to reset registration."); }
     finally { setResetBusy(false); }
   };
-  const removeRegistration = (registrationId: string) => commit((current) => syncRegistrationsToEntries({ ...current, registrations: current.registrations.filter((item) => item.id !== registrationId).map((item) => item.partnerId === registrationId ? { ...item, partnerId: null } : item) }));
+  const removeRegistration = (registrationId: string) => commit((current) => syncRegistrationsToEntries({ ...current, registrations: current.registrations.filter((item) => item.id !== registrationId).map((item) => item.partnerId === registrationId ? { ...item, partnerId: null } : item) }), [registrationId]);
   const updateChampionshipMatchup = (matchId: string, side: "entryAId" | "entryBId", entryId: string) => commit((current) => ({ ...current, matches: current.matches.map((match) => match.id === matchId && !matchupIsLocked(match) ? { ...match, [side]: entryId || null } : match) }));
   const addNewDivision = () => commit((current) => addDivision(current));
   const copyDivision = (divisionId: string) => commit((current) => duplicateDivision(current, divisionId));
-  const deleteDivision = (divisionId: string) => commit((current) => removeDivision(current, divisionId));
+  const deleteDivision = (divisionId: string) => commit((current) => removeDivision(current, divisionId),
+    stateRef.current.registrations.filter(player => player.divisionId === divisionId).map(player => player.id));
   const updateEntry = (divisionId: string, entryId: string, patch: Partial<Entry>) => updateDivision(divisionId, { entries: state.divisions.find((division) => division.id === divisionId)?.entries.map((entry) => entry.id === entryId ? { ...entry, ...patch } : entry) ?? [] });
 
   const queueUmpireSave = (match: Match) => {
@@ -1277,8 +1316,8 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
       </div>
       <details className="card prepare-tools">
         <summary>Registration tools</summary>
+          <section className="card registration-export"><div className="section-head"><div><p className="eyebrow">Validation files</p><h2>Export registered players</h2><p>CSV includes every selected division. Excel keeps each division on its own sheet. Each billing scope lists its charge, confirmed payments and balance once. A connected export includes private evidence links.</p></div><div className="action-row"><button type="button" className="secondary" disabled={registrationExportBusy || organizerReadOnly || organizerSessionExpired} onClick={() => void downloadRegistrationExport("csv")}>{registrationExportBusy ? "Preparing…" : "Download CSV"}</button><button type="button" className="primary" disabled={registrationExportBusy || organizerReadOnly || organizerSessionExpired} onClick={() => void downloadRegistrationExport("xlsx")}>{registrationExportBusy ? "Preparing…" : "Download Excel"}</button></div></div>{registrationExportMessage && <p role="status">{registrationExportMessage}</p>}</section>
         <fieldset className="phase-fieldset stack" disabled={registrationBlocked}>
-          <section className="card registration-export"><div className="section-head"><div><p className="eyebrow">Validation files</p><h2>Export registered players</h2><p>CSV includes every selected division. Excel keeps each division on its own sheet. Downloads use the entries shown here; when connected and saved, they also include private payment links and reviewed receipt fields.</p></div><div className="action-row"><button type="button" className="secondary" disabled={registrationExportBusy} onClick={() => void downloadRegistrationExport("csv")}>{registrationExportBusy ? "Preparing…" : "Download CSV"}</button><button type="button" className="primary" disabled={registrationExportBusy} onClick={() => void downloadRegistrationExport("xlsx")}>{registrationExportBusy ? "Preparing…" : "Download Excel"}</button></div></div>{registrationExportMessage && <p role="status">{registrationExportMessage}</p>}</section>
           <PaymentReviewQueue state={state} pin={organizerPin} paymentControls={paymentControls} />
           <ReceiptBatchReview registrations={state.registrations} pin={organizerPin} locked={registrationLocked} />
           {registrationDivisions.some(division => division.entries.some(entry => !entry.registrationIds?.length)) &&
@@ -1325,19 +1364,19 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
     </div>}
     {tab === "umpires" && <UmpireRoster state={state} roster={umpireRoster} personalAccessConfigured={personalAccessConfigured} busy={dirty || gameActionBusy || sync !== "saved"} demo={demo} onAction={umpireOrganizerAction} />}
     {tab === "scores" && <>{courtWindow.url && <a className="court-tab-fallback" href={courtWindow.url} target="_blank" rel="noopener">Open court view in a tab</a>}{courtWindow.error && <p role="alert">{courtWindow.error}</p>}<GameDayDesk umpireRoster={umpireRoster} connectionLabel={saveConflict ? "Review save conflict" : SYNC_LABELS[displaySync]} onOpenCourtView={courtWindow.open} state={state} busy={dirty || sync !== "saved" || gameActionBusy || helpBusyCourt !== null} help={courtHelp} onAssign={async (id, court) => { await gameCourtAction("dispatchGame", id, { court }); }} onRelease={async id => { await gameCourtAction("releaseGameCourt", id); }} onAction={gameCourtAction} onSettings={updateGameDaySettings} onSettingsPage={() => setTab("setup")} onPin={renewMatchPin} onReset={resetMatch} onPrint={id => setPrintMode({ type: "scorecard", matchId: id })} onPrintAll={perSheet => setPrintMode({ type: "scorecards", perSheet })} onValidate={validateMatch} onUnvalidate={unvalidateMatch} onUpdate={updateMatch} onHelp={(court, help) => void toggleCourtHelp(court, help)} renderScoreEditor={match => <MatchCard match={match} state={state} organizer onChange={updateMatch} onValidate={() => validateMatch(match.id)} onUnvalidate={() => unvalidateMatch(match.id)} onReset={() => resetMatch(match.id)} onPrint={() => setPrintMode({ type: "scorecard", matchId: match.id })} />} />{state.managedUmpires && <OrganizerUmpireReviews state={state} roster={umpireRoster} busy={dirty || gameActionBusy || sync !== "saved"} onAction={umpireOrganizerAction} />}{(gameActionMessage || helpMessage) && <p className="desk-action-message" role="status">{gameActionMessage || helpMessage}</p>}</>}
-    {tab === "schedule" && <section className="card"><div className="section-head"><div><p className="eyebrow">Court plan</p><h2>Tournament Schedule</h2></div><div className="action-row"><button className="ghost" onClick={() => setPrintMode({ type: "schedule" })}>Print Schedule</button><button className="secondary" onClick={() => commit(assignSchedule(state))}>Regenerate Schedule</button></div></div><div className="schedule-list editable-schedule">{[...state.matches].sort((a, b) => (a.scheduledAt ?? "z").localeCompare(b.scheduledAt ?? "z")).map((match) => <div className="schedule-row" key={match.id}><input aria-label={`${match.label} scheduled time`} type="datetime-local" value={inputDateTime(match.scheduledAt)} disabled={match.validated} onChange={(event) => { const nextMatch = { ...match, scheduledAt: event.target.value ? new Date(event.target.value).toISOString() : null }; const candidate = { ...state, matches: state.matches.map((item) => item.id === match.id ? nextMatch : item) }; if (nextMatch.court && !isCourtAvailable(candidate, nextMatch.court, nextMatch.id)) alert(`Court ${nextMatch.court} is already assigned at that time.`); else updateMatch(nextMatch); }} /><select aria-label={`${match.label} scheduled court`} value={match.court ?? ""} disabled={match.validated} onChange={(event) => { const court = Number(event.target.value) || null; if (!court || isCourtAvailable(state, court, match.id)) updateMatch({ ...match, court }); else alert(`Court ${court} is already assigned at this time.`); }}><option value="">Court TBD</option>{Array.from({ length: state.courts }, (_, index) => { const court = index + 1; const available = isCourtAvailable(state, court, match.id); return <option key={court} value={court} disabled={!available}>Court {court}{available ? "" : " · In use"}</option>; })}</select><span>{match.label}</span><strong>{displayName(entryMap.get(match.entryAId ?? ""))} vs {displayName(entryMap.get(match.entryBId ?? ""))}</strong><Status match={match} /></div>)}</div></section>}
+    {tab === "schedule" && <section className="card"><div className="section-head"><div><p className="eyebrow">Court plan</p><h2>Tournament Schedule</h2></div><div className="action-row"><button className="ghost" onClick={() => setPrintMode({ type: "schedule" })}>Print Schedule</button><button className="secondary" onClick={() => commit(assignSchedule(state))}>Regenerate Schedule</button></div></div>{state.matches.some(match => !match.scheduledAt) && <p role="status">{state.matches.filter(match => !match.scheduledAt).length} games have no scheduled time. Review daily hours and court capacity.</p>}<div className="schedule-list editable-schedule">{[...state.matches].sort((a, b) => (a.scheduledAt ?? "z").localeCompare(b.scheduledAt ?? "z")).map((match) => <div className="schedule-row" key={match.id}><input aria-label={`${match.label} scheduled time`} type="datetime-local" value={inputDateTime(match.scheduledAt)} disabled={match.validated} onChange={(event) => { const nextMatch = { ...match, scheduledAt: event.target.value ? new Date(event.target.value).toISOString() : null }; const candidate = { ...state, matches: state.matches.map((item) => item.id === match.id ? nextMatch : item) }; if (nextMatch.court && !isCourtAvailable(candidate, nextMatch.court, nextMatch.id)) alert(`Court ${nextMatch.court} is already assigned at that time.`); else updateMatch(nextMatch); }} /><select aria-label={`${match.label} scheduled court`} value={match.court ?? ""} disabled={match.validated} onChange={(event) => { const court = Number(event.target.value) || null; if (!court || isCourtAvailable(state, court, match.id)) updateMatch({ ...match, court }); else alert(`Court ${court} is already assigned at this time.`); }}><option value="">Court TBD</option>{Array.from({ length: state.courts }, (_, index) => { const court = index + 1; const available = isCourtAvailable(state, court, match.id); return <option key={court} value={court} disabled={!available}>Court {court}{available ? "" : " · In use"}</option>; })}</select><span>{match.label}</span><strong>{displayName(entryMap.get(match.entryAId ?? ""))} vs {displayName(entryMap.get(match.entryBId ?? ""))}</strong><Status match={match} /></div>)}</div></section>}
     {tab === "standings" && <TournamentProgress state={state} onPrintAll={perSheet => setPrintMode({ type: "scorecards", perSheet })} />}
   </>;
 
   const umpireMatch = state.matches.find((match) => match.id === selectedMatch);
-  const umpireContent = state.managedUmpires ? <UmpireDashboard onFocusChange={setPersonalUmpireFocus} onScorePending={setPersonalScorePending} onPrint={(match, division, number) => setPrintMode({ type: "scorecard", matchId: match.id, number, snapshot: { ...state, divisions: division ? [division] : [], matches: state.matches.some(item => item.id === match.id) ? state.matches.map(item => item.id === match.id ? match : item) : [match] } })} /> : !umpireUnlocked ? <section className="gate card"><div className="gate-icon"><Key size={30} aria-hidden="true" /></div><p className="eyebrow">Umpire console</p><h2>Open a Match</h2><p>Enter the four-digit match PIN. The correct scorecard will open automatically.</p><form onSubmit={async (event) => { event.preventDefault(); const response = await fetch("/api/state", { method: "POST", headers: { "content-type": "application/json", ...(unlocked ? { "x-organizer-pin": organizerPin } : { "x-umpire-pin": umpireAccessPin }) }, body: JSON.stringify({ action: "verifyMatch", pin: umpirePin }) }); const data = await response.json(); if (!response.ok || !data.match) return alert(data.error || "Match PIN did not match an available game."); setSelectedMatch(data.match.id); setState((current) => ({ ...current, matches: [...current.matches.filter((match) => match.id !== data.match.id), data.match] })); setUmpireFocused(true); setUmpireUnlocked(true); }}><input aria-label="Match PIN" type="password" inputMode="numeric" autoComplete="off" placeholder="Match PIN" value={umpirePin} onChange={(event) => setUmpirePin(event.target.value.replace(/\D/g, "").slice(0, 4))} /><button className="primary" disabled={umpirePin.length !== 4}>Open Scorecard</button></form></section> : umpireMatch ? <UmpireScorecard key={umpireMatch.id} match={umpireMatch} state={state} sync={sync} focused={umpireFocused} helpRequested={Boolean(umpireMatch.court && courtHelp[umpireMatch.court])} helpBusy={helpBusyCourt !== null} helpMessage={helpMessage} onToggleHelp={() => umpireMatch.court && void toggleCourtHelp(umpireMatch.court, !courtHelp[umpireMatch.court])} onToggleFocus={() => setUmpireFocused(value => !value)} onPrint={() => setPrintMode({ type: "scorecard", matchId: umpireMatch.id })} onExit={() => setUmpireUnlocked(false)} onRetry={() => { const match = umpireFailed.current; if (match) queueUmpireSave(match); }} onScoreStep={changeUmpireScore} onCompleteSet={finishUmpireSet} onCompleteGame={finishUmpireGame} onUnlockSet={unlockUmpireSet} /> : null;
+  const umpireContent = state.managedUmpires ? <UmpireDashboard onSignIn={() => setAccessOpen(true)} onFocusChange={setPersonalUmpireFocus} onScorePending={setPersonalScorePending} onPrint={(match, division, number) => setPrintMode({ type: "scorecard", matchId: match.id, number, snapshot: { ...state, divisions: division ? [division] : [], matches: state.matches.some(item => item.id === match.id) ? state.matches.map(item => item.id === match.id ? match : item) : [match] } })} /> : !umpireUnlocked ? <section className="gate card"><div className="gate-icon"><Key size={30} aria-hidden="true" /></div><p className="eyebrow">Umpire console</p><h2>Open a Match</h2><p>Enter the four-digit match PIN. The correct scorecard will open automatically.</p><form onSubmit={async (event) => { event.preventDefault(); const response = await fetch("/api/state", { method: "POST", headers: { "content-type": "application/json", ...(unlocked ? { "x-organizer-pin": organizerPin } : { "x-umpire-pin": umpireAccessPin }) }, body: JSON.stringify({ action: "verifyMatch", pin: umpirePin }) }); const data = await response.json(); if (!response.ok || !data.match) return alert(data.error || "Match PIN did not match an available game."); setSelectedMatch(data.match.id); setState((current) => ({ ...current, matches: [...current.matches.filter((match) => match.id !== data.match.id), data.match] })); setUmpireFocused(true); setUmpireUnlocked(true); }}><input aria-label="Match PIN" type="password" inputMode="numeric" autoComplete="off" placeholder="Match PIN" value={umpirePin} onChange={(event) => setUmpirePin(event.target.value.replace(/\D/g, "").slice(0, 4))} /><button className="primary" disabled={umpirePin.length !== 4}>Open Scorecard</button></form></section> : umpireMatch ? <UmpireScorecard key={umpireMatch.id} match={umpireMatch} state={state} sync={sync} focused={umpireFocused} helpRequested={Boolean(umpireMatch.court && courtHelp[umpireMatch.court])} helpBusy={helpBusyCourt !== null} helpMessage={helpMessage} onToggleHelp={() => umpireMatch.court && void toggleCourtHelp(umpireMatch.court, !courtHelp[umpireMatch.court])} onToggleFocus={() => setUmpireFocused(value => !value)} onPrint={() => setPrintMode({ type: "scorecard", matchId: umpireMatch.id })} onExit={() => setUmpireUnlocked(false)} onRetry={() => { const match = umpireFailed.current; if (match) queueUmpireSave(match); }} onScoreStep={changeUmpireScore} onCompleteSet={finishUmpireSet} onCompleteGame={finishUmpireGame} onUnlockSet={unlockUmpireSet} /> : null;
 
   const spectatorContent = <div className="stack"><NextGameNotice state={state} /><section className="scoreboard-hero"><p className="eyebrow">Live tournament</p><h2>{state.tournamentName}</h2>{state.venue?.trim() && <p className="event-venue">{state.venue}</p>}<p>{liveMatches.length} live · {finishedMatches.length} finished · {state.courts} courts</p></section><div className="live-grid">{(liveMatches.length ? liveMatches : publicMatches.filter((match) => match.status !== "finished").slice(0, 6)).map((match) => <MatchCard key={match.id} match={match} state={state} />)}</div>{renderStandings()}</div>;
   const projectorContent = <Projector state={state} onFullscreenChange={setProjectorFullscreen} />;
   const organizerArea = tab === "scores" || tab === "schedule" || tab === "projector" || tab === "umpires" ? "run" : tab === "standings" ? "results" : "prepare";
 
   return <main className={`clubhouse-site ${state.theme === "black" ? "dark oled" : state.theme === "dark" ? "dark" : ""} ${view === "register" ? "registration-view" : ""} ${view === "umpire" && (state.managedUmpires ? personalUmpireFocus : umpireUnlocked && umpireFocused) ? "umpire-focused" : ""} ${view === "organizer" && unlocked ? "desk-organizer" : ""} ${view === "projector" && projectorFullscreen ? "projector-fullscreen" : ""}`}>
-    {!(view === "umpire" && (state.managedUmpires ? personalUmpireFocus : umpireUnlocked && umpireFocused)) && !(view === "projector" && projectorFullscreen) && <header className="topbar" inert={Boolean(registrationDialog) || resetBusy || projectorPreviewOpen}><div className="brand"><div className="mark">R</div><div><p>Racketeers Badminton Club</p><h1>Badminton Tournament Tracker</h1></div></div>{view === "organizer" && unlocked ? <><nav className="desk-primary-nav" aria-label="Organizer workflow"><button className={organizerArea === "prepare" ? "active" : ""} aria-current={organizerArea === "prepare" ? "page" : undefined} onClick={() => setTab("setup")}>Prepare</button><button className={organizerArea === "run" ? "active" : ""} aria-current={organizerArea === "run" ? "page" : undefined} onClick={() => setTab("scores")}>Run tournament</button><button className={organizerArea === "results" ? "active" : ""} aria-current={organizerArea === "results" ? "page" : undefined} onClick={() => setTab("standings")}>Results</button></nav><details className="desk-public-views"><summary>Public views</summary><div>{(["register", "umpire", "spectator", "projector"] as View[]).map(role => <button key={role} disabled={organizerReadOnly && role === "umpire"} onClick={() => setView(role)}>{role === "register" ? "Registration" : role[0].toUpperCase() + role.slice(1)}</button>)}<button disabled={waitingForTournament || personalScorePending || dirty || sync === "saving" || (umpireUnlocked && sync === "offline")} onClick={signOut}>Sign out / switch access</button></div></details></> : <nav className="view-switch" aria-label="View">{(unlocked ? ["organizer", "register", "umpire", "spectator", "projector"] : umpireAccessPin ? ["umpire", "spectator"] : (state.managedUmpires ? ["register", "spectator", "umpire"] : ["register", "spectator"])).map(item => <button key={item} disabled={personalScorePending && item !== "umpire"} aria-current={view === item ? "page" : undefined} className={view === item ? "active" : ""} onClick={() => setView(item as View)}>{item === "register" ? "Registration" : item[0].toUpperCase() + item.slice(1)}</button>)}<button disabled={waitingForTournament || personalScorePending || dirty || sync === "saving" || (umpireUnlocked && sync === "offline")} onClick={signOut}>{unlocked || umpireAccessPin ? "Sign out / switch access" : "Staff access"}</button></nav>}<div className="header-tools"><span className={`sync ${displaySync}`} role="status" title={lastConfirmedAt ? `Last confirmed update: ${new Date(lastConfirmedAt).toLocaleTimeString()}` : "Waiting for the first server response"}>● {saveConflict ? "Review conflict" : SYNC_LABELS[displaySync]}</span><button type="button" aria-label={`Color mode: ${THEME_LABELS[state.theme]}. Switch to ${THEME_LABELS[nextTheme(state.theme)]}`} disabled={waitingForTournament || unlocked && (organizerReadOnly || organizerSessionExpired)} title="Cycle Light, Dark and Pure black" className="theme" onClick={() => setState(current => { const theme = nextTheme(current.theme); themeOverride.current = theme; return { ...current, theme }; })}>{state.theme === "light" ? <Sun size={20} aria-hidden="true" /> : state.theme === "dark" ? <Moon size={20} aria-hidden="true" /> : <Circle size={20} weight="fill" aria-hidden="true" />}<span>{THEME_LABELS[state.theme]}</span></button></div></header>}
+    {!(view === "umpire" && (state.managedUmpires ? personalUmpireFocus : umpireUnlocked && umpireFocused)) && !(view === "projector" && projectorFullscreen) && <header className="topbar" inert={Boolean(registrationDialog) || resetBusy || projectorPreviewOpen}><div className="brand"><div className="mark">R</div><div><p>Racketeers Badminton Club</p><h1>Badminton Tournament Tracker</h1></div></div>{view === "organizer" && unlocked ? <><nav className="desk-primary-nav" aria-label="Organizer workflow"><button className={organizerArea === "prepare" ? "active" : ""} aria-current={organizerArea === "prepare" ? "page" : undefined} onClick={() => setTab("setup")}>Prepare</button><button className={organizerArea === "run" ? "active" : ""} aria-current={organizerArea === "run" ? "page" : undefined} onClick={() => setTab("scores")}>Run tournament</button><button className={organizerArea === "results" ? "active" : ""} aria-current={organizerArea === "results" ? "page" : undefined} onClick={() => setTab("standings")}>Results</button></nav><details className="desk-public-views"><summary>Public views</summary><div>{(["register", "umpire", "spectator", "projector"] as View[]).map(role => <button key={role} disabled={organizerReadOnly && role === "umpire"} onClick={() => setView(role)}>{role === "register" ? "Registration" : role[0].toUpperCase() + role.slice(1)}</button>)}<button disabled={waitingForTournament || personalScorePending || dirty || sync === "saving" || (umpireUnlocked && sync === "offline")} onClick={signOut}>Sign out / switch access</button></div></details></> : <nav className="view-switch" aria-label="View">{(unlocked ? ["organizer", "register", "umpire", "spectator", "projector"] : umpireAccessPin ? ["umpire", "spectator"] : ["register", "spectator"]).map(item => <button key={item} disabled={personalScorePending && item !== "umpire"} aria-current={view === item ? "page" : undefined} className={view === item ? "active" : ""} onClick={() => setView(item as View)}>{item === "register" ? "Registration" : item[0].toUpperCase() + item.slice(1)}</button>)}<button disabled={waitingForTournament || personalScorePending || dirty || sync === "saving" || (umpireUnlocked && sync === "offline")} onClick={unlocked || umpireAccessPin ? signOut : () => setAccessOpen(true)}>{unlocked || umpireAccessPin ? "Sign out / switch access" : "Staff access"}</button></nav>}<div className="header-tools"><span className={`sync ${displaySync}`} role="status" title={lastConfirmedAt ? `Last confirmed update: ${new Date(lastConfirmedAt).toLocaleTimeString()}` : "Waiting for the first server response"}>● {saveConflict ? "Review conflict" : SYNC_LABELS[displaySync]}</span><button type="button" aria-label={`Color mode: ${THEME_LABELS[state.theme]}. Switch to ${THEME_LABELS[nextTheme(state.theme)]}`} disabled={waitingForTournament || unlocked && (organizerReadOnly || organizerSessionExpired)} title="Cycle Light, Dark and Pure black" className="theme" onClick={() => setState(current => { const theme = nextTheme(current.theme); themeOverride.current = theme; return { ...current, theme }; })}>{state.theme === "light" ? <Sun size={20} aria-hidden="true" /> : state.theme === "dark" ? <Moon size={20} aria-hidden="true" /> : <Circle size={20} weight="fill" aria-hidden="true" />}<span>{THEME_LABELS[state.theme]}</span></button></div></header>}
     {view === "organizer" && organizerArea !== "results" && <nav className="tabs" aria-label="Organizer sections" inert={Boolean(registrationDialog) || resetBusy || projectorPreviewOpen}>{organizerTabs.filter(item => !demo || item.id !== "accounts").filter(item => organizerArea === "prepare" ? ["setup", "registration", "draw", "accounts"].includes(item.id) : ["scores", "schedule", "projector", "umpires"].includes(item.id)).map((item) => <button key={item.id} aria-pressed={tab === item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}>{item.label}</button>)}</nav>}
     {!organizerSessionExpired && (unlocked || umpireAccessPin) && view !== "projector" && !projectorPreviewOpen && <fieldset className="organizer-view-only-scope" disabled={unlocked && organizerReadOnly}><StaffCourtUpdates gameDayVisible={view === "organizer" && tab === "scores"} onSessionExpired={setOrganizerSessionExpired} key={organizerPin || umpireAccessPin} organizerPin={unlocked ? organizerPin : ""} umpirePin={umpireAccessPin} onStatus={setCourtHelp} onClearHelp={court => void toggleCourtHelp(court, false)} busyCourt={helpBusyCourt} /></fieldset>}
     {organizerSessionExpired && unlocked && <section className="card" role="alert"><h2>Sign in again</h2><p>Organizer access has expired or changed. Saving is paused; your complete unsaved draft is retained. Signing in keeps the original revision checks.</p><button className="primary" onClick={()=>setAccessOpen(true)}>Renew organizer sign-in</button></section>}

@@ -1,6 +1,6 @@
 import { courtOccupant, gameEligibility } from "./game-day";
 import { appendStaffNotification } from "./staff-events";
-import { isSetWon, matchScoreLimit, matchWinner, reseedChampionships, scoringRule, type Match, type SetScore, type TournamentState } from "./tournament";
+import { isSetWon, matchScoreLimit, matchWinner, publishedQualificationChanged, reseedChampionships, scoringRule, type Match, type SetScore, type TournamentState } from "./tournament";
 import type { UmpireWorkflow } from "./umpire-types";
 
 export const PRESENCE_GRACE_MS = 45_000;
@@ -25,9 +25,13 @@ export function requireUmpire(condition: unknown, message: string, status?: numb
 
 export const workflowText: Record<UmpireWorkflow["phase"], string> = {
   assigned: "Assigned", seen: "Acknowledged", incorrect_players: "Incorrect players reported", playing: "In play",
-  awaiting_confirmation: "Awaiting team confirmation", disputed: "Score disputed", escalated: "Escalated to organizer",
+  awaiting_confirmation: "Awaiting team confirmation", disputed: "Open score dispute", escalated: "Escalated to organizer",
   completed: "Confirmed by both teams", finalized_by_ruling: "Finalized by ruling", voided: "Voided",
 };
+
+export function umpireWorkflowLabel(flow: UmpireWorkflow) {
+  return flow.phase === "disputed" && flow.dispute?.reviewStartedAt ? "Under umpire review" : workflowText[flow.phase];
+}
 
 /** Accept only scores compatible with the existing match rules and a consecutive set order. */
 function checkedSets(match: Match, input: unknown, final: boolean): SetScore[] {
@@ -112,6 +116,7 @@ export function applyWorkflowAction(state: TournamentState, match: Match, body: 
       case "returnDispute":
         requireUmpire(flow.phase === "escalated" && !flow.releasedAt && reason, "Return the game with a reason while its court is still held.");
         changed.phase = "disputed";
+        if (flow.dispute) changed.dispute = { ...flow.dispute, reviewStartedAt: undefined, reviewedBy: undefined };
         changed.scoreHistory = [...(flow.scoreHistory ?? []), { at, actor, reason, before: match.sets, after: match.sets }];
         break;
       case "releaseDispute":
@@ -190,15 +195,21 @@ export function applyWorkflowAction(state: TournamentState, match: Match, body: 
         changed.phase = "disputed";
         changed.confirmed = undefined;
         break;
+      case "reviewDispute":
+        requireUmpire(flow.phase === "disputed" && flow.dispute, "Only an open dispute can enter umpire review.");
+        if (flow.dispute.reviewStartedAt) return state;
+        changed.dispute = { ...flow.dispute, reviewStartedAt: at, reviewedBy: actor };
+        break;
       case "correct":
         requireUmpire(flow.phase === "disputed" && reason, "Enter a reason for the correction.");
         correct(true);
+        if (flow.dispute && !flow.dispute.reviewStartedAt && changed.dispute) changed.dispute = { ...changed.dispute, reviewStartedAt: at, reviewedBy: actor };
         changed.phase = "awaiting_confirmation";
         break;
       case "escalate":
         requireUmpire(flow.phase === "disputed" && flow.dispute, "Report a dispute before escalating.");
         changed.phase = "escalated";
-        changed.dispute = { ...flow.dispute, escalatedAt: at };
+        changed.dispute = { ...flow.dispute, reviewStartedAt: flow.dispute.reviewStartedAt ?? at, reviewedBy: flow.dispute.reviewedBy ?? actor, escalatedAt: at };
         break;
       default: throw new UmpireError("Unsupported umpire action.", 400);
     }
@@ -212,5 +223,6 @@ export function applyWorkflowAction(state: TournamentState, match: Match, body: 
     const replay: Match = { ...next, status: "ready", court: null, sets: [{ a: 0, b: 0, complete: false }], validated: false, umpireWorkflow: undefined, completedAt: undefined, nearCapNotified: false, umpireHistory: [...(match.umpireHistory ?? []), changed] };
     result.matches = result.matches.map(item => item.id === match.id ? replay : item);
   }
+  if (match.stage === "regular") requireUmpire(!publishedQualificationChanged(state, result), "A championship has already been assigned. Review qualification before changing its group results.");
   return next.validated ? reseedChampionships(result) : result;
 }

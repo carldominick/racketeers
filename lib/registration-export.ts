@@ -5,6 +5,7 @@ export const REGISTRATION_EXPORT_COLUMNS = [
   "Player name", "Registration ID", "Phone / mobile", "Facebook profile", "Club / group",
   "Partner", "Division", "Shirt size", "Payment status", "Payment proof",
   "Payment group", "Reviewed amount (PHP, per group)", "Reference number", "Receipt bank / app", "Payment date", "Transfer status on screenshot", "Review status", "Reviewed at", "Duplicate reference", "Screenshot version",
+  "Billing scope (registration IDs)", "Charge (PHP)", "Confirmed allocation (PHP)", "Outstanding (PHP)", "Overpayment (PHP)", "Accepted transfers and allocations", "Photo slots and evidence",
 ] as const;
 
 export type RegistrationExportRow = {
@@ -20,10 +21,13 @@ export type RegistrationExportRow = {
   paid: boolean;
   paymentProofUrl?: string;
   receiptGroupId?: string; receipt?: ReceiptDetails; reviewStatus?: string; reviewedAt?: string; duplicateReference?: boolean; proofVersion?: string;
+  billingScope?: string;
+  billingCells?: string[];
+  evidence?: string;
 };
 
 function receiptCells(row: RegistrationExportRow) {
-  return [row.receiptGroupId || "", row.receipt?.amount || "", row.receipt?.reference || "", row.receipt?.provider || "", row.receipt?.date || "", row.receipt?.transferStatus || "unknown", row.reviewStatus || "", row.reviewedAt || "", row.duplicateReference ? "Check duplicate" : "", row.proofVersion || ""];
+  return [row.receiptGroupId || "", row.receipt?.amount || "", row.receipt?.reference || "", row.receipt?.provider || "", row.receipt?.date || "", row.receipt?.transferStatus || "unknown", row.reviewStatus || "", row.reviewedAt || "", row.duplicateReference ? "Check duplicate" : "", row.proofVersion || "", row.billingScope || "", ...(row.billingCells ?? ["", "", "", "", ""]), row.evidence || ""];
 }
 
 export type RegistrationExportSheet = { name: string; rows: RegistrationExportRow[] };
@@ -92,6 +96,9 @@ export function buildRegistrationWorkbook(sheets: RegistrationExportSheet[]) {
           const rid = `rId${relationships.length + 1}`;
           relationships.push(`<Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${xml(cell.link)}" TargetMode="External"/>`);
           return `<c r="${reference}" t="inlineStr"><is><t>View payment proof</t></is></c>`;
+        }
+        if (rowIndex > 0 && cell.column >= 21 && cell.column <= 24 && /^\d+\.\d{2}$/.test(cell.value)) {
+          return `<c r="${reference}" t="n"><v>${cell.value}</v></c>`;
         }
         return `<c r="${reference}" t="inlineStr"><is><t xml:space="preserve">${xml(cell.value)}</t></is></c>`;
       }).join("");

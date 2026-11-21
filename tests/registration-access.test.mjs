@@ -19,6 +19,56 @@ const request=(body,headers={},method='POST')=>new Request('https://test/api/sta
 const post=(body,headers)=>api.POST(request(body,headers));
 const org={'x-organizer-pin':'12345678'};
 
+test('an ordinary private or public-shaped draft cannot implicitly delete registrations',async()=>{
+ const state=await reset();
+ const player={...logic.makeRegistration(state.divisions[0].id),name:'Fixture player'};
+ saved.payload=JSON.stringify({...state,registrations:[player]});
+ const put=(next,removedRegistrationIds)=>api.PUT(request({state:next,expectedRevision:1,removedRegistrationIds},org,'PUT'));
+ const unsafe=await put({...state,tournamentName:'Changed setup'});
+ assert.equal(unsafe.status,409);
+ assert.match((await unsafe.json()).error,/omitted registrations/);
+ assert.equal(JSON.parse(saved.payload).registrations[0].id,player.id);
+ assert.equal((await put(state,[player.id])).status,200);
+ assert.deepEqual(JSON.parse(saved.payload).registrations,[]);
+});
+
+test('public entries keep score and forfeit relationships without sending private roster IDs',async()=>{
+ const state=await reset();
+ const division={...state.divisions[0],entries:[
+  {id:'entry-private-registration',name:'Alpha',players:['Alpha'],registrationIds:['private-registration'],shirtSizes:['XL']},
+  {id:'entry-private-partner',name:'Beta',players:['Beta'],registrationIds:['private-partner'],shirtSizes:['M']},
+ ]};
+ saved.payload=JSON.stringify({...state,status:'live',divisions:[division],matches:[{id:'G1',divisionId:division.id,entryAId:division.entries[0].id,
+  entryBId:division.entries[1].id,stage:'regular',round:1,label:'Game',court:null,scheduledAt:null,status:'finished',validated:true,
+  sets:[{a:31,b:0,complete:true}],forfeit:{winnerId:division.entries[0].id,reason:'no_show',recordedAt:'2026-11-21'},format:'single_31',pin:'4321'}]});
+ const {state:result}=await (await api.GET(new Request('https://test/api/state'))).json();
+ const [first,second]=result.divisions[0].entries;
+ assert.deepEqual([first.name,second.name],['Alpha','Beta']);
+ assert.equal(result.matches[0].entryAId,first.id);
+ assert.equal(result.matches[0].entryBId,second.id);
+ assert.equal(result.matches[0].forfeit.winnerId,first.id);
+ assert.doesNotMatch(JSON.stringify(result),/private-registration|private-partner|shirtSizes|"pin":"4321"/);
+});
+
+test('retrying a known reset reports its outcome without clearing later results',async()=>{
+ const state=await reset();
+ const division=state.divisions[0];
+ const match={id:'reset-game',divisionId:division.id,entryAId:division.entries[0]?.id??'a',entryBId:division.entries[1]?.id??'b',
+  stage:'regular',round:1,label:'Game',status:'finished',validated:true,court:null,scheduledAt:null,
+  sets:[{a:31,b:11,complete:true}],format:'single_31',pin:'4331'};
+ saved.payload=JSON.stringify({...state,matches:[match]});
+ const backup=await (await api.GET(new Request('https://test/api/state?backup=1',{headers:org}))).json();
+ const action={action:'resetGames',resetId:'3c3a502a-a150-40c1-8b10-2a2206040f62',expectedRevision:backup.revision,backupDigest:backup.digest,confirmation:'RESET GAMES'};
+ assert.equal((await post(action,org)).status,200);
+ saved.payload=JSON.stringify({...JSON.parse(saved.payload),matches:[match]});
+ saved.revision++;
+ const retry=await post(action,org);
+ assert.equal(retry.status,200);
+ const result=await retry.json();
+ assert.equal(result.revision,3);
+ assert.equal(result.state.matches[0].sets[0].a,31);
+});
+
 test('organizer saves protect played competitors and rules while future games adopt new defaults',async()=>{
  const state = await reset();
  const division = {...state.divisions[0], bracketFormat:'custom', stageScoring:{regular:{mode:'first_to_target',target:31,cap:31}}};
