@@ -1,10 +1,10 @@
 import { appendStaffNotification, recordCourtCompletions } from "./staff-events";
-import { courtOccupant, gameDayAction, type GameDayAction } from "./game-day";
+import { courtOccupant, gameDayAction, matchupReadiness, type GameDayAction } from "./game-day";
 import { normalizeProjectorSettings } from "./projector-settings";
 import { accountActor, organizerRequestMatches } from "./organizer-accounts";
 import { organizerPinMatches } from "./organizer-auth";
-import { regenerationIssue, gameHasStarted, isTournamentPhase, phaseChangeIssue, resetTournamentGames, RESET_GAMES_CONFIRMATION } from "./organizer-safety";
-import { regenerateMatches, registrationDeadlineTime } from "./tournament";
+import { regenerationIssue, isTournamentPhase, phaseChangeIssue, resetTournamentGames, RESET_GAMES_CONFIRMATION } from "./organizer-safety";
+import { freezeAssignedScoring, gameHasStarted, matchupIsLocked, regenerateMatches, registrationDeadlineTime } from "./tournament";
 import { courtPresence, handleUmpire } from "./umpire-service";
 import { staffingIssue, type WorkflowInput } from "./umpire-workflow";
 import { provisionalWorkflow } from "./umpire-types";
@@ -124,7 +124,7 @@ async function registrationForPin(state: TournamentState, value: string, registr
 
 async function saveStateAtRevision(state: TournamentState, revision: number) {
   const nextRevision = revision + 1;
-  const next = { ...state, updatedAt: new Date().toISOString() };
+  const next = { ...freezeAssignedScoring(state), updatedAt: new Date().toISOString() };
   const db = await database();
   const result = await db.prepare("UPDATE tournament_state SET revision = ?, payload = ?, updated_at = ? WHERE id = ? AND revision = ?").bind(nextRevision, JSON.stringify(next), next.updatedAt, ROW_ID, revision).run();
   return result.meta.changes === 1 ? { state: next, revision: nextRevision } : null;
@@ -362,6 +362,10 @@ async function POST(request: Request) {
     if (match.hold || match.forfeit) return Response.json({ error: match.hold ? "This game is on hold. Ask the organizer to return it to the queue." : "This game ended by forfeiture. Ask the organizer to review the result." }, { status: 409 });
     const finished = Boolean(matchWinner(match)) || match.status === "finished";
     if (finished) return Response.json({ ok: true, match: { ...match, pin: "" } });
+    if (match.stage !== "regular" && !gameHasStarted(match)) {
+      const readiness = matchupReadiness(state, match);
+      if (!readiness.ready) return Response.json({ error: readiness.reason }, { status: 409 });
+    }
     if (match.court && courtOccupant({ ...state, matches: state.matches.filter(other => other.id !== match.id) }, match.court)) return Response.json({ error: `Court ${match.court} is already in use. Ask the organizer to assign an available court.` }, { status: 409 });
     const opened = { ...match, status: "live" as const, courtInUse: true };
     const saved = await saveStateAtRevision({ ...state, matches: state.matches.map(item => item.id === match.id ? opened : item) }, row.revision);
@@ -489,13 +493,21 @@ async function PUT(request: Request) {
   if (body.expectedRevision !== row.revision) return Response.json({ error: "State changed on another device", state: organizerState(current), revision: row.revision }, { status: 409 });
   const registrationClosesAt = body.state.registrationClosesAt === undefined ? current.registrationClosesAt : body.state.registrationClosesAt;
   if (registrationClosesAt !== "" && registrationDeadlineTime(registrationClosesAt) === null) return Response.json({ error: "Enter a valid Philippine date and time for the registration deadline." }, { status: 400 });
-  const proposed = hydrateTournament({ ...body.state, registrationClosesAt });
+  const currentMatches = new Map(current.matches.map(match => [match.id, match]));
+  // Older snapshots may have inherited their scoring rule from division defaults.
+  // Capture that rule before hydrating a draft that may change those defaults.
+  const matches = body.state.matches?.map(match => {
+    const before = currentMatches.get(match.id);
+    return before && matchupIsLocked(before) ? { ...match, scoring: match.scoring ?? before.scoring, scoringFrozen: true as const } :
+      { ...match, scoringFrozen: undefined };
+  });
+  const proposed = hydrateTournament({ ...body.state, matches: matches ?? [], registrationClosesAt });
   const phaseIssue = phaseChangeIssue(current, proposed.status);
   if (phaseIssue) return Response.json({ error: phaseIssue, state: organizerState(current), revision: row.revision }, { status: 409 });
   if (proposed.managedUmpires !== current.managedUmpires || body.state.umpireDirectory !== undefined) return Response.json({ error: "Use the umpire roster to change access settings." }, { status: 409 });
   if (current.managedUmpires && proposed.courts < (current.umpireDirectory?.members.reduce((max, member) => Math.max(max, member.court ?? 0), 0) ?? 0)) return Response.json({ error: "Remove umpire assignments before reducing the court count." }, { status: 409 });
   const removedGames = current.matches.filter(match => !proposed.matches.some(next => next.id === match.id));
-  if (removedGames.some(match => gameHasStarted(match) || match.umpireWorkflow || match.umpireHistory?.length) || removedGames.length > 0 && proposed.matches.some(match => !current.matches.some(previous => previous.id === match.id))) return Response.json({ error: "Use the reviewed bracket regeneration workflow. Started games cannot be replaced.", state: organizerState(current), revision: row.revision }, { status: 409 });
+  if (removedGames.some(match => matchupIsLocked(match) || match.umpireHistory?.length) || removedGames.length > 0 && proposed.matches.some(match => !currentMatches.has(match.id))) return Response.json({ error: "Use the reviewed bracket regeneration workflow. Started games cannot be replaced.", state: organizerState(current), revision: row.revision }, { status: 409 });
   const tracked = trackedPaymentIds(current);
   proposed.paymentTransfers = current.paymentTransfers;
   proposed.registrations = proposed.registrations.map(r => { const previous = current.registrations.find(p => p.id === r.id); return { ...r, paid: previous && tracked.has(r.id) ? previous.paid : r.paid, registrationPinHash: previous?.registrationPinHash, registrationPinRecovery: previous?.registrationPinRecovery, paymentGroupId: previous?.paymentGroupId }; });
@@ -505,15 +517,21 @@ async function PUT(request: Request) {
     if (registrationsChanged || setupChanged) return Response.json({ error: "Setup and registration are read-only. Change the phase to Setup or Registration and save it before editing." }, { status: 423 });
   }
   for (const match of proposed.matches) {
-    const before = current.matches.find(m => m.id === match.id);
-    if (comparable(match.umpireWorkflow) !== comparable(before?.umpireWorkflow) || comparable(match.umpireHistory) !== comparable(before?.umpireHistory) || match.provisionalResult !== before?.provisionalResult || match.voidedResult !== before?.voidedResult || before?.umpireWorkflow && comparable(match) !== comparable(before)) return Response.json({ error: "Use the umpire workflow controls to change this game.", state: organizerState(current), revision: row.revision }, { status: 409 });
-    if (current.managedUmpires && !before?.umpireWorkflow && (match.status === "live" || match.courtInUse || match.dispatchedAt) && comparable(match) !== comparable(before)) return Response.json({ error: "Use Game Day Desk to assign games to a staffed court.", state: organizerState(current), revision: row.revision }, { status: 409 });
+    const before = currentMatches.get(match.id);
+    if (before && matchupIsLocked(before) && (
+      match.entryAId !== before.entryAId || match.entryBId !== before.entryBId || match.divisionId !== before.divisionId ||
+      match.stage !== before.stage || match.round !== before.round || match.subBracket !== before.subBracket ||
+      match.format !== before.format || comparable(match.scoring) !== comparable(before.scoring)
+    )) return Response.json({ error: "The players and scoring rules are locked after a game is assigned or starts.", conflictMatchId: match.id, state: organizerState(current), revision: row.revision }, { status: 409 });
+    const matchChanged = comparable({ ...match, scoringFrozen: undefined }) !== comparable(before && { ...before, scoringFrozen: undefined });
+    if (comparable(match.umpireWorkflow) !== comparable(before?.umpireWorkflow) || comparable(match.umpireHistory) !== comparable(before?.umpireHistory) || match.provisionalResult !== before?.provisionalResult || match.voidedResult !== before?.voidedResult || before?.umpireWorkflow && matchChanged) return Response.json({ error: "Use the umpire workflow controls to change this game.", state: organizerState(current), revision: row.revision }, { status: 409 });
+    if (current.managedUmpires && !before?.umpireWorkflow && (match.status === "live" || match.courtInUse || match.dispatchedAt) && matchChanged) return Response.json({ error: "Use Game Day Desk to assign games to a staffed court.", state: organizerState(current), revision: row.revision }, { status: 409 });
     if (comparable(match.hold) !== comparable(before?.hold) || comparable(match.forfeit) !== comparable(before?.forfeit)) return Response.json({ error: "Use the Game Day Desk hold and forfeiture controls to change this game.", conflictMatchId: match.id, state: organizerState(current), revision: row.revision }, { status: 409 });
     if (before && (before.hold && match.court !== null || before.forfeit && (match.status !== "finished" || match.court !== before.court && match.court !== null))) return Response.json({ error: "Held and forfeited games cannot be assigned a court.", conflictMatchId: match.id, state: organizerState(current), revision: row.revision }, { status: 409 });
     if (before && (before.hold || before.forfeit) && (comparable(match.sets) !== comparable(before.sets) || match.entryAId !== before.entryAId || match.entryBId !== before.entryBId || Boolean(match.courtInUse) || Boolean(match.dispatchedAt) || (before.hold && match.status !== "ready"))) return Response.json({ error: "Held and forfeited games are locked for scoring. Return the game to the queue or clear the forfeiture first.", conflictMatchId: match.id, state: organizerState(current), revision: row.revision }, { status: 409 });
     if (match.court && isMatchUsingCourt(match) && (!before || !isMatchUsingCourt(before) || before.court !== match.court) && courtOccupant({ ...proposed, matches: proposed.matches.filter(m => m.id !== match.id) }, match.court)) return Response.json({ error: `Court ${match.court} is already in use or reserved. Choose an available court.`, conflictMatchId: match.id, state: organizerState(current), revision: row.revision }, { status: 409 });
   }
-  const next = recordCourtCompletions(current, { ...proposed, umpireDirectory: current.umpireDirectory, courtHelp: current.courtHelp, staffNotifications: current.staffNotifications, organizerAccountsEnabled: current.organizerAccountsEnabled, organizerAccountsActivation: current.organizerAccountsActivation, paymentProofShareKey: current.paymentProofShareKey, organizerPinHash: current.organizerPinHash, umpirePinHash: current.umpirePinHash, updatedAt: new Date().toISOString() });
+  const next = freezeAssignedScoring(recordCourtCompletions(current, { ...proposed, umpireDirectory: current.umpireDirectory, courtHelp: current.courtHelp, staffNotifications: current.staffNotifications, organizerAccountsEnabled: current.organizerAccountsEnabled, organizerAccountsActivation: current.organizerAccountsActivation, paymentProofShareKey: current.paymentProofShareKey, organizerPinHash: current.organizerPinHash, umpirePinHash: current.umpirePinHash, updatedAt: new Date().toISOString() }));
   const revision = row.revision + 1;
   const db = await database();
   const saved = await db.prepare("UPDATE tournament_state SET revision = ?, payload = ?, updated_at = ? WHERE id = ? AND revision = ?").bind(revision, JSON.stringify(next), next.updatedAt, ROW_ID, row.revision).run();
@@ -543,6 +561,10 @@ async function PATCH(request: Request) {
     return Response.json({ state: publicState(saved.state, true), revision: saved.revision });
   }
   if (match.status === "finished") return Response.json({ error: "This game is complete. Ask the organizer to correct its result.", gameLocked: true }, { status: 409 });
+  if (match.stage !== "regular" && !gameHasStarted(match)) {
+    const readiness = matchupReadiness(current, match);
+    if (!readiness.ready) return Response.json({ error: readiness.reason }, { status: 409 });
+  }
   const rule = scoringRule(match.format, match.scoring);
   for (const [index, set] of (body.sets ?? []).entries()) {
     const high = Math.max(set.a, set.b), low = Math.min(set.a, set.b);
@@ -559,7 +581,7 @@ async function PATCH(request: Request) {
   });
   const scored = applyUmpireSets(match, sets, body.finishSeparately === true, body.status);
   if (scored.courtInUse && match.court && courtOccupant({ ...current, matches: current.matches.filter(other => other.id !== match.id) }, match.court)) return Response.json({ error: `Court ${match.court} is already in use. Ask the organizer to reassign this game before resuming.` }, { status: 409 });
-  const next = recordCourtCompletions(current, { ...current, matches: current.matches.map(item => item.id === match.id ? scored : item), updatedAt: new Date().toISOString() });
+  const next = freezeAssignedScoring(recordCourtCompletions(current, { ...current, matches: current.matches.map(item => item.id === match.id ? scored : item), updatedAt: new Date().toISOString() }));
   const revision = row.revision + 1;
   const db = await database();
   const saved = await db.prepare("UPDATE tournament_state SET revision = ?, payload = ?, updated_at = ? WHERE id = ? AND revision = ?").bind(revision, JSON.stringify(next), next.updatedAt, ROW_ID, row.revision).run();

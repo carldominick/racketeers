@@ -1,4 +1,4 @@
-import { displayName, forfeitWinningPoints, gameDaySettings, isAwaitingUmpireCompletion, isMatchUsingCourt, isProvisionalMatch, isSetWon, matchWinner, reseedChampionships, scoringRule, subBracketName, type Match, type TournamentState } from "./tournament";
+import { championshipPrerequisitesMet, displayName, forfeitWinningPoints, gameDaySettings, isAwaitingUmpireCompletion, isMatchUsingCourt, isProvisionalMatch, isSetWon, matchWinner, reseedChampionships, scoringRule, subBracketName, type Match, type TournamentState } from "./tournament";
 
 export function bracketKey(match: Match) { return `${match.divisionId}:${match.subBracket ?? 0}`; }
 export function bracketLabel(state: TournamentState, match: Match) {
@@ -32,15 +32,12 @@ function playerKeys(state: TournamentState, match: Match): Set<string> {
 }
 const overlaps = (a: Set<string>, b: Set<string>) => [...a].some(key => b.has(key));
 export type Eligibility = { ready: boolean; reason: string; eligibleAt?: string };
-function matchupReadiness(state: TournamentState, match: Match): Eligibility {
+export function matchupReadiness(state: TournamentState, match: Match): Eligibility {
   if (!match.entryAId || !match.entryBId) return { ready: false, reason: "Waiting for confirmed players / winners" };
   if (match.entryAId === match.entryBId) return { ready: false, reason: "Matchup needs two different entries" };
   const division = state.divisions.find(d => d.id === match.divisionId);
   if (!division?.entries.some(e => e.id === match.entryAId) || !division.entries.some(e => e.id === match.entryBId)) return { ready: false, reason: "Waiting for confirmed players" };
-  if (match.stage !== "regular" && !division.manualChampionshipMatchups) {
-    const prior = state.matches.filter(m => m.divisionId === match.divisionId && (m.stage === "regular" || m.round < match.round));
-    if (prior.some(m => !m.validated && !(m.stage === "regular" && m.umpireWorkflow?.phase === "voided"))) return { ready: false, reason: "Waiting for earlier results to be validated" };
-  }
+  if (!championshipPrerequisitesMet(state, match, division)) return { ready: false, reason: "Waiting for earlier results to be validated or the draw to be reviewed" };
   return { ready: true, reason: "Ready" };
 }
 const isWaitingForReassignment = (state: TournamentState, match: Match) => Boolean(state.managedUmpires && match.status === "live" && !match.court && !match.umpireWorkflow && match.umpireHistory?.length);

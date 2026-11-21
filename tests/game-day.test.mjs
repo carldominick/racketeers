@@ -81,6 +81,58 @@ test('automatic championship players stay blocked until all required earlier res
  state.matches=state.matches.map(m=>m.id==='final'?m:m.divisionId==='A'?{...m,validated:true}:m);
  assert.equal(desk.gameEligibility(state,state.matches.at(-1)).ready,true);
 });
+
+function ladderFixture(size, count, bracketFormat = 'round_robin') {
+ const division = {...logic.makeDivision('Ladder', 'singles'), registrationManaged:false, playerCount:count, knockoutSize:size, championshipFormat:'ladderized', bracketFormat};
+ division.entries = Array.from({length:count}, (_, index) => ({id:'seed-' + index, name:'Player ' + index, players:['Player ' + index]}));
+ const state = logic.regenerateMatches({...logic.initialTournament(), status:'live', gameDay:{restMinutes:0}, divisions:[division]});
+ return logic.reseedChampionships({...state, matches:state.matches.map(match => match.stage !== 'regular' || !match.entryBId ? match :
+  {...match, status:'finished', validated:true, sets:[{a:31,b:12,complete:true}]})});
+}
+
+test('each ladder seed is assigned once across supported sizes and entrant counts',()=>{
+ for (const size of [2,4,8,16,32,64]) {
+  for (let count = 2; count <= size; count++) {
+   const state = ladderFixture(size, count, 'single_elimination');
+   const firstRound = state.matches.filter(match => match.stage !== 'regular' && match.stage !== 'bronze' && match.round === 1);
+   const entrants = firstRound.flatMap(match => [match.entryAId,match.entryBId]).filter(Boolean);
+   assert.equal(entrants.length, count, size + ' slots for ' + count);
+   assert.equal(new Set(entrants).size, count, 'each qualifier must appear exactly once');
+  }
+ }
+});
+
+test('staff can dispatch every playable ladder round through real and empty byes',()=>{
+ for (const [size, count, format] of [[8,5,'round_robin'],[8,6,'round_robin'],[8,5,'single_elimination'],[64,2,'single_elimination']]) {
+  let state = ladderFixture(size,count,format);
+  const losers = new Set();
+  const lastRound = Math.max(...state.matches.map(match => match.round));
+  for (let round = 1; round <= lastRound; round++) {
+   for (const {id} of state.matches.filter(match => match.stage !== 'regular' && match.stage !== 'bronze' && match.round === round)) {
+    const game = state.matches.find(match => match.id === id);
+    if (!game.entryAId || !game.entryBId) continue;
+    assert.ok(!losers.has(game.entryAId) && !losers.has(game.entryBId));
+    const dispatched = desk.gameDayAction(state,'dispatchGame', id,{court:1});
+    assert.ok(dispatched.state, dispatched.error);
+    const forfeited = desk.gameDayAction(dispatched.state,'forfeitGame',id,{forfeitingEntryId:game.entryBId});
+    assert.ok(forfeited.state, forfeited.error);
+    state = logic.validateTournamentMatch(forfeited.state,id);
+    losers.add(game.entryBId);
+   }
+  }
+  assert.equal(losers.size,count-1);
+  assert.ok(logic.medalResults(state,state.divisions[0].id)[0].entryId);
+ }
+});
+
+test('a known ladder feeder cannot turn an unfinished opposing feeder into a bye',()=>{
+ const state = ladderFixture(8,5);
+ const semifinal = state.matches.find(match => match.stage === 'semifinal' && Boolean(match.entryAId) !== Boolean(match.entryBId));
+ assert.ok(semifinal);
+ const gold = state.matches.find(match => match.stage === 'gold');
+ assert.ok(![gold.entryAId,gold.entryBId].includes(semifinal.entryAId ?? semifinal.entryBId));
+ assert.equal(desk.gameEligibility(state,gold).ready,false);
+});
 test('near-cap uses a first-to target or capped stage limit and respects the off setting',()=>{
  const state=fixture();const m=state.matches[0];Object.assign(m,{status:'live',court:1,courtInUse:true,sets:[{a:26,b:22,complete:false}]});
  assert.equal(desk.nearCapSignal(state,m).remaining,5);

@@ -4,6 +4,8 @@ Standalone Cloudflare deployment of the Racketeers application. Includes tournam
 
 The homepage describes the connection while waiting for its first tournament response and offers a retry if that request fails. Registration status, dates and divisions appear after loading the current event.
 
+In Results, an automatic matchup can be provisional while earlier games await validation. True ladder byes advance without a score. The desk checks actual feeder results before dispatch. Assigning or starting a game locks its competitors and scoring rules. Changing stage scoring in Setup updates upcoming unassigned games.
+
 Organizer → Prepare → Registrations → Registration tools can download CSV for all divisions or a selected division, and Excel with one sheet per division. Downloads use the entries shown, including unsaved changes when indicated. A connection or receipt-service failure does not block the roster file; unavailable payment fields are marked explicitly. When connected and saved, exports include organizer-authorized private proof links and reviewed receipt fields. These group amounts repeat across linked rows and must not be summed twice.
 
 The organizer can enable personal umpire PINs, staffed court dispatch, team-confirmed results and dispute handling after the Cloudflare Worker credential secret is configured. Activation retires the shared umpire login and per-game PINs. Optional Soft Chimes cover new assignments on the personal umpire dashboard and finished games and court help requests on Game Day Desk. See [Umpire workflow, production setup and local review](docs/umpire-workflow.md).

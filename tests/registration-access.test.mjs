@@ -18,6 +18,43 @@ async function reset(){const state=logic.initialTournament();Object.assign(state
 const request=(body,headers={},method='POST')=>new Request('https://test/api/state',{method,headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)});
 const post=(body,headers)=>api.POST(request(body,headers));
 const org={'x-organizer-pin':'12345678'};
+
+test('organizer saves protect played competitors and rules while future games adopt new defaults',async()=>{
+ const state = await reset();
+ const division = {...state.divisions[0], bracketFormat:'custom', stageScoring:{regular:{mode:'first_to_target',target:31,cap:31}}};
+ const historical = {id:'past', divisionId:division.id, stage:'regular', round:1, label:'Played game', entryAId:'a', entryBId:'b', sets:[{a:31,b:12,complete:true}], status:'finished', court:null, validated:true, pin:'4321', format:'single_31', scheduledAt:null};
+ const future = {...historical,id:'future',status:'ready',validated:false,pin:'4322',sets:[{a:0,b:0,complete:false}]};
+ const draft = {...state,status:'setup',divisions:[division],matches:[historical,future]};
+ saved.payload = JSON.stringify(draft);
+ const put = (next, expectedRevision = 1) => api.PUT(request({state:next,expectedRevision},org,'PUT'));
+ const changeSide = await put({...draft,matches:[{...historical,entryAId:'c'},future]});
+ assert.equal(changeSide.status,409);
+ const overwriteRule = await put({...draft,matches:[{...historical,scoring:{mode:'first_to_target',target:45,cap:45}},future]});
+ assert.equal(overwriteRule.status,409);
+ assert.equal(saved.revision,1);
+ const changeDefault = await put({...draft,divisions:[{...division,stageScoring:{regular:{mode:'first_to_target',target:45,cap:45}}}]});
+ assert.equal(changeDefault.status,200);
+ const [played, ready] = logic.hydrateTournament(JSON.parse(saved.payload)).matches;
+ assert.equal(played.scoring.target,31);
+ assert.equal(logic.matchWinner(played),'a');
+ assert.equal(ready.scoring.target,45);
+});
+
+test('the legacy scorecard waits for a provisional championship matchup to qualify',async()=>{
+ const state = await reset();
+ const division = {...state.divisions[0], championshipFormat:'direct_medals', manualChampionshipMatchups:false,
+  entries:[{id:'a',name:'Alpha',players:['Alpha']},{id:'b',name:'Bravo',players:['Bravo']}]};
+ const regular = {id:'group', divisionId:division.id, stage:'regular', round:1, label:'Group game', entryAId:'a', entryBId:'b', sets:[{a:0,b:0,complete:false}], status:'ready', court:null, validated:false, pin:'4321', format:'single_31', scheduledAt:null};
+ const gold = {...regular,id:'gold',stage:'gold',label:'Final',pin:'4322'};
+ const live = {...state,status:'live',divisions:[division],matches:[regular,gold]};
+ saved.payload = JSON.stringify(live);
+ const verify = () => post({action:'verifyMatch',pin:gold.pin},org);
+ assert.equal((await verify()).status,409);
+ assert.equal(saved.revision,1);
+ saved.payload = JSON.stringify({...live,matches:[{...regular,validated:true,status:'finished',sets:[{a:31,b:12,complete:true}]},gold]});
+ assert.equal((await verify()).status,200);
+ assert.equal(saved.revision,2);
+});
 const create=(divisionId,extra={})=>({action:'registerPlayer',registration:{divisionId,name:'Alex',partnerName:'Sam',club:'Cebu Club',partnerClub:'Rackets',facebookProfile:'https://www.facebook.com/alex.test',phone:'09123456789',partnerFacebookProfile:'https://www.facebook.com/sam.test',partnerPhone:'+639123456780',...extra}});
 
 test('the registration deadline closes new public entries at the Philippine cutoff and leaves existing entries editable',async t=>{
