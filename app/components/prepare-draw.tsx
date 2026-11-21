@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
-import { displayName, distributeEntriesToPools, matchResultSets, matchWinner, stageLabel, subBracketName, type Division, type Match } from "../../lib/tournament";
+import { displayName, distributeEntriesToPools, matchupIsLocked, matchResultSets, matchWinner, stageLabel, subBracketName, type Division, type Match } from "../../lib/tournament";
 import { PrepareDetails } from "./prepare-details";
 
 const rounds: Match["stage"][] = ["round_64", "round_32", "round_16", "quarterfinal", "semifinal", "gold", "bronze"];
@@ -68,8 +68,9 @@ export function PrepareDraw({ division, matches, locked, onAssign, onManual, too
       }}>
         <div className="prepare-match-detail">
           <p>{selected.format.replaceAll("_", " ")}{championship && !canAssign ? " · Seeded from standings and earlier rounds" : ""}</p>
+          {canAssign && matchupIsLocked(selected) && <p>Players are locked after a game is assigned or starts.</p>}
           {(["entryAId", "entryBId"] as const).map((side, index) => <label key={side}>Side {index === 0 ? "A" : "B"}
-            {canAssign ? <select value={selected[side] ?? ""} disabled={locked}
+            {canAssign ? <select value={selected[side] ?? ""} disabled={locked || matchupIsLocked(selected)}
               onChange={event => onAssign(selected.id, side, event.target.value)}>
               <option value="">TBD / Auto seed</option>
               {division.entries.map(entry => <option value={entry.id} key={entry.id}>{displayName(entry)}</option>)}

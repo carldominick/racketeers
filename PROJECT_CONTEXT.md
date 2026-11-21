@@ -2,6 +2,12 @@
 
 The initial homepage renders a connection message while the browser waits for its first state response. The default tournament state stays internal. Later connection failures keep the last loaded view visible.
 
+## Competition integrity
+
+New automatic ladders give each qualifier a single seed. A bye can advance only after its feeders are resolved. Game Day and the legacy scorecard check automatic qualification before opening a championship game. Results distinguishes provisional matchups, confirmed opponents and bye advancement from a validated winner. A started or reserved first knockout round keeps its seed positions. If an older saved draw has repeated seeds, automatic dispatch blocks until an organizer reviews it.
+
+Assigning or starting a game locks its competitors and its applied scoring rule. Organizer stage overrides apply to future games. Older records acquire the rule effective in their saved state on the next successful write. Reset All Games releases the locks and applies the current scoring settings to the cleared matches.
+
 ## Personal umpire workflow
 
 Managed tournaments use the umpire roster, scoped personal PINs, staff presence and court ownership. Staffed matches require acknowledged player verification before scoring and verbal confirmation from both teams before normal finalization. Escalated disputes retain their evidence separately from physical court release. Optional browser audio uses the selected Soft Chimes for new umpire assignments, finished games and active court help requests. See [Umpire workflow](docs/umpire-workflow.md) for transitions, storage and local Demo Mode. The roster reports whether the credential secret is configured to authorized organizers without sending its value. The previous scoring path and game PIN controls remain available until activation; managed scorecards also omit the blank game PIN field.

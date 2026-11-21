@@ -1,4 +1,4 @@
-import { gameDaySettings, reseedChampionships, type Match, type TournamentPhase, type TournamentState } from "./tournament";
+import { gameDaySettings, matchupIsLocked, reseedChampionships, scoringRule, type Match, type TournamentPhase, type TournamentState } from "./tournament";
 import { provisionalWorkflow } from "./umpire-types";
 
 export const RESET_GAMES_CONFIRMATION = "RESET GAMES";
@@ -21,6 +21,7 @@ export function resetTournamentGames(state: TournamentState, now = new Date().to
   const pins = state.managedUmpires ? [] : Array.from({ length: 9000 }, (_, index) => String(1000 + index)).filter(pin => !oldPins.has(pin));
   if (!state.managedUmpires && pins.length < state.matches.length) return null;
   const random = state.managedUmpires ? new Uint32Array() : crypto.getRandomValues(new Uint32Array(state.matches.length));
+  const divisions = new Map(state.divisions.map(division => [division.id, division]));
   const matches = state.matches.map((match, index): Match => {
     const pinIndex = state.managedUmpires ? 0 : random[index] % pins.length;
     const pin = state.managedUmpires ? "" : pins[pinIndex];
@@ -30,6 +31,8 @@ export function resetTournamentGames(state: TournamentState, now = new Date().to
     }
     return {
       ...match, pin, sets: [{ a: 0, b: 0, complete: false }], status: "ready", validated: false,
+      scoring: scoringRule(match.format, divisions.get(match.divisionId)?.stageScoring?.[match.stage] ?? match.scoring),
+      scoringFrozen: undefined,
       court: null, courtInUse: false, dispatchedAt: undefined, completedAt: undefined,
       awaitingUmpireCompletion: undefined, provisionalResult: undefined, voidedResult: undefined,
       nearCapNotified: undefined, hold: undefined, forfeit: undefined, umpireWorkflow: undefined,
@@ -44,12 +47,9 @@ export function resetTournamentGames(state: TournamentState, now = new Date().to
   });
 }
 
-export function gameHasStarted(match: Match) {
-  return match.status !== "ready" || match.validated || Boolean(match.forfeit || match.completedAt || match.courtInUse) || match.sets.some(set => set.a > 0 || set.b > 0 || set.complete);
-}
 export function regenerationIssue(state: TournamentState): string | null {
   if (state.status === "live" || state.status === "completed") return "Regeneration is unavailable during Live or Completed.";
-  if (state.matches.some(match => gameHasStarted(match) || match.umpireWorkflow || match.umpireHistory?.length)) return "Games have already started or have recorded results. Use individual game corrections; brackets cannot be regenerated.";
+  if (state.matches.some(match => matchupIsLocked(match) || match.umpireHistory?.length)) return "Games have already been assigned or have recorded results. Use individual game corrections; brackets cannot be regenerated.";
   return null;
 }
 export function regenerationImpact(state: TournamentState) {
