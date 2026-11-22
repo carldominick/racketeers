@@ -1,6 +1,6 @@
 import { courtOccupant, gameEligibility } from "./game-day";
 import { appendStaffNotification } from "./staff-events";
-import { isSetWon, matchScoreLimit, matchWinner, publishedQualificationChanged, reseedChampionships, scoringRule, type Match, type SetScore, type TournamentState } from "./tournament";
+import { forfeitWinningPoints, isSetWon, matchScoreLimit, matchWinner, publishedQualificationChanged, reseedChampionships, scoringRule, type Match, type SetScore, type TournamentState } from "./tournament";
 import type { UmpireWorkflow } from "./umpire-types";
 
 export const PRESENCE_GRACE_MS = 45_000;
@@ -30,6 +30,7 @@ export const workflowText: Record<UmpireWorkflow["phase"], string> = {
 };
 
 export function umpireWorkflowLabel(flow: UmpireWorkflow) {
+  if (flow.noShow) return flow.noShow === "both" ? "Double no-show" : "No-show forfeit";
   return flow.phase === "disputed" && flow.dispute?.reviewStartedAt ? "Under umpire review" : workflowText[flow.phase];
 }
 
@@ -66,7 +67,10 @@ export type WorkflowInput = {
 
 export function applyWorkflowAction(state: TournamentState, match: Match, body: WorkflowInput, actor: string, organizer: boolean, now: number): TournamentState {
   const flow = match.umpireWorkflow;
-  requireUmpire(flow && !match.hold && !match.forfeit, "This game is no longer assigned.");
+  requireUmpire(flow && !match.hold, "This game is no longer assigned.");
+  if (!organizer && body.action === "noShow" && flow.phase === "completed" && flow.umpireId === actor &&
+      flow.noShow === body.side && flow.noShow && body.clear === true && body.version === flow.version - 1) return state;
+  requireUmpire(!match.forfeit, "This game is no longer assigned.");
   if (!organizer && body.action === "submit" && flow.phase === "completed" && flow.confirmed?.umpireId === actor) return state;
   if (!organizer) requireUmpire(flow.umpireId === actor && !flow.releasedAt, "This game is no longer assigned to you.", 403);
   if (body.action === "score" && body.operation && flow.lastScoreOperation === body.operation) return state;
@@ -150,6 +154,21 @@ export function applyWorkflowAction(state: TournamentState, match: Match, body: 
         requireUmpire(["assigned", "seen"].includes(flow.phase) && note, "Describe which players are incorrect.");
         changed.phase = "incorrect_players";
         changed.playerIssue = { at, umpireId: actor, note };
+        break;
+      case "noShow":
+        requireUmpire((flow.phase === "assigned" || flow.phase === "seen") &&
+          !match.sets.some(set => set.a || set.b || set.complete), "Record a no-show before the game starts.");
+        requireUmpire(match.entryAId && match.entryBId && match.entryAId !== match.entryBId, "Confirm the assigned entries before recording a no-show.");
+        requireUmpire(body.side === "a" || body.side === "b" || body.side === "both", "Choose who did not show up.", 400);
+        requireUmpire(body.clear === true, "Confirm the court is clear.", 400);
+        changed.noShow = body.side;
+        next.forfeit = {
+          winnerId: body.side === "both" ? null : body.side === "a" ? match.entryBId : match.entryAId,
+          points: body.side === "both" ? undefined : forfeitWinningPoints(match),
+          reason: "no_show",
+          recordedAt: at,
+        };
+        finalize("completed");
         break;
       case "start": {
         requireUmpire(flow.phase === "seen", "Acknowledge the assignment and resolve any player issue first.");

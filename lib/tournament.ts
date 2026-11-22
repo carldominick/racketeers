@@ -130,7 +130,8 @@ export type Match = {
   nearCapNotified?: boolean;
   hold?: { reason: string; heldAt: string; publishedMatchup?: boolean };
   /** Awarded result; sets retain played scores for correction and rest calculations. */
-  forfeit?: { winnerId: string; reason: "no_show"; recordedAt: string; points?: number };
+  /** A null winner records a double no-show. */
+  forfeit?: { winnerId: string | null; reason: "no_show"; recordedAt: string; points?: number };
 };
 
 export type MedalPoints = { gold: number; silver: number; bronze: number; runnerUp: number };
@@ -484,6 +485,7 @@ export function unvalidateTournamentMatch(state: TournamentState, matchId: strin
 export function matchWinner(match: Match): string | null {
   if (match.umpireWorkflow?.phase === "voided" || match.voidedResult) return null;
   if (!match.entryAId || !match.entryBId) return null;
+  if (match.forfeit?.winnerId === null) return null;
   if (match.forfeit && [match.entryAId, match.entryBId].includes(match.forfeit.winnerId)) return match.forfeit.winnerId;
   const completed = match.sets.filter((set) => set.complete && isSetWon(set, match.stage, match.format, match.scoring));
   const aWins = completed.filter((set) => set.a > set.b).length;
@@ -508,6 +510,7 @@ export function forfeitWinningPoints(match: Match): number {
 
 /** Official scores for displays and standings, without replacing any recorded play. */
 export function matchResultSets(match: Match): SetScore[] {
+  if (match.forfeit?.winnerId === null) return [{ a: 0, b: 0, complete: false }];
   if (!match.entryAId || !match.entryBId || !match.forfeit || ![match.entryAId, match.entryBId].includes(match.forfeit.winnerId)) return match.sets;
   const points = forfeitWinningPoints(match);
   return Array.from({ length: match.format === "best_of_3_21" ? 2 : 1 }, () => ({
@@ -519,7 +522,7 @@ export function matchResultSets(match: Match): SetScore[] {
 
 export function matchScoreText(match: Match): string {
   const scores = matchResultSets(match).map(set => `${set.a} – ${set.b}`).join(" / ") || "–";
-  return match.forfeit ? `Forfeit · ${scores}` : scores;
+  return match.forfeit ? `${match.forfeit.winnerId === null ? "Double no-show" : "Forfeit"} · ${scores}` : scores;
 }
 
 export function gameHasStarted(match: Match) {
@@ -630,7 +633,12 @@ export function standingsFor(state: TournamentState, divisionId: string, subBrac
     const a = match.entryAId ? rows.get(match.entryAId) : null;
     const b = match.entryBId ? rows.get(match.entryBId) : null;
     const winner = matchWinner(match);
-    if (!a || !b || !winner) continue;
+    if (!a || !b) continue;
+    if (match.forfeit?.winnerId === null) {
+      a.played++; b.played++;
+      continue;
+    }
+    if (!winner) continue;
     const resultSets = matchResultSets(match);
     const aPoints = resultSets.reduce((sum, set) => sum + set.a, 0);
     const bPoints = resultSets.reduce((sum, set) => sum + set.b, 0);

@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Bell } from "@phosphor-icons/react/dist/csr/Bell";
 import { Check } from "@phosphor-icons/react/dist/csr/Check";
 import { DotsThree } from "@phosphor-icons/react/dist/csr/DotsThree";
 import { apiFetch } from "../../lib/client-request";
-import { adjustMatchScore, completeMatchSet, displayName, matchScoreText, matchWinner, scoringRule, uncompleteMatchSet, type Division, type Match, type SetScore, type TournamentState } from "../../lib/tournament";
+import { adjustMatchScore, completeMatchSet, displayName, forfeitWinningPoints, matchScoreText, matchWinner, scoringRule, uncompleteMatchSet, type Division, type Match, type SetScore, type TournamentState } from "../../lib/tournament";
 import { umpireWorkflowLabel, type WorkflowInput } from "../../lib/umpire-workflow";
-import type { UmpireSummary } from "../../lib/umpire-types";
+import type { NoShowSide, UmpireSummary } from "../../lib/umpire-types";
 import { UmpireScorecard } from "./umpire-scorecard";
 import { ASSIGNMENT_CHIMES, useCourtChimes } from "./use-court-chimes";
 import "./umpire-workflow.css";
@@ -41,6 +41,34 @@ export function ScoreCorrection({ match, busy, onSave, button = "Save correction
     {ruling && !match.umpireWorkflow?.releasedAt && <label><input type="checkbox" checked={clear} onChange={event => setClear(event.target.checked)} /> Court is clear</label>}
     <button className="primary" disabled={busy || !reason.trim() || ruling && !match.umpireWorkflow?.releasedAt && !clear}>{button}</button>
   </form>;
+}
+
+function ReportNoShow({ a, b, points, sets, busy, onAction }: {
+  a: string; b: string; points: number; sets: number; busy: boolean; onAction: (body: WorkflowInput) => void;
+}) {
+  const [side, setSide] = useState<NoShowSide | "">("");
+  const [clear, setClear] = useState(false);
+  const choiceLabel = useId();
+  return <details className="umpire-assignment-report">
+    <summary>Report no-show</summary>
+    <form className="umpire-workflow-form" onSubmit={event => {
+      event.preventDefault();
+      if (side && clear && !busy) onAction({ action: "noShow", side, clear });
+    }}>
+      <label><span id={choiceLabel}>Who did not show up?</span>
+        <select aria-labelledby={choiceLabel} required disabled={busy} value={side} onChange={event => setSide(event.target.value as NoShowSide | "")}>
+          <option value="">Choose who is absent</option>
+          <option value="a">Team A · {a}</option>
+          <option value="b">Team B · {b}</option>
+          <option value="both">Both teams</option>
+        </select>
+      </label>
+      {side && <p role="status">{side === "both" ? "Both teams receive zero points and the game has no winner." :
+        `${side === "a" ? b : a} wins ${Array(sets).fill(`${points}–0`).join(", ")}.`}</p>}
+      <label><input type="checkbox" disabled={busy} checked={clear} onChange={event => setClear(event.target.checked)} /> The court is clear</label>
+      <button type="submit" className="secondary" disabled={busy || !side || !clear}>Confirm no-show</button>
+    </form>
+  </details>;
 }
 
 function ConfirmResult({ busy, onAction }: { busy: boolean; onAction: (action: WorkflowInput) => void }) {
@@ -147,10 +175,11 @@ export function UmpireDashboard({ onPrint, demoSeat, onFocusChange, onScorePendi
     setMessage("");
     const match = current.current?.match;
     try {
-      await umpireRequest({ matchId: match?.id, version: match?.umpireWorkflow?.version, ...body }, undefined, demoSeat);
+      const result = await umpireRequest({ matchId: match?.id, version: match?.umpireWorkflow?.version, ...body }, undefined, demoSeat);
       setPin("");
       setNote("");
       if (body.action === "submit") setMessage("Final score submitted. Court released.");
+      if (body.action === "noShow" && result.match) setMessage(`${matchScoreText(result.match)}. Court released.`);
     } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to save."); }
     finally { saving.current = false; setBusy(false); await refresh(); }
   }
@@ -292,6 +321,9 @@ export function UmpireDashboard({ onPrint, demoSeat, onFocusChange, onScorePendi
             if (!busy) void action({ action: newAssignment ? "acknowledge" : "start" });
           }}>{newAssignment ? "Acknowledge assignment" : "Confirm players & start game"}</button>
           {newAssignment && <p className="umpire-assignment-guidance">Let the organizer know you’ve seen this game.</p>}
+          <ReportNoShow a={displayName(entry(match.entryAId))} b={displayName(entry(match.entryBId))}
+            points={forfeitWinningPoints(match)} sets={match.format === "best_of_3_21" ? 2 : 1} busy={busy}
+            onAction={body => void action(body)} />
           <details className="umpire-assignment-report">
             <summary>Report incorrect players</summary>
             <form className="umpire-workflow-form" onSubmit={event => {

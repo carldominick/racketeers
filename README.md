@@ -12,6 +12,8 @@ Organizer → Prepare → Registrations → Registration tools can download CSV 
 
 The organizer can enable personal umpire PINs, staffed court dispatch, team-confirmed results and dispute handling after the Cloudflare Worker credential secret is configured. Activation retires the shared umpire login and per-game PINs. Optional Soft Chimes cover new assignments on the personal umpire dashboard and finished games and court help requests on Game Day Desk. See [Umpire workflow, production setup and local review](docs/umpire-workflow.md).
 
+On a staffed court, **Report no-show** lets the assigned umpire record an absent team before play. The present team gets the configured winning score against zero for each set needed to win. If both teams are absent, the game ends 0–0 with no winner.
+
 ## Dedicated court window and receipt review
 
 Organizer → Run tournament → Game day desk → **Open court view** launches `/courts` separately. Keep the main desk open to assign courts while the display shows usage, reservations and available courts. Live Venue supports 12 courts in a four-by-three layout, selectable badminton courts, current players/scores, rotate/zoom/reset, and a 2D list. Player artwork shows illustrative positions, not tracking. Narrow screens start in 2D; unavailable WebGL falls back to it. Enter fullscreen hides its button; Escape exits. Light, Dark and Pure black follow the tournament theme.
