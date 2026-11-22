@@ -16,6 +16,8 @@ Organizer state and court alerts poll at two-second intervals while the tab is v
 
 The personal umpire waiting and assignment screens share the court header, separate duty and connection statuses, a visible match-alert toggle, and a More menu for session controls. Personal umpire sign-in starts under Staff access → Umpire and opens the assigned court. The dashboard waits for its active refresh to finish before polling again. A dispute records when and by whom umpire review began.
 
+Assigned umpires can record a no-show before play and confirm the court is clear. The present team receives the match's winning target against zero for every set needed to win. A double no-show settles the game at 0–0 with no winner. Results preserve the distinction between no-show outcomes and played scores.
+
 ## Named organizer accounts
 
 Staff access lets staff choose Organizer or Umpire. Before account activation, an organizer can still use the legacy PIN. The organizer desk requires a successful private snapshot before enabling edits. User management can create three named managers (carl.taboada, erin.kizel, regin.povz) and a view-only racketeers account. Initial passwords are generated at activation and must be replaced before access. Named sessions are checked on the Worker, and organizer actions are attributed in the audit history. Registration and umpire PINs are independent. See [Organizer accounts](docs/organizer-accounts.md) for activation and recovery.

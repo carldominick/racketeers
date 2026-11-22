@@ -37,7 +37,7 @@ async function heartbeat(db: StateDatabase, hash: string, now: number) {
 }
 
 const response = (data: unknown, status = 200, cookie?: string) => Response.json(data, { status, headers: { "Cache-Control": "private, no-store", ...(cookie ? { "Set-Cookie": cookie } : {}) } });
-const publicUmpireActions = new Set(["login", "logout", "duty", "acknowledge", "incorrectPlayers", "start", "score", "submit", "reportDispute", "reviewDispute", "correct", "escalate", "help"]);
+const publicUmpireActions = new Set(["login", "logout", "duty", "acknowledge", "incorrectPlayers", "noShow", "start", "score", "submit", "reportDispute", "reviewDispute", "correct", "escalate", "help"]);
 const organizerActions = new Set(["enable", "newTournament", "add", "rename", "issuePin", "revokePin", "deactivate", "assignCourt", "resolvePlayers", "requeuePlayers", "returnDispute", "releaseDispute", "rule"]);
 
 export async function handleUmpire(request: Request, context: Context, body?: WorkflowInput) {

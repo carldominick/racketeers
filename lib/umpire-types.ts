@@ -14,6 +14,7 @@ export type UmpireMember = {
 export type UmpireDirectory = { scope: string; members: UmpireMember[]; issuedKeys?: string[] };
 export type UmpirePhase = "assigned" | "seen" | "incorrect_players" | "playing" | "awaiting_confirmation" | "disputed" | "escalated" | "completed" | "finalized_by_ruling" | "voided";
 export type ScoreAudit = { at: string; actor: string; reason: string; before: SetScore[]; after: SetScore[] };
+export type NoShowSide = "a" | "b" | "both";
 export type UmpireWorkflow = {
   phase: UmpirePhase;
   umpireId: string;
@@ -24,6 +25,7 @@ export type UmpireWorkflow = {
   seenAt?: string;
   startedAt?: string;
   releasedAt?: string;
+  noShow?: NoShowSide;
   confirmed?: { a: true; b: true; at: string; umpireId: string };
   dispute?: { side: "a" | "b" | "both"; reason: string; notes: string; at: string; umpireId: string; scores: SetScore[]; reviewStartedAt?: string; reviewedBy?: string; escalatedAt?: string; resolvedAt?: string };
   priorDisputes?: NonNullable<UmpireWorkflow["dispute"]>[];

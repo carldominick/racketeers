@@ -101,8 +101,8 @@ function publicState(state: TournamentState, staff = false) {
     const ids = publicIds.get(match.divisionId);
     const a = match.entryAId ? ids?.get(match.entryAId) ?? null : null;
     const b = match.entryBId ? ids?.get(match.entryBId) ?? null : null;
-    const winnerId = match.forfeit && ids?.get(match.forfeit.winnerId);
-    return { ...match, entryAId: a, entryBId: b, forfeit: match.forfeit && winnerId ? { ...match.forfeit, winnerId } : undefined, provisionalResult: provisionalWorkflow(umpireWorkflow) || undefined, voidedResult: umpireWorkflow?.phase === "voided" || undefined, pin: "", ...(match.hold ? { hold: { ...match.hold, reason: "" } } : {}) };
+    const winnerId = match.forfeit?.winnerId ? ids?.get(match.forfeit.winnerId) : match.forfeit?.winnerId;
+    return { ...match, entryAId: a, entryBId: b, forfeit: match.forfeit && winnerId !== undefined ? { ...match.forfeit, winnerId } : undefined, provisionalResult: provisionalWorkflow(umpireWorkflow) || undefined, voidedResult: umpireWorkflow?.phase === "voided" || undefined, pin: "", ...(match.hold ? { hold: { ...match.hold, reason: "" } } : {}) };
   });
   return safe;
 }

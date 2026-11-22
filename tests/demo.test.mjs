@@ -6,11 +6,12 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 const dir=await mkdtemp(path.join(tmpdir(),'organizer-demo-'));
-for(const file of ['demo-runtime','demo-access','client-request','umpire-auth'])await build({entryPoints:[`lib/${file}.ts`],outfile:path.join(dir,`${file}.mjs`),bundle:true,platform:'node',format:'esm'});
+for(const file of ['demo-runtime','demo-access','client-request','umpire-auth','tournament'])await build({entryPoints:[`lib/${file}.ts`],outfile:path.join(dir,`${file}.mjs`),bundle:true,platform:'node',format:'esm'});
 const {createDemoRuntime}=await import(pathToFileURL(path.join(dir,'demo-runtime.mjs')));
 const {authorizeDemo}=await import(pathToFileURL(path.join(dir,'demo-access.mjs')));
 const {apiFetch,installDemoTransport}=await import(pathToFileURL(path.join(dir,'client-request.mjs')));
 const {issueUmpirePin,identifyUmpire}=await import(pathToFileURL(path.join(dir,'umpire-auth.mjs')));
+const {matchWinner,matchResultSets,standingsFor}=await import(pathToFileURL(path.join(dir,'tournament.mjs')));
 const png=new Uint8Array(await readFile('preview/receipt-fixture.png'));
 const org={'x-organizer-pin':'98765432'};
 const request=(runtime,path='/api/state',method='GET',body,headers=org)=>runtime.send(path,{method,headers:{...headers,...(body&&!(body instanceof Uint8Array)?{'content-type':'application/json'}:{})},...(body?{body:body instanceof Uint8Array?body:JSON.stringify(body)}:{})});
@@ -117,12 +118,14 @@ test('demo runs staffed dispatch, player verification, correction, handoff, fina
   assert.equal((await get('one')).match.id,target.id);assert.equal((await get('two')).match,null);
   const seen=await get('one');
   await check(seat('two',{action:'start',matchId:target.id,version:seen.match.umpireWorkflow.version}),403);
+  await check(seat('two',{action:'noShow',matchId:target.id,version:seen.match.umpireWorkflow.version,side:'a',clear:true}),403);
   await check(umpire('one',{action:'incorrectPlayers',note:'A substitute arrived at the court.'}));
   await check(umpire('one',{action:'start'}),409);
   let current=(await get('one')).match;
   await check(orgAction({action:'resolvePlayers',matchId:target.id,version:current.umpireWorkflow.version,reason:'Registered players have now arrived.'}));
   await check(umpire('one',{action:'start'}));
   await check(score('one',[{a:12,b:8,complete:false}]));
+  await check(umpire('one',{action:'noShow',side:'b',clear:true}),409);
   await check(orgAction({action:'assignCourt',court:1,umpireId:dario.id,reason:'Shift change'}));
   current=(await get('two')).match;
   assert.deepEqual(current.sets,[{a:12,b:8,complete:false}]);assert.equal(current.umpireWorkflow.handoffs[0].from,rosa.id);
@@ -188,4 +191,70 @@ test('demo runs staffed dispatch, player verification, correction, handoff, fina
   assert.equal((await check(request(independent,'/api/umpires'))).roster.length,0);
  }finally{demo.close();independent.close();}
 });
+test('the assigned umpire can settle a one-sided or double no-show before play',async()=>{
+ for(const {side,target,format,scores} of [
+  {side:'a',target:31,format:'single_31',scores:[[0,31]]},
+  {side:'b',target:21,format:'best_of_3_21',scores:[[21,0],[21,0]]},
+  {side:'both',target:21,format:'best_of_3_21',scores:[[0,0]]},
+ ]){
+  const demo=await createDemoRuntime(Date.now()+120000);
+  const inspect=async result=>{
+   const response=await result;
+   const data=await response.json();
+   assert.equal(response.status,200,JSON.stringify(data));
+   return data;
+  };
+  const staff=async (path,body)=>inspect(request(demo,path,'POST',{...body,expectedRevision:(await snapshot(demo)).revision}));
+  const seat=(body,headers={'x-demo-umpire-seat':'no-show-fixture'})=>request(demo,'/api/umpires',body?'POST':'GET',body,headers);
+  try{
+   const {state,revision}=await snapshot(demo);
+   const match=state.matches.find(game=>game.stage==='regular');
+   const scoring={mode:'first_to_target',target,cap:target};
+   const divisions=state.divisions.map(division=>({...division,stageScoring:{regular:scoring}}));
+   await inspect(request(demo,'/api/state','PUT',{state:{...state,status:'live',divisions,matches:[{...match,format,scoring}]},expectedRevision:revision}));
+   await staff('/api/umpires',{action:'enable'});
+   const {pin}=await staff('/api/umpires',{action:'add',name:'No-show fixture umpire'});
+   const {roster}=await inspect(request(demo,'/api/umpires'));
+   await staff('/api/umpires',{action:'assignCourt',court:1,umpireId:roster[0].id});
+   await inspect(seat({action:'login',pin}));
+   await inspect(seat({action:'duty',onDuty:true}));
+   await staff('/api/state',{action:'dispatchGame',matchId:match.id,court:1});
+   const assigned=(await inspect(seat())).match;
+   if (side==='b') await inspect(seat({action:'acknowledge',matchId:match.id,version:assigned.umpireWorkflow.version}));
+   const live=(await inspect(seat())).match;
+   const record={action:'noShow',side,matchId:match.id,version:live.umpireWorkflow.version,clear:true};
+   assert.equal((await seat(record,{'x-demo-umpire-seat':'another-device'})).status,401);
+   assert.equal((await seat({...record,clear:false})).status,400);
+   assert.equal((await seat({...record,version:record.version+1})).status,409);
+   await inspect(seat(record));
+
+   const saved=await snapshot(demo);
+   const result=saved.state.matches[0];
+   assert.equal(result.validated,true);
+   assert.equal(result.courtInUse,false);
+   assert.equal(result.umpireWorkflow.confirmed,undefined);
+   assert.equal(result.umpireWorkflow.noShow,side);
+   assert.equal((await inspect(seat())).match,null);
+   const winner=side==='a'?match.entryBId:side==='b'?match.entryAId:null;
+   assert.equal(matchWinner(result),winner);
+   assert.deepEqual(matchResultSets(result).map(set=>[set.a,set.b]),scores);
+   const standings=standingsFor(saved.state,match.divisionId);
+   for(const id of [match.entryAId,match.entryBId]){
+    const row=standings.find(item=>item.entryId===id);
+    assert.equal(row.played,1);
+    assert.equal(row.wins,Number(id===winner));
+    assert.equal(row.pointsFor,id===winner?target*scores.length:0);
+    assert.equal(row.losses,Number(Boolean(winner && id!==winner)));
+   }
+   const publicMatch=(await inspect(request(demo,'/api/state','GET',undefined,{}))).state.matches[0];
+   assert.deepEqual(matchResultSets(publicMatch).map(set=>[set.a,set.b]),scores);
+   assert.equal(matchWinner(publicMatch),winner===null?null:side==='a'?publicMatch.entryBId:publicMatch.entryAId);
+   await inspect(seat(record));
+   assert.equal((await snapshot(demo)).revision,saved.revision);
+   assert.equal((await seat({...record,side:side==='a'?'b':'a'})).status,409);
+   assert.equal((await courtEvents(demo)).filter(event=>event.kind==='court_released'&&event.matchId===match.id).length,1);
+  }finally{demo.close();}
+ }
+});
+
 test.after(()=>rm(dir,{recursive:true,force:true}));
