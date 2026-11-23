@@ -3,7 +3,7 @@ import { loadPaymentQueue } from "./payment-review-queue";
 import { ReceiptRequestError } from "./receipt-batch";
 import type { RegistrationExportSheet } from "./registration-export";
 import type { TournamentState } from "./tournament";
-import { paymentTransferScopes } from "./registration-payment";
+import { registrationPaymentReport } from "./registration-payment-report";
 
 /** Export the visible snapshot; receipt services must not block a roster download. */
 export async function prepareRegistrationExport({ state, divisionId, pin, includePaymentData, request = apiFetch }: {
@@ -21,42 +21,29 @@ export async function prepareRegistrationExport({ state, divisionId, pin, includ
   if (!sheets.length) throw new Error("There are no divisions to export.");
   const rows = new Map(sheets.flatMap(sheet => sheet.rows.map(row => [row.id, row] as const)));
   const money = (cents: number) => (cents / 100).toFixed(2);
-  const byScope = new Map<string, { slot: number; id: string; group: string; reference: string; amount: string; cents: number }[]>();
-  for (const transfer of state.paymentTransfers ?? []) for (const allocation of transfer.allocations) {
-    const key = [...allocation.ids].sort().join("/");
-    const entries = byScope.get(key) ?? [];
-    entries.push({ slot: transfer.slot, id: transfer.id, group: transfer.groupId, reference: transfer.details.reference, amount: transfer.details.amount, cents: allocation.cents });
-    byScope.set(key, entries);
-  }
-  const scopes = paymentTransferScopes(state, state.registrations.map(player => player.id));
-  const describe = (entries: NonNullable<ReturnType<typeof byScope.get>>) => entries.map(entry =>
-    `Accepted · Photo ${entry.slot} · ${entry.reference} · transfer PHP ${entry.amount} · allocated PHP ${money(entry.cents)} · ${entry.group}/${entry.id}`
+  const { totals, scopes, historical, allocations } = registrationPaymentReport(state, divisionId);
+  const describe = (key: string) => (allocations.get(key) ?? []).map(({ transfer, cents }) =>
+    `Accepted · Photo ${transfer.slot} · ${transfer.details.reference} · transfer PHP ${transfer.details.amount} · allocated PHP ${money(cents)} · ${transfer.groupId}/${transfer.id}`
   ).join("\n");
   for (const scope of scopes) {
     const members = [...scope.ids].sort().map(id => rows.get(id)).filter(row => row !== undefined);
     for (const row of members) row.billingScope = scope.key;
     const first = members[0];
     if (!first) continue;
-    const recognized = scope.confirmed > 0 || !scope.previouslyPaid.length;
     first.billingCells = [
       scope.due === null ? "" : money(scope.due), money(scope.confirmed),
-      scope.due === null || !recognized ? "" : money(Math.max(0, scope.due - scope.confirmed)),
+      scope.outstanding === null ? "" : money(scope.outstanding),
       scope.due === null ? "" : money(Math.max(0, scope.confirmed - scope.due)),
-      describe(byScope.get(scope.key) ?? []),
+      describe(scope.key),
     ];
   }
-  const currentKeys = new Set(scopes.map(scope => scope.key));
-  const historical = [...byScope].flatMap(([scope, entries]) => {
-    if (currentKeys.has(scope) || divisionId !== "all" && !scope.split("/").some(id => rows.has(id))) return [];
-    const total = entries.reduce((sum, entry) => sum + entry.cents, 0);
-    return [{
-      name: "Historical allocation · review registration changes", id: "", divisionName: "", paid: false, billingScope: scope,
-      billingCells: ["", money(total), "", "", describe(entries)], reviewStatus: "Historical allocation · verify billing scope",
-    }];
-  });
-  if (historical.length && divisionId === "all") sheets.push({ name: "Historical allocations", rows: historical });
-  else if (historical.length) sheets[0].rows.push(...historical);
-  if (!includePaymentData) return { sheets, warning: "Exported the entries currently shown. Payment links and reviewed receipt fields were not loaded while changes are unsaved or the connection is unavailable." };
+  const historicalRows = historical.map(({ key, confirmed }) => ({
+    name: "Historical allocation · review registration changes", id: "", divisionName: "", paid: false, billingScope: key,
+    billingCells: ["", money(confirmed), "", "", describe(key)], reviewStatus: "Historical allocation · verify billing scope",
+  }));
+  if (historicalRows.length && divisionId === "all") sheets.push({ name: "Historical allocations", rows: historicalRows });
+  else if (historicalRows.length) sheets[0].rows.push(...historicalRows);
+  if (!includePaymentData) return { sheets, totals, warning: "Exported the entries currently shown. Payment links and reviewed receipt fields were not loaded while changes are unsaved or the connection is unavailable." };
   const players = state.registrations.filter(player => rows.has(player.id));
   try {
     let links: Record<string, string> = {};
@@ -97,9 +84,9 @@ export async function prepareRegistrationExport({ state, divisionId, pin, includ
       }
       row.evidence = evidence.join("\n");
     }
-    return { sheets, warning: unavailable.size ? `Payment links could not be loaded for ${unavailable.size} exported registrations.` : "" };
+    return { sheets, totals, warning: unavailable.size ? `Payment links could not be loaded for ${unavailable.size} exported registrations.` : "" };
   } catch (error) {
     if (error instanceof ReceiptRequestError && [401, 403].includes(error.status)) throw error;
-    return { sheets, warning: "Player details exported, but payment links and reviewed receipt fields could not be loaded. Check those fields in the organizer view and retry the export when connected." };
+    return { sheets, totals, warning: "Player details exported, but payment links and reviewed receipt fields could not be loaded. Check those fields in the organizer view and retry the export when connected." };
   }
 }

@@ -1,4 +1,5 @@
 import type { ReceiptDetails } from "./receipt-details";
+import type { RegistrationPaymentTotals } from "./registration-payment-report";
 import { zipSync } from "fflate";
 
 export const REGISTRATION_EXPORT_COLUMNS = [
@@ -38,14 +39,27 @@ function csvCell(value: unknown) {
   return '"' + text.replaceAll('"', '""') + '"';
 }
 
-export function registrationSheetCsv(sheet: RegistrationExportSheet) {
+export function registrationSheetCsv(sheet: RegistrationExportSheet, totals?: RegistrationPaymentTotals) {
+  const summaryColumns = ["Total registration fees (PHP)", "Amount still to collect (PHP)", "Total validated payments (PHP)", "Billing scopes needing review"];
   const records = [
-    [...REGISTRATION_EXPORT_COLUMNS],
+    [...REGISTRATION_EXPORT_COLUMNS, ...summaryColumns],
     ...sheet.rows.map(row => [
       row.name, row.id, row.phone, row.facebookProfile, row.club, row.partnerName,
-      row.divisionName, row.secondShirt === "none" ? "No shirt" : row.shirtSize, row.paid ? "Validated" : "Pending", row.paymentProofUrl || "", ...receiptCells(row),
+      row.divisionName, row.secondShirt === "none" ? "No shirt" : row.shirtSize, row.paid ? "Validated" : "Pending", row.paymentProofUrl || "", ...receiptCells(row), ...summaryColumns.map(() => ""),
     ]),
   ];
+  if (totals) {
+    const summary = REGISTRATION_EXPORT_COLUMNS.map(column => {
+      if (column === "Player name") return "Payment totals";
+      if (column === "Division") return totals.scope;
+      if (column === "Review status" && totals.needsReview) return [
+        totals.unpriced ? "Total registration fees include priced entries only." : "",
+        "Amount still to collect includes known balances only. Review missing prices, earlier manual payments or historical allocations.",
+      ].filter(Boolean).join(" ");
+      return "";
+    });
+    records.push([...summary, (totals.fees / 100).toFixed(2), (totals.outstanding / 100).toFixed(2), (totals.validated / 100).toFixed(2), String(totals.needsReview)]);
+  }
   return "\uFEFF" + records.map(record => record.map(csvCell).join(",")).join("\r\n");
 }
 

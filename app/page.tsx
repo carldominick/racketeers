@@ -33,6 +33,7 @@ import { ShirtSizeGuide } from "./components/shirt-size-guide";
 import { TournamentCountdown, useCountdownSeconds } from "./components/tournament-countdown";
 import { RegistrationDeadlineBanner, RegistrationDeadlineInput } from "./components/registration-deadline";
 import { RegistrationRoster } from "./components/registration-roster";
+import { RegistrationPaymentPrintSheet, RegistrationPaymentSummary } from "./components/registration-payment-report";
 import { PrepareDetails } from "./components/prepare-details";
 import { PrepareDraw } from "./components/prepare-draw";
 import { registrationPaymentEntries, trackedPaymentIds, type ReceiptPaymentControls } from "../lib/registration-payment";
@@ -44,6 +45,7 @@ import { RegistrationPin } from "./components/registration-pin";
 import { PaymentPhotoPicker, PaymentProof, preparePaymentImage, uploadPaymentImages } from "./components/payment-proof";
 import { PaymentReviewQueue } from "./components/payment-review-queue";
 import { prepareRegistrationExport } from "../lib/registration-export-data";
+import { registrationPaymentReport } from "../lib/registration-payment-report";
 import { ReceiptBatchReview } from "./components/receipt-batch-review";
 import { RegistrationCharges } from "./components/registration-charges";
 import { RegistrationContactInput } from "./components/registration-contact-input";
@@ -108,7 +110,7 @@ import {
 
 type View = "organizer" | "register" | "umpire" | "spectator" | "projector";
 type Tab = "umpires" | "accounts" | "setup" | "registration" | "draw" | "scores" | "schedule" | "projector" | "standings";
-type PrintMode = { type: "schedule" } | { type: "scorecard"; matchId: string; snapshot?: TournamentState; number?: number } | { type: "scorecards"; perSheet: MatchCardsPerSheet } | null;
+type PrintMode = { type: "schedule" } | { type: "scorecard"; matchId: string; snapshot?: TournamentState; number?: number } | { type: "scorecards"; perSheet: MatchCardsPerSheet } | { type: "registration-payments"; tournamentName: string; report: ReturnType<typeof registrationPaymentReport> } | null;
 
 
 function ContactFields({ facebookProfile, phone, readOnly = false, onChange }: { facebookProfile?: string; phone?: string; readOnly?: boolean; onChange: (patch: { facebookProfile?: string; phone?: string }) => void }) {
@@ -512,6 +514,7 @@ function TournamentProgress({ state, onPrintAll }: { state: TournamentState; onP
 }
 
 function PrintSheet({ state, mode }: { state: TournamentState; mode: Exclude<PrintMode, null> }) {
+  if (mode.type === "registration-payments") return <RegistrationPaymentPrintSheet tournamentName={mode.tournamentName} report={mode.report} />;
   const entries = new Map(state.divisions.flatMap((division) => division.entries).map((entry) => [entry.id, entry]));
   if (mode.type === "schedule") return <section className="print-sheet print-schedule"><header><p>RACKETEERS</p><h1>{state.tournamentName}</h1><span>Tournament Match Schedule</span></header><table><thead><tr><th>Date & time</th><th>Court</th><th>Division / Round</th><th>Matchup</th><th>Umpire</th></tr></thead><tbody>{[...state.matches].sort((a, b) => (a.scheduledAt ?? "z").localeCompare(b.scheduledAt ?? "z")).map((match) => <tr key={match.id}><td>{fmtDate(match.scheduledAt)}</td><td>{match.court ? `Court ${match.court}` : "TBD"}</td><td>{state.divisions.find((division) => division.id === match.divisionId)?.name}<br />{match.label}</td><td>{displayName(entries.get(match.entryAId ?? ""))}<br /><b>vs</b><br />{displayName(entries.get(match.entryBId ?? ""))}</td><td></td></tr>)}</tbody></table></section>;
   return <PrintMatchCards state={state} matchId={mode.type === "scorecard" ? mode.matchId : undefined} perSheet={mode.type === "scorecards" ? mode.perSheet : undefined} number={mode.type === "scorecard" ? mode.number : undefined} />;
@@ -1076,11 +1079,11 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
     setRegistrationExportBusy(true);
     setRegistrationExportMessage("");
     try {
-      const { sheets, warning } = await prepareRegistrationExport({ state, divisionId: registrationScope, pin: organizerPin, includePaymentData: !dirty && sync === "saved" });
+      const { sheets, totals, warning } = await prepareRegistrationExport({ state, divisionId: registrationScope, pin: organizerPin, includePaymentData: !dirty && sync === "saved" });
       const selected = { name: "Registrations", rows: sheets.flatMap(sheet => sheet.rows) };
 
       const blob = format === "csv"
-        ? new Blob([registrationSheetCsv(selected)], { type: "text/csv;charset=utf-8" })
+        ? new Blob([registrationSheetCsv(selected, totals)], { type: "text/csv;charset=utf-8" })
         : new Blob([new Uint8Array(buildRegistrationWorkbook(sheets))], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -1242,6 +1245,9 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
     change: (registrationId, mutation) => runSetupAction({ ...mutation, registrationId }, revisionRef.current, false),
   };
   const registrationScope = state.divisions.some(division => division.id === registrationDivisionFilter) ? registrationDivisionFilter : "all";
+  const paymentReport = view === "organizer" && tab === "registration" && unlocked
+    ? registrationPaymentReport(state, registrationScope)
+    : null;
   const prepareDivision = state.divisions.find(division => division.id === prepareDivisionId) ?? state.divisions[0];
   const registrationDivisions = state.divisions.filter(division => registrationScope === "all" || division.id === registrationScope);
   const visibleRegistrations = state.registrations.filter(player => registrationScope === "all" || player.divisionId === registrationScope);
@@ -1285,6 +1291,7 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
         <button type="button" className="primary" disabled={registrationBlocked || dirty || sync !== "saved" || !prepareDivision}
           onClick={() => { if (prepareDivision) setRegistrationDialog({ divisionId: prepareDivision.id }); }}>Add player</button>
       </div>
+      {paymentReport && <RegistrationPaymentSummary totals={paymentReport.totals} />}
       <div className="prepare-metrics">
         <span><strong>{visibleRegistrations.length}</strong> Player entries</span>
         <span><strong>{visibleRegistrations.filter(player => !player.paid).length}</strong> Unconfirmed entries</span>
@@ -1316,7 +1323,17 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
       </div>
       <details className="card prepare-tools">
         <summary>Registration tools</summary>
-          <section className="card registration-export"><div className="section-head"><div><p className="eyebrow">Validation files</p><h2>Export registered players</h2><p>CSV includes every selected division. Excel keeps each division on its own sheet. Each billing scope lists its charge, confirmed payments and balance once. A connected export includes private evidence links.</p></div><div className="action-row"><button type="button" className="secondary" disabled={registrationExportBusy || organizerReadOnly || organizerSessionExpired} onClick={() => void downloadRegistrationExport("csv")}>{registrationExportBusy ? "Preparing…" : "Download CSV"}</button><button type="button" className="primary" disabled={registrationExportBusy || organizerReadOnly || organizerSessionExpired} onClick={() => void downloadRegistrationExport("xlsx")}>{registrationExportBusy ? "Preparing…" : "Download Excel"}</button></div></div>{registrationExportMessage && <p role="status">{registrationExportMessage}</p>}</section>
+        <section className="card registration-export">
+          <div className="section-head">
+            <div><p className="eyebrow">Validation files</p><h2>Export registered players</h2><p>CSV and PDF include payment totals for the selected division or all divisions. Excel keeps each division on its own sheet. Connected CSV and Excel exports include private evidence links.</p></div>
+            <div className="action-row">
+              <button type="button" className="secondary" disabled={registrationExportBusy || organizerReadOnly || organizerSessionExpired} onClick={() => void downloadRegistrationExport("csv")}>{registrationExportBusy ? "Preparing…" : "Download CSV"}</button>
+              <button type="button" className="secondary" disabled={!paymentReport || organizerReadOnly || organizerSessionExpired} onClick={() => { if (paymentReport) setPrintMode({ type: "registration-payments", tournamentName: state.tournamentName, report: paymentReport }); }}>Print / Save PDF</button>
+              <button type="button" className="primary" disabled={registrationExportBusy || organizerReadOnly || organizerSessionExpired} onClick={() => void downloadRegistrationExport("xlsx")}>{registrationExportBusy ? "Preparing…" : "Download Excel"}</button>
+            </div>
+          </div>
+          {registrationExportMessage && <p role="status">{registrationExportMessage}</p>}
+        </section>
         <fieldset className="phase-fieldset stack" disabled={registrationBlocked}>
           <PaymentReviewQueue state={state} pin={organizerPin} paymentControls={paymentControls} />
           <ReceiptBatchReview registrations={state.registrations} pin={organizerPin} locked={registrationLocked} />
