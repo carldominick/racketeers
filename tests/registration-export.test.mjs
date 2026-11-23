@@ -96,6 +96,48 @@ test('CSV and Excel export confirmed allocations once and keep amounts distinct 
  }
 });
 
+test('registration totals count split payments once, retain historical payments and surface uncertain balances', async () => {
+ const registrationPricing = { entry: '950', tournamentShirt: '0' };
+ const divisions = [
+  { id: 'open', name: 'Open doubles', mode: 'doubles', registrationPricing },
+  { id: 'mixed', name: 'Mixed singles', mode: 'singles', registrationPricing },
+  { id: 'unset', name: 'No prices', mode: 'singles' },
+ ];
+ const registrations = [
+  { id: 'a', name: 'Alex', divisionId: 'open', partnerId: 'b', paymentGroupId: 'group' },
+  { id: 'b', name: 'Sam', divisionId: 'open', partnerId: 'a', paymentGroupId: 'group' },
+  { id: 'c', name: 'Jo', divisionId: 'mixed', paymentGroupId: 'group', paid: true },
+  { id: 'd', name: 'Max', divisionId: 'mixed', paid: true },
+  { id: 'e', name: 'Kai', divisionId: 'unset' },
+  { id: 'f', name: 'Lee', divisionId: 'mixed', paid: true },
+ ];
+ const paymentTransfers = [
+  { groupId: 'group', details: { reference: '00001', amount: '2400.00' }, allocations: [
+   { ids: ['a', 'b'], cents: 140000, due: 190000, previouslyPaid: [] },
+   { ids: ['c'], cents: 100000, due: 95000, previouslyPaid: [] },
+  ] },
+  { groupId: 'old', details: { reference: '00002', amount: '200.00' }, allocations: [
+   { ids: ['removed'], cents: 15000, due: 95000, previouslyPaid: [] },
+   { ids: ['f'], cents: 5000, due: 95000, previouslyPaid: ['f'] },
+  ] },
+ ];
+ const exportFor = divisionId => prepareRegistrationExport({state:{divisions,registrations,paymentTransfers},divisionId,pin:'fixture',includePaymentData:false});
+ const all = await exportFor('all');
+ assert.deepEqual(all.totals, { scope: 'All divisions', fees: 475000, validated: 260000, outstanding: 50000, needsReview: 4, unpriced: 1 });
+ assert.deepEqual((await exportFor('open')).totals, { scope: 'Open doubles', fees: 190000, validated: 140000, outstanding: 50000, needsReview: 0, unpriced: 0 });
+ assert.deepEqual((await exportFor('mixed')).totals, { scope: 'Mixed singles', fees: 285000, validated: 105000, outstanding: 0, needsReview: 2, unpriced: 0 });
+ assert.deepEqual((await exportFor('unset')).totals, { scope: 'No prices', fees: 0, validated: 0, outstanding: 0, needsReview: 1, unpriced: 1 });
+ const mixed = all.sheets.find(sheet => sheet.name === 'Mixed singles');
+ assert.equal(mixed.rows.find(row => row.id === 'f').billingCells[2], '');
+ const csv = registrationSheetCsv({ name: 'Registrations', rows: all.sheets.flatMap(sheet => sheet.rows) }, all.totals);
+ assert.match(csv.split('\r\n')[0], /"Total registration fees \(PHP\)","Amount still to collect \(PHP\)","Total validated payments \(PHP\)","Billing scopes needing review"$/);
+ const footer = csv.split('\r\n').at(-1);
+ assert.match(footer, /^"Payment totals",/);
+ assert.match(footer, /"All divisions"/);
+ assert.match(footer, /Total registration fees include priced entries only/);
+ assert.match(footer, /"4750\.00","500\.00","2600\.00","4"$/);
+});
+
 test('payment export batches requests even when 1,001 entries share a group',async()=>{
  const registrations=Array.from({length:1001},(_,i)=>({id:'player-'+i,divisionId:'open',name:'Fixture '+i,paid:false,paymentGroupId:'fixture'}));
  const batches=[];

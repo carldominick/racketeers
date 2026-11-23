@@ -200,3 +200,69 @@
   .registration-roster-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 16px 0 20px; }
   .registration-roster-filters label:first-child { grid-column: 1 / -1; }
 }
+
+.registration-payment-summary dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.registration-payment-summary dl > div {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.registration-payment-summary h2 { margin: 0; }
+.registration-payment-summary p { margin: 4px 0 0; }
+.registration-payment-summary dd {
+  margin: 4px 0 0;
+  font-size: clamp(16px, 3vw, 24px);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+@media screen {
+  .registration-payment-summary {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+  }
+}
+
+@media screen and (max-width: 520px) {
+  .registration-payment-summary dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .registration-payment-summary dl > :first-child { grid-column: 1 / -1; }
+}
+
+@media print {
+  @page registration-payments { size: A4 portrait; margin: 12mm; }
+
+  body:has(.registration-payment-print), main.clubhouse-site:has(> .registration-payment-print) {
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+    background: white !important;
+  }
+
+  main:has(> .registration-payment-print) > :not(.registration-payment-print) { display: none !important; }
+
+  .print-sheet.registration-payment-print {
+    page: registration-payments;
+    position: static;
+    overflow-wrap: anywhere;
+  }
+
+  .print-sheet.registration-payment-print header { display: block; break-after: avoid; }
+  .print-sheet.registration-payment-print h1 { font-size: 22px; font-weight: 700; }
+  .print-sheet.registration-payment-print header p { font-weight: 600; letter-spacing: normal; }
+  .registration-payment-print .registration-payment-summary { margin-bottom: 12px; break-inside: avoid; break-after: avoid; }
+  .registration-payment-print .registration-payment-summary dl > div { border-color: #777; }
+  .registration-payment-print table { width: 100%; border-collapse: collapse; }
+  .registration-payment-print thead { display: table-header-group; }
+  .registration-payment-print tr { break-inside: avoid; }
+  .print-sheet.registration-payment-print :is(th, td) { padding: 5px 7px; font-size: 12px; text-align: left; vertical-align: top; }
+  .registration-payment-print :is(th, td):nth-last-child(-n+3) { white-space: nowrap; }
+}
