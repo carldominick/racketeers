@@ -201,8 +201,9 @@ export async function handleUmpire(request: Request, context: Context, body?: Wo
 }
 
 function safeMatch(match: TournamentState["matches"][number]) {
-  const { umpireHistory, ...safe } = match;
+  const { umpireHistory, resetUmpireHistoryCount, ...safe } = match;
   void umpireHistory;
+  void resetUmpireHistoryCount;
   return { ...safe, pin: "" };
 }
 

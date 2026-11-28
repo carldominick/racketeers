@@ -76,7 +76,7 @@ If the receipt service is unavailable, the exported roster and ledger figures re
 
 Organizer saves pause on a revision conflict, preserve the unsaved draft and show the affected sections. Download that private draft if needed, then load the latest tournament and reapply the intended edits. The client does not automatically retry a stale snapshot at the newer revision. Other editing controls are paused during conflict review; ordinary network failures retain the draft and retry. Unsaved state is in memory, with a leave-page warning.
 
-Bracket regeneration now previews its impact, requires a current downloaded recovery copy and typed confirmation, and runs through an organizer-only revision-checked action. It is blocked during Live/Completed and once play/results exist. Game Day adds a compact desk checklist for outstanding validation, holds, no-show results, reservations and connection state. Opening checks does not advance rotation or assign courts.
+Bracket regeneration previews its impact and requires a current recovery download and typed confirmation. To rebuild after games were assigned or played, use **Reset all games** in Setup, switch to Registration or Setup, then download a fresh backup in **Review bracket regeneration**. The backup retains the umpire history for games the new draw replaces. Game Day includes a desk checklist for outstanding validation, holds, no-show results, reservations and connection state.
 
 Game Day tolerates isolated refresh failures and spaces out retries if they continue. Account managers can add a new organizer admin in **Prepare → User management → Accounts** and share the generated initial password privately.
 
@@ -191,7 +191,7 @@ New registration IDs use REG followed by a cryptographically generated UUID with
 
 ### Organizer practice mode
 
-Organizer → Prepare → Setup → **Open organizer demo** opens an organizer-PIN-protected practice tab. It uses fictional players, matches and sample receipts, including a group with three photos and one available slot. Changes/images stay in the tab's memory and reset on reload, exit or 30-minute expiry. The real tournament and storage are separate. See [Demo mode](docs/demo-mode.md) for supported workflows, initial fictional PINs and limitations.
+Organizer → Prepare → Setup → **Open organizer demo** opens a practice tab. Sign in with an organizer account that can edit the tournament, then leave the demo PIN field blank. Installations without named accounts use the current organizer PIN. The demo uses fictional players, matches and sample receipts, including a group with three photos and one available slot. Changes stay in the tab and reset on reload, exit or 30-minute expiry. See [Demo mode](docs/demo-mode.md) for the practice PINs and supported workflows.
 
 The November UI polish retains the navy/lime palette and themes, with lighter action labels, sentence-case status badges, consistent registration progress spacing and 48px registration fields. Live scores retain their existing sizes; surrounding score cards use quieter borders without decorative rings. Print layout and projector scaling are unchanged.
 

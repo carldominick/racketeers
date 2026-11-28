@@ -96,8 +96,9 @@ function publicState(state: TournamentState, staff = false) {
       id: ids.get(entry.id)!, name: entry.name, players: entry.players, teamName: entry.teamName,
     })) };
   });
-  safe.matches = safe.matches.map(({ umpireWorkflow, umpireHistory, ...match }) => {
+  safe.matches = safe.matches.map(({ umpireWorkflow, umpireHistory, resetUmpireHistoryCount, ...match }) => {
     void umpireHistory;
+    void resetUmpireHistoryCount;
     const ids = publicIds.get(match.divisionId);
     const a = match.entryAId ? ids?.get(match.entryAId) ?? null : null;
     const b = match.entryBId ? ids?.get(match.entryBId) ?? null : null;
@@ -518,8 +519,10 @@ async function PUT(request: Request) {
   // Capture that rule before hydrating a draft that may change those defaults.
   const matches = body.state.matches?.map(match => {
     const before = currentMatches.get(match.id);
-    return before && matchupIsLocked(before) ? { ...match, scoring: match.scoring ?? before.scoring, scoringFrozen: true as const } :
-      { ...match, scoringFrozen: undefined };
+    const savedResetCount = before?.resetUmpireHistoryCount;
+    return before && matchupIsLocked(before)
+      ? { ...match, resetUmpireHistoryCount: savedResetCount, scoring: match.scoring ?? before.scoring, scoringFrozen: true as const }
+      : { ...match, resetUmpireHistoryCount: savedResetCount, scoringFrozen: undefined };
   });
   const proposed = hydrateTournament({ ...body.state, matches: matches ?? [], registrationClosesAt });
   const proposedIds = new Set(proposed.registrations.map(player => player.id));

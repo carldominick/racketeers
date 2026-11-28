@@ -10,7 +10,7 @@ Prepare → Registrations → CSV/XLSX exports include verified transfers and th
 
 Receipt links grant access for seven days. Legacy links issued before independent signing was introduced need a fresh export. The first authorized export on an older PIN-only tournament prepares the private signing key. Changing the organizer PIN or activating named accounts invalidates previously issued links.
 
-Bracket regeneration requires downloading the current state copy, checking that the file is saved, and typing REGENERATE. Any revision change invalidates that approval. The server rejects regeneration in Live/Completed or after a game has started, even if the phase is subsequently changed. This protects the reviewed regeneration path; it is not a universal backup requirement for all organizer corrections or roster operations.
+Bracket regeneration requires downloading the current state copy, checking that the file is saved, and typing REGENERATE. Any revision change invalidates that approval. After assignments or play, use **Reset all games** with its own backup and confirmation, move to Setup or Registration, then download a fresh backup for regeneration. Keep both backups. The pre-reset copy contains scores and results, and the pre-regeneration copy contains retained umpire assignment and dispute history for the old game IDs. An older reset may require a fresh reviewed reset before regeneration.
 
 ## Complete recovery set
 

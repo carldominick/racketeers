@@ -1,6 +1,6 @@
 # Organizer demo mode
 
-Open **Organizer → Prepare → Setup → Open organizer demo**. It opens `/demo` in a separate tab and asks for the current real organizer PIN. Spectator, umpire and registration PINs cannot authorize entry. The server checks the stored organizer hash; the normal same-origin, size and failed-credential limits apply. A direct URL shows the sign-in gate, and preview query parameters do not unlock it.
+Sign in through **Staff access → Organizer**, then open **Prepare → Setup → Open organizer demo**. If named organizer accounts are active, leave the demo PIN field blank and select **Start demo**. The demo uses the signed-in organizer session and requires edit access. On installations that still use the legacy organizer PIN, enter the current organizer PIN at the demo gate. The normal same-origin, size and failed-credential limits apply.
 
 The demo contains fictional players, a doubles division, ready matches and three sample screenshots in the first shared payment group. It copies no live tournament records, settings or receipts. Use fictional information and sample images while practicing.
 
@@ -14,7 +14,7 @@ The banner identifies demo mode throughout the session. Changes and uploaded ima
 
 ## Isolation and implementation
 
-`POST /api/demo` only verifies organizer access and returns an expiry time. It does not return live state or create a demo row/bucket. The real entry PIN is cleared from the form after authorization and is not passed to the simulator.
+`POST /api/demo` verifies organizer access and returns an expiry time. The simulator starts from fictional data and uses its own practice PINs.
 
 After authorization, the `/demo` document installs its own API transport before mounting the application. State and payment handlers run against a browser-only database/object-store adapter. Unknown requests, expired sessions and closed transports return errors without falling back to live APIs. Leaving uses a full document navigation so the live app starts with its normal transport. QR/sponsor previews and receipt exports use local blob URLs. The initial synthetic receipt and OCR assets are static files.
 
