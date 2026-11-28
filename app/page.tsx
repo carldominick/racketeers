@@ -895,7 +895,7 @@ export default function Home({ demo = false, onOpenDemoCourts }: { demo?: boolea
       const response = await fetch("/api/state", { method: "POST", headers: { "content-type": "application/json", "x-organizer-pin": organizerPin }, body: JSON.stringify({ action, matchId, ...details, expectedRevision: revisionRef.current }) });
       const data = await response.json();
       if (data.state && data.revision >= revisionRef.current) {
-        const incoming = dirtyRef.current ? { ...stateRef.current, gameDay: { ...gameDaySettings(stateRef.current), nextBracketKey: data.state.gameDay?.nextBracketKey }, matches: data.state.matches.map((match: Match) => touchedMatchIds.current.has(match.id) ? stateRef.current.matches.find(local => local.id === match.id) ?? match : match) } : { ...data.state, theme: themeOverride.current ?? data.state.theme };
+        const incoming = dirtyRef.current ? { ...stateRef.current, gameDay: { ...gameDaySettings(stateRef.current), nextBracketKey: data.state.gameDay?.nextBracketKey, bracketCourts: data.state.gameDay?.bracketCourts }, matches: data.state.matches.map((match: Match) => touchedMatchIds.current.has(match.id) ? stateRef.current.matches.find(local => local.id === match.id) ?? match : match) } : { ...data.state, theme: themeOverride.current ?? data.state.theme };
         stateRef.current = incoming; setState(incoming); revisionRef.current = data.revision; setRevision(data.revision);
         setCourtHelp(data.state.courtHelp ?? {});
       }

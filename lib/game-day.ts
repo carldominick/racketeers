@@ -1,6 +1,22 @@
-import { championshipPrerequisitesMet, displayName, forfeitWinningPoints, gameDaySettings, isAwaitingUmpireCompletion, isMatchUsingCourt, isProvisionalMatch, isSetWon, matchWinner, reseedChampionships, scoringRule, subBracketName, type Match, type TournamentState } from "./tournament";
+import { championshipPrerequisitesMet, displayName, forfeitWinningPoints, gameDaySettings, isAwaitingUmpireCompletion, isMatchUsingCourt, isProvisionalMatch, isSetWon, matchWinner, reseedChampionships, scoringRule, subBracketName, type GameQueueSelection, type Match, type TournamentState } from "./tournament";
 
 export function bracketKey(match: Match) { return `${match.divisionId}:${match.subBracket ?? 0}`; }
+function courtBracketKey(match: Match) {
+  return match.stage === "regular" ? bracketKey(match) : `${match.divisionId}:championship`;
+}
+
+export function bracketHomeCourt(state: TournamentState, match: Match): number | undefined {
+  const key = courtBracketKey(match);
+  const saved = state.gameDay?.bracketCourts?.[key];
+  if (saved && Number.isInteger(saved) && saved > 0 && saved <= state.courts) return saved;
+  for (const game of state.matches) {
+    if (courtBracketKey(game) !== key) continue;
+    const court = game.umpireWorkflow?.court ??
+      (game.dispatchedAt || game.courtInUse || game.status === "finished" ? game.court : null);
+    if (court && Number.isInteger(court) && court > 0 && court <= state.courts) return court;
+  }
+}
+
 export function bracketLabel(state: TournamentState, match: Match) {
   const division = state.divisions.find(d => d.id === match.divisionId);
   return `${division?.name ?? "Division"} · ${subBracketName(match.subBracket ?? 0)}`;
@@ -15,6 +31,18 @@ export function isFinished(match: Match) { return match.validated || match.statu
 export function isDispatched(match: Match) { return !match.hold && !isFinished(match) && Boolean(match.dispatchedAt); }
 export function courtOccupant(state: TournamentState, court: number) {
   return state.matches.find(m => m.court === court && isMatchUsingCourt(m)) ?? state.matches.find(m => m.court === court && isDispatched(m) && m.status === "ready");
+}
+
+export function scheduledGameDate(scheduledAt: Match["scheduledAt"]): string | null {
+  const date = new Date((scheduledAt ? Date.parse(scheduledAt) : NaN) + 8 * 60 * 60_000);
+  const year = date.getUTCFullYear();
+  return year >= 1000 && year <= 9999 ? date.toISOString().slice(0, 10) : null;
+}
+
+function inQueueSelection(match: Match, selection?: GameQueueSelection): boolean {
+  if (selection?.divisionIds && !selection.divisionIds.includes(match.divisionId)) return false;
+  if (!selection?.schedule) return true;
+  return (scheduledGameDate(match.scheduledAt) ?? "unscheduled") === selection.schedule;
 }
 
 function playerKeys(state: TournamentState, match: Match): Set<string> {
@@ -65,8 +93,10 @@ export function gameQueue(state: TournamentState, now = Date.now()) {
   const pending = state.matches.filter(m => !isFinished(m) && (m.status !== "live" || isWaitingForReassignment(state, m)) && !isDispatched(m));
   const allKeys = [...new Set(state.matches.map(bracketKey))];
   const settings = gameDaySettings(state);
+  const inSelection = new Set(state.matches.filter(match => inQueueSelection(match, settings.queue)));
+  const selectedKeys = new Set([...inSelection].map(bracketKey));
   const cursor = Math.max(0, allKeys.indexOf(settings.nextBracketKey ?? ""));
-  const keys = [...allKeys.slice(cursor), ...allKeys.slice(0, cursor)];
+  const keys = [...allKeys.slice(cursor), ...allKeys.slice(0, cursor)].filter(key => selectedKeys.has(key));
   const playerIndex = new Map<Match, Set<string>>();
   const getPlayers = (match: Match) => {
     let players = playerIndex.get(match);
@@ -76,7 +106,7 @@ export function gameQueue(state: TournamentState, now = Date.now()) {
     }
     return players;
   };
-  const eligibility = pending.map(match => ({ match, ready: indexedEligibility(state, match, now, false, getPlayers).ready }));
+  const eligibility = pending.filter(match => inSelection.has(match)).map(match => ({ match, ready: indexedEligibility(state, match, now, false, getPlayers).ready }));
   const eligible = eligibility.filter(item => item.ready).map(item => item.match);
   const compare = (a: Match, b: Match) => (a.scheduledAt ?? "z").localeCompare(b.scheduledAt ?? "z") || gameNumber(state, a) - gameNumber(state, b);
   const groups = new Map(keys.map(key => [key, eligible.filter(m => bracketKey(m) === key).sort(compare)]));
@@ -89,18 +119,31 @@ export function gameQueue(state: TournamentState, now = Date.now()) {
 
 /** Simulate dispatch so recommendations also respect rotation and player overlap with each other. */
 export function courtRecommendations(state: TournamentState, now = Date.now(), courtAllowed: (court: number) => boolean = () => true) {
-  const recommendations: { court: number; match: Match }[] = [];
+  const available = Array.from({ length: state.courts }, (_, index) => index + 1)
+    .filter(court => !courtOccupant(state, court) && courtAllowed(court));
+  const matches: Match[] = [];
   let proposed = state;
-  for (let court = 1; court <= state.courts; court++) {
-    if (courtOccupant(proposed, court) || !courtAllowed(court)) continue;
+  for (const court of available) {
     const match = gameQueue(proposed, now).ready[0];
     if (!match) break;
     const result = dispatchGame(proposed, match.id, court, now);
     if (!result.state) continue;
-    recommendations.push({ court, match });
+    matches.push(match);
     proposed = result.state;
   }
-  return recommendations;
+
+  // Pick the games in rotation order, then fit them to courts before using fallbacks.
+  const unused = new Set(available);
+  const assignments = new Map<string, number>();
+  for (const match of matches) {
+    const home = bracketHomeCourt(state, match);
+    if (home && unused.delete(home)) assignments.set(match.id, home);
+  }
+  for (const match of matches) {
+    if (!assignments.has(match.id) && match.court && unused.delete(match.court)) assignments.set(match.id, match.court);
+  }
+  const remaining = unused.values();
+  return matches.map(match => ({ match, court: assignments.get(match.id) ?? remaining.next().value! }));
 }
 
 export type GameDayAction = "dispatchGame" | "releaseGameCourt" | "holdGame" | "resumeGame" | "forfeitGame" | "clearForfeit";
@@ -146,12 +189,15 @@ export function dispatchGame(state: TournamentState, matchId: string, court: num
   const match = state.matches.find(m => m.id === matchId);
   if (!match) return { error: "Game not found." };
   if (!Number.isInteger(court) || court < 1 || court > state.courts) return { error: "Choose a valid court." };
+  const settings = gameDaySettings(state);
+  if (!inQueueSelection(match, settings.queue)) return { error: "This game is outside the current queue selection." };
   const eligible = gameEligibility(state, match, now);
   if (!eligible.ready) return { error: eligible.reason };
   if (courtOccupant(state, court)) return { error: `Court ${court} is already in use or reserved.` };
   const keys = [...new Set(state.matches.map(bracketKey))];
   const nextBracketKey = keys[(keys.indexOf(bracketKey(match)) + 1) % keys.length];
-  return { state: { ...state, gameDay: { ...gameDaySettings(state), nextBracketKey }, matches: state.matches.map(m => m.id === matchId ? { ...m, court, ...(state.managedUmpires ? { status: "ready" as const } : {}), dispatchedAt: new Date(now).toISOString(), courtInUse: false } : m) } };
+  const bracketCourts = { ...settings.bracketCourts, [courtBracketKey(match)]: bracketHomeCourt(state, match) ?? court };
+  return { state: { ...state, gameDay: { ...settings, nextBracketKey, bracketCourts }, matches: state.matches.map(m => m.id === matchId ? { ...m, court, ...(state.managedUmpires ? { status: "ready" as const } : {}), dispatchedAt: new Date(now).toISOString(), courtInUse: false } : m) } };
 }
 
 export type NearCapSignal = { match: Match; setNumber: number; remaining: number; cap: number };
