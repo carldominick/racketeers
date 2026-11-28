@@ -29,6 +29,9 @@ export function resetTournamentGames(state: TournamentState, now = new Date().to
       pins[pinIndex] = pins[pins.length - 1];
       pins.pop();
     }
+    const umpireHistory = match.umpireWorkflow
+      ? [...(match.umpireHistory ?? []), { ...match.umpireWorkflow, releasedAt: match.umpireWorkflow.releasedAt ?? now }]
+      : match.umpireHistory;
     return {
       ...match, pin, sets: [{ a: 0, b: 0, complete: false }], status: "ready", validated: false,
       scoring: scoringRule(match.format, divisions.get(match.divisionId)?.stageScoring?.[match.stage] ?? match.scoring),
@@ -36,9 +39,8 @@ export function resetTournamentGames(state: TournamentState, now = new Date().to
       court: null, courtInUse: false, dispatchedAt: undefined, completedAt: undefined,
       awaitingUmpireCompletion: undefined, provisionalResult: undefined, voidedResult: undefined,
       nearCapNotified: undefined, hold: undefined, forfeit: undefined, umpireWorkflow: undefined,
-      umpireHistory: match.umpireWorkflow
-        ? [...(match.umpireHistory ?? []), { ...match.umpireWorkflow, releasedAt: match.umpireWorkflow.releasedAt ?? now }]
-        : match.umpireHistory,
+      umpireHistory,
+      resetUmpireHistoryCount: umpireHistory?.length || undefined,
     };
   });
   return reseedChampionships({
@@ -49,7 +51,11 @@ export function resetTournamentGames(state: TournamentState, now = new Date().to
 
 export function regenerationIssue(state: TournamentState): string | null {
   if (state.status === "live" || state.status === "completed") return "Regeneration is unavailable during Live or Completed.";
-  if (state.matches.some(match => matchupIsLocked(match) || match.umpireHistory?.length)) return "Games have already been assigned or have recorded results. Use individual game corrections; brackets cannot be regenerated.";
+  if (state.matches.some(match => matchupIsLocked(match))) return "Games are assigned or have recorded results. To rebuild the draw, use Reset all games in Setup first.";
+  // A reviewed reset covers the existing history. Any later assignment history requires another reset.
+  if (state.matches.some(match => match.umpireHistory?.length && match.umpireHistory.length !== match.resetUmpireHistoryCount)) {
+    return "Games have umpire history. To rebuild the draw, use Reset all games in Setup and download a fresh backup here.";
+  }
   return null;
 }
 export function regenerationImpact(state: TournamentState) {

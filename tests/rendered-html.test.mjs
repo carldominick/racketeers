@@ -222,7 +222,15 @@ test('built Worker enforces personal umpire access and atomically completes a st
     assert.equal(final.validated,true);assert.equal(final.courtInUse,false);
     assert.equal((await check(send('/api/umpires',undefined,ump))).body.match,null);
     const publicState=(await check(send('/api/state'))).body;
-    assert.doesNotMatch(JSON.stringify(publicState),/pinKey|pinHash|umpireDirectory|umpireWorkflow/);
+    assert.doesNotMatch(JSON.stringify(publicState),/pinKey|pinHash|umpireDirectory|umpireWorkflow|resetUmpireHistoryCount/);
+    const backupBeforeRebuild=(await check(send('/api/state?backup=1',undefined,org))).body;
+    const cleared=(await check(send('/api/state',{...resetAction,expectedRevision:backupBeforeRebuild.revision,backupDigest:backupBeforeRebuild.digest},org))).body;
+    assert.equal(cleared.state.status,'registration');
+    const rebuildBackup=(await check(send('/api/state?backup=1',undefined,org))).body;
+    assert.ok(JSON.parse(rebuildBackup.payload).matches.find(game=>game.id===match.id).umpireHistory.some(workflow=>workflow.phase==='completed'));
+    const rebuilt=(await check(send('/api/state',{action:'regenerateBrackets',confirmation:'REGENERATE',expectedRevision:rebuildBackup.revision,backupDigest:rebuildBackup.digest},org))).body;
+    assert.ok(rebuilt.state.matches.length);
+    assert.ok(rebuilt.state.matches.every(game=>game.id!==match.id));
     const wrongPin=issued.pin==='000000'?'000001':'000000';
     for(let n=0;n<12;n++) assert.equal((await send('/api/umpires',{action:'login',pin:wrongPin})).status,401);
     assert.equal((await send('/api/umpires',{action:'login',pin:wrongPin})).status,429);

@@ -21,6 +21,16 @@ test('regeneration blocks results, started play and active phases even after ret
  for(const status of ['live','completed'])assert.ok(regenerationIssue({...state,status}));
  assert.equal(regenerationIssue({...state,matches:[{...match,court:2,scheduledAt:'2026-01-01'}]}),null);
 });
+test('an umpire assignment or history recorded after a reset blocks a new draw',()=>{
+ const {regenerationIssue}=modules['organizer-safety'];
+ const prior={phase:'seen',umpireId:'first-umpire',court:1,version:2,assignedAt:'2026-11-29T00:00:00Z'};
+ const later={...prior,umpireId:'second-umpire',version:3};
+ const restored={...match,umpireHistory:[prior],resetUmpireHistoryCount:1};
+ const state={...logic.initialTournament(),status:'registration'};
+ assert.equal(regenerationIssue({...state,matches:[restored]}),null);
+ assert.ok(regenerationIssue({...state,matches:[{...restored,umpireWorkflow:later}]}));
+ assert.ok(regenerationIssue({...state,matches:[{...restored,umpireHistory:[prior,later]}]}));
+});
 test('bulk game reset preserves the draw, replaces legacy PINs and clears holds, forfeits and court state',()=>{
  const {resetTournamentGames}=modules['organizer-safety'];
  const initial=logic.initialTournament();

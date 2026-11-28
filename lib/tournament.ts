@@ -117,6 +117,7 @@ export type Match = {
   umpireWorkflow?: UmpireWorkflow;
   /** Prior umpire activity when this game is requeued or replayed. */
   umpireHistory?: UmpireWorkflow[];
+  resetUmpireHistoryCount?: number;
   /** Public projection of a result that has not been confirmed. */
   provisionalResult?: boolean;
   voidedResult?: boolean;

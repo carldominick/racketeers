@@ -69,6 +69,37 @@ test('retrying a known reset reports its outcome without clearing later results'
  assert.equal(result.state.matches[0].sets[0].a,31);
 });
 
+test('a reviewed reset allows a new draw while preserving umpire history in the recovery copy',async()=>{
+ const initial=await reset();
+ const division={...initial.divisions[0],registrationManaged:false,entries:[logic.makeEntry(0,'doubles'),logic.makeEntry(1,'doubles')]};
+ const state=logic.hydrateTournament(logic.regenerateMatches({...initial,divisions:[division],managedUmpires:true}));
+ const game=state.matches[0];
+ const history=[{phase:'disputed',umpireId:'fictional-umpire',court:1,version:3,assignedAt:'2026-11-28T00:00:00Z',releasedAt:'2026-11-28T00:15:00Z'}];
+ // Older resets cleared game state but left history that still blocks regeneration.
+ saved.payload=JSON.stringify({...state,matches:state.matches.map(match=>match.id===game.id?{...match,umpireHistory:history}:match)});
+ const backup=async()=>(await api.GET(new Request('https://test/api/state?backup=1',{headers:org}))).json();
+ const action=(name,copy,confirmation)=>({action:name,expectedRevision:copy.revision,backupDigest:copy.digest,confirmation});
+ const regenerate=copy=>post(action('regenerateBrackets',copy,'REGENERATE'),org);
+ const parsed=logic.hydrateTournament(JSON.parse(saved.payload));
+ const forged={...parsed,matches:parsed.matches.map(match=>match.id===game.id?{...match,resetUmpireHistoryCount:history.length}:match)};
+ assert.equal((await api.PUT(request({state:forged,expectedRevision:saved.revision},org,'PUT'))).status,200);
+ const before=await backup();
+ assert.equal((await regenerate(before)).status,423);
+
+ const resetResponse=await post(action('resetGames',before,'RESET GAMES'),org);
+ assert.equal(resetResponse.status,200);
+ const resetResult=await resetResponse.json();
+ assert.deepEqual(resetResult.state.matches.find(match=>match.id===game.id).umpireHistory,history);
+ const afterReset=await backup();
+ assert.deepEqual(JSON.parse(afterReset.payload).matches.find(match=>match.id===game.id).umpireHistory,history);
+ assert.equal((await regenerate(before)).status,409);
+ const result=await regenerate(afterReset);
+ assert.equal(result.status,200);
+ const rebuilt=await result.json();
+ assert.equal(rebuilt.state.matches.length,state.matches.length);
+ assert.ok(rebuilt.state.matches.every(match=>!state.matches.some(old=>old.id===match.id)));
+});
+
 test('organizer saves protect played competitors and rules while future games adopt new defaults',async()=>{
  const state = await reset();
  const division = {...state.divisions[0], bracketFormat:'custom', stageScoring:{regular:{mode:'first_to_target',target:31,cap:31}}};
