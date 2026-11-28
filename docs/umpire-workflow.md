@@ -30,7 +30,7 @@ The workerd override selects the newer runtime from the lockfile. The Vite plugi
 
 - Open [local Racketeers](http://localhost:5189/) and use **Staff access → Organizer → Use existing organizer PIN** with the local sample PIN. Set up a draw, enable personal access in **Umpire roster**, and switch the tournament to **Live**.
 - Open the same local origin on the umpire browser, choose **Umpire**, and enter the generated personal PIN.
-- Open [local Demo Mode](http://localhost:5189/demo) and start it with the local organizer PIN. The practice tournament already has matches. Enable personal access, create two fictional umpires, and sign in to the two practice consoles below the organizer interface. Both consoles see the same in-memory tournament. Use **Reset demo** to start fresh.
+- Open [local Demo Mode](http://localhost:5189/demo) and start it with the local organizer PIN. Open **Practice umpire devices** to use two preassigned umpires with generated practice PINs. Both devices share the same practice tournament. Use **Reset demo** to start fresh.
 
 ## Storage and security
 

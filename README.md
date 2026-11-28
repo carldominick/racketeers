@@ -72,6 +72,8 @@ In **Prepare → Setup → Registration deadline**, enter the closing date and t
 
 **Prepare → Draw** shows pools and group matchups together. **Championship** shows the bracket and opens details for the selected matchup, including manual assignment where enabled. The selected division carries between the two Prepare views. **User management** offers separate Accounts and Audit history views.
 
+During Setup or Registration, select a division under **Prepare → Setup** or **Draw** and use **Move up** or **Move down**. The saved order appears in registration and organizer selectors. Existing match IDs, scores, schedules and game numbers are preserved.
+
 If the receipt service is unavailable, the exported roster and ledger figures remain available from the loaded snapshot and the report marks missing metadata. Expired access requires signing in again for the private evidence links. Use XLSX for reference numbers with leading zeroes, or import CSV reference columns as text.
 
 Organizer saves pause on a revision conflict, preserve the unsaved draft and show the affected sections. Download that private draft if needed, then load the latest tournament and reapply the intended edits. The client does not automatically retry a stale snapshot at the newer revision. Other editing controls are paused during conflict review; ordinary network failures retain the draft and retry. Unsaved state is in memory, with a leave-page warning.
@@ -191,7 +193,7 @@ New registration IDs use REG followed by a cryptographically generated UUID with
 
 ### Organizer practice mode
 
-Organizer → Prepare → Setup → **Open organizer demo** opens a practice tab. Sign in with an organizer account that can edit the tournament, then leave the demo PIN field blank. Installations without named accounts use the current organizer PIN. The demo uses fictional players, matches and sample receipts, including a group with three photos and one available slot. Changes stay in the tab and reset on reload, exit or 30-minute expiry. See [Demo mode](docs/demo-mode.md) for the practice PINs and supported workflows.
+Organizer → Prepare → Setup → **Open organizer demo** opens a practice tab. Sign in with an organizer account that can edit the tournament, then leave the demo PIN field blank. Installations without named accounts use the current organizer PIN. The demo has five fictional divisions, a twelve-court schedule, sample receipts, and two personal umpire consoles. It supports the in-tab Court view and Projector. Changes reset on reload, exit or 30-minute expiry. See [Demo mode](docs/demo-mode.md) for the practice PINs and workflows.
 
 The November UI polish retains the navy/lime palette and themes, with lighter action labels, sentence-case status badges, consistent registration progress spacing and 48px registration fields. Live scores retain their existing sizes; surrounding score cards use quieter borders without decorative rings. Print layout and projector scaling are unchanged.
 

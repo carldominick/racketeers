@@ -19,6 +19,37 @@ const request=(body,headers={},method='POST')=>new Request('https://test/api/sta
 const post=(body,headers)=>api.POST(request(body,headers));
 const org={'x-organizer-pin':'12345678'};
 
+test('organizers can save division order in Registration without replacing players or games',async()=>{
+ const initial=await reset();
+ let state=logic.addDivision(logic.addDivision(initial,'Second division'),'Third division');
+ state.registrations=[{...logic.makeRegistration(state.divisions[0].id),name:'Practice player'}];
+ state=logic.hydrateTournament(state);
+ const match={id:'scheduled-game',divisionId:state.divisions[0].id,stage:'regular',round:1,label:'Game',
+  entryAId:null,entryBId:null,sets:[{a:0,b:0,complete:false}],status:'ready',court:2,validated:false,pin:'4302',
+  format:'single_31',scheduledAt:'2026-11-29T01:30:00Z'};
+ saved.payload=JSON.stringify({...state,matches:[match]});
+ const before=(await (await api.GET(new Request('https://test/api/state',{headers:org}))).json()).state;
+ const [first,second,third]=before.divisions.map(division=>division.id);
+ assert.equal(logic.moveDivision(before,first,-1),before);
+ assert.equal(logic.moveDivision(before,'missing',1),before);
+ const proposed=logic.moveDivision(logic.moveDivision(before,third,-1),first,1);
+ const put=(draft,headers=org)=>api.PUT(request({state:draft,expectedRevision:saved.revision},headers,'PUT'));
+ assert.equal((await put(proposed,{})).status,401);
+ const response=await put(proposed);
+ assert.equal(response.status,200);
+ const result=(await response.json()).state;
+ assert.deepEqual(result.divisions.map(division=>division.id),[third,first,second]);
+ assert.deepEqual(result.matches,before.matches);
+ assert.deepEqual(result.registrations,before.registrations);
+ const publicState=(await (await api.GET(new Request('https://test/api/state'))).json()).state;
+ assert.deepEqual(publicState.divisions.map(division=>division.id),[third,first,second]);
+
+ assert.equal((await post({action:'changeTournamentPhase',phase:'live',expectedRevision:saved.revision},org)).status,200);
+ const live={...result,status:'live'};
+ assert.equal(logic.moveDivision(live,first,-1),live);
+ assert.equal((await put({...live,divisions:[...live.divisions].reverse()})).status,423);
+});
+
 test('an ordinary private or public-shaped draft cannot implicitly delete registrations',async()=>{
  const state=await reset();
  const player={...logic.makeRegistration(state.divisions[0].id),name:'Fixture player'};

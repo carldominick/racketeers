@@ -11,8 +11,10 @@ const {createDemoRuntime}=await import(pathToFileURL(path.join(dir,'demo-runtime
 const {authorizeDemo}=await import(pathToFileURL(path.join(dir,'demo-access.mjs')));
 const {apiFetch,installDemoTransport}=await import(pathToFileURL(path.join(dir,'client-request.mjs')));
 const {issueUmpirePin,identifyUmpire}=await import(pathToFileURL(path.join(dir,'umpire-auth.mjs')));
+const {moveDivision,registrationDeadlineTime}=await import(pathToFileURL(path.join(dir,'tournament.mjs')));
 const {matchWinner,matchResultSets,standingsFor}=await import(pathToFileURL(path.join(dir,'tournament.mjs')));
-const png=new Uint8Array(await readFile('preview/receipt-fixture.png'));
+const receipts=await Promise.all(['demo-receipt.png','demo-receipt-2.png','demo-receipt-3.png'].map(async file=>new Uint8Array(await readFile(`public/${file}`))));
+const [png]=receipts;
 const org={'x-organizer-pin':'98765432'};
 const request=(runtime,path='/api/state',method='GET',body,headers=org)=>runtime.send(path,{method,headers:{...headers,...(body&&!(body instanceof Uint8Array)?{'content-type':'application/json'}:{})},...(body?{body:body instanceof Uint8Array?body:JSON.stringify(body)}:{})});
 const snapshot=async runtime=>(await request(runtime)).json();
@@ -38,20 +40,55 @@ test('demo entry grants only the current organizer and reads no live payload int
  const grant=await response.json();assert.equal(grant.authorized,true);assert.ok(grant.expiresAt>Date.now());assert.deepEqual(Object.keys(grant).sort(),['authorized','expiresAt']);assert.equal(writes,0);
 });
 test('demo uses real registration/CAS handlers in independent memory sessions with no network fallback',async()=>{
- const a=await createDemoRuntime(Date.now()+60000,png),b=await createDemoRuntime(Date.now()+60000,png);
+ const a=await createDemoRuntime(Date.now()+60000,receipts),b=await createDemoRuntime(Date.now()+60000,receipts);
  const native=globalThis.fetch;globalThis.fetch=()=>{throw new Error('Network escape');};
  try {
-  const before=await snapshot(a);assert.equal(before.state.registrations.length,8);
+  const before=await snapshot(a);
   const body={action:'registerPlayer',registration:{divisionId:before.state.divisions[0].id,name:'Tomas Castillo',partnerName:'Lucia Velasco',club:'Shore Club',partnerClub:'Shore Club',facebookProfile:'https://facebook.com/tomas.demo',partnerFacebookProfile:'https://facebook.com/lucia.demo',phone:'09123456789',partnerPhone:'09123456780',shirtSize:'M',partnerShirtSize:'S'}};
-  const created=await request(a,'/api/state','POST',body);assert.equal(created.status,200);assert.equal((await snapshot(a)).state.registrations.length,10);assert.equal((await snapshot(b)).state.registrations.length,8);
+  const initialCount=before.state.registrations.length;
+  const created=await request(a,'/api/state','POST',body);assert.equal(created.status,200);assert.equal((await snapshot(a)).state.registrations.length,initialCount+2);assert.equal((await snapshot(b)).state.registrations.length,initialCount);
   const current=await snapshot(a);const proposed={...current.state,tournamentName:'Practice edit'};
   assert.equal((await request(a,'/api/state','PUT',{state:proposed,expectedRevision:current.revision})).status,200);
   assert.equal((await request(a,'/api/state','PUT',{state:proposed,expectedRevision:current.revision})).status,409);
   assert.equal((await request(a,'/api/unknown','POST',{})).status,404);
  }finally{globalThis.fetch=native;a.close();b.close();}
 });
+test('the default demo offers a multi-division draw, a twelve-court view and staffed umpire sign-in',async()=>{
+ const runtime=await createDemoRuntime(Date.now()+60000,receipts);
+ const other=await createDemoRuntime(Date.now()+60000,receipts);
+ try {
+  const before=await snapshot(runtime);
+  const {state}=before;
+  assert.equal(state.status,'registration');
+  assert.equal(state.managedUmpires,true);
+  assert.equal(state.divisions.length,5);
+  for(const division of state.divisions){
+   assert.ok(state.matches.some(match=>match.divisionId===division.id&&match.stage==='regular'&&match.scheduledAt));
+   assert.ok(Number(division.registrationPricing.entry)>0);
+  }
+  assert.ok(registrationDeadlineTime(state.registrationClosesAt)>Date.now());
+  const courts=await (await request(runtime,'/api/courts','GET',undefined,{})).json();
+  assert.equal(courts.courts.length,12);
+  assert.doesNotMatch(JSON.stringify(courts),/"registrations"|umpireDirectory|pinHash|phone/i);
+  const [first,second]=runtime.umpireSeats;
+  assert.notEqual(first.pin,second.pin);
+  const headers={'x-demo-umpire-seat':'first'};
+  assert.equal((await request(runtime,'/api/umpires','POST',{action:'login',pin:first.pin},headers)).status,200);
+  const staff=await (await request(runtime,'/api/umpires','GET',undefined,headers)).json();
+  assert.equal(staff.name,first.name);
+  assert.equal(staff.court,first.court);
+  assert.equal((await (await request(other,'/api/umpires','GET',undefined,headers)).json()).authenticated,false);
+
+  const current=await snapshot(runtime);
+  const ids=current.state.divisions.map(division=>division.id);
+  const moved=moveDivision(current.state,ids[1],-1);
+  assert.equal((await request(runtime,'/api/state','PUT',{state:moved,expectedRevision:current.revision})).status,200);
+  assert.deepEqual((await snapshot(runtime)).state.divisions.map(division=>division.id),[ids[1],ids[0],...ids.slice(2)]);
+  assert.deepEqual((await snapshot(other)).state.divisions.map(division=>division.id),ids);
+ }finally{runtime.close();other.close();}
+});
 test('demo receipts have three seeded photos, enforce four slots, and invalidate reviewed details',async()=>{
- const runtime=await createDemoRuntime(Date.now()+60000,png);
+ const runtime=await createDemoRuntime(Date.now()+60000,receipts);
  try {
   const base='/api/payment-proof?registrationId=DEMO-PLAYER-1';
   const meta=await(await request(runtime,base+'&metadata=1')).json();assert.equal(meta.photos.length,3);
@@ -63,6 +100,25 @@ test('demo receipts have three seeded photos, enforce four slots, and invalidate
   const changed=await(await request(runtime,'/api/payment-details?registrationId=DEMO-PLAYER-1')).json();assert.equal(changed.stale,true);
   assert.ok((await snapshot(runtime)).state.registrations.every(p=>!p.paid));
   const links=await(await request(runtime,'/api/payment-proof?export-links=1','POST',{registrationIds:['DEMO-PLAYER-1']})).json();assert.match(links.links['DEMO-PLAYER-1'],/^blob:/);
+  const {photos}=await (await request(runtime,base+'&metadata=1')).json();
+  const confirm=async(index,amount,reference)=>{
+   const photo=photos[index];
+   const response=await request(runtime,'/api/state','POST',{
+    action:'confirmReceiptTransfer',registrationId:'DEMO-PLAYER-1',expectedRevision:(await snapshot(runtime)).revision,
+    slot:photo.slot,proofVersion:photo.proofVersion,
+    details:{amount,reference,provider:'GCash',date:'2026-11-16',transferStatus:'completed'},
+    allocations:[{scope:'DEMO-PLAYER-1/DEMO-PLAYER-2',cents:Number(amount)*100}],
+   });
+   const result=await response.json();
+   assert.equal(response.status,200,JSON.stringify(result));
+   return result.state;
+  };
+ const partial=await confirm(0,'1250.00','001234567890');
+  assert.equal(partial.paymentTransfers[0].allocations[0].due,190000);
+  assert.equal(partial.registrations[0].paid,false);
+ const paid=await confirm(1,'650.00','009876543210');
+  assert.equal(paid.paymentTransfers.length,2);
+  assert.ok(paid.registrations.slice(0,2).every(player=>player.paid));
  }finally{runtime.close();}
 });
 test('expired and closed demos deny mutations; the demo document never falls through to live fetch',async()=>{
@@ -92,15 +148,18 @@ test('demo runs staffed dispatch, player verification, correction, handoff, fina
  const umpire=async(name,body)=>{const {match}=await get(name);return seat(name,{...body,matchId:match?.id,version:match?.umpireWorkflow.version});};
  try {
   await check(seat('one',{action:'enable'}),403);
-  await check(orgAction({action:'enable'}));
+  await check(orgAction({action:'enable'}),409);
   const first=await check(orgAction({action:'add',name:'Rosa Villanueva'}));
   const second=await check(orgAction({action:'add',name:'Dario Tan'}));
   assert.match(first.pin,/^\d{6}$/);assert.notEqual(first.pin,second.pin);
   await check(orgAction({action:'add',name:'rosa villanueva'}),409);
-  const [rosa,dario]=(await check(request(demo,'/api/umpires'))).roster;
+  const {roster}=await check(request(demo,'/api/umpires'));
+  const rosa=roster.find(member=>member.name==='Rosa Villanueva');
+  const dario=roster.find(member=>member.name==='Dario Tan');
   const available=await snapshot(demo);
   assert.ok(!JSON.stringify(available).includes('pinHash'));assert.ok(!JSON.stringify(available).includes('pinKey'));
-  assert.equal((await request(independent,'/api/umpires','POST',{action:'login',pin:first.pin},{})).status,403);
+  const unrecognized=[first.pin,second.pin,'000001','000002','000003'].find(pin=>independent.umpireSeats.every(seat=>seat.pin!==pin));
+  assert.equal((await request(independent,'/api/umpires','POST',{action:'login',pin:unrecognized},{})).status,401);
   await check(seat('one',{action:'login',pin:first.pin}));
   await check(seat('two',{action:'login',pin:second.pin}));
   assert.equal((await get('one')).name,'Rosa Villanueva');
@@ -188,7 +247,7 @@ test('demo runs staffed dispatch, player verification, correction, handoff, fina
   await check(seat('two',{action:'login',pin:second.pin}),401);
   const publicData=await check(request(demo,'/api/state','GET',undefined,{}));
   assert.doesNotMatch(JSON.stringify(publicData),/umpireDirectory|umpireWorkflow|scoreHistory|handoffs|Shift change/);
-  assert.equal((await check(request(independent,'/api/umpires'))).roster.length,0);
+  assert.deepEqual((await check(request(independent,'/api/umpires'))).roster.map(member=>member.name),independent.umpireSeats.map(seat=>seat.name));
  }finally{demo.close();independent.close();}
 });
 test('the assigned umpire can settle a one-sided or double no-show before play',async()=>{
@@ -212,10 +271,9 @@ test('the assigned umpire can settle a one-sided or double no-show before play',
    const scoring={mode:'first_to_target',target,cap:target};
    const divisions=state.divisions.map(division=>({...division,stageScoring:{regular:scoring}}));
    await inspect(request(demo,'/api/state','PUT',{state:{...state,status:'live',divisions,matches:[{...match,format,scoring}]},expectedRevision:revision}));
-   await staff('/api/umpires',{action:'enable'});
    const {pin}=await staff('/api/umpires',{action:'add',name:'No-show fixture umpire'});
    const {roster}=await inspect(request(demo,'/api/umpires'));
-   await staff('/api/umpires',{action:'assignCourt',court:1,umpireId:roster[0].id});
+   await staff('/api/umpires',{action:'assignCourt',court:1,umpireId:roster.find(member=>member.name==='No-show fixture umpire').id});
    await inspect(seat({action:'login',pin}));
    await inspect(seat({action:'duty',onDuty:true}));
    await staff('/api/state',{action:'dispatchGame',matchId:match.id,court:1});
