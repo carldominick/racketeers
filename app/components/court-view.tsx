@@ -9,7 +9,7 @@ import { Plus } from "@phosphor-icons/react/dist/csr/Plus";
 import type { CourtViewSnapshot } from "../../lib/court-view";
 import { CourtVenue } from "./court-venue";
 
-export function CourtView() {
+export function CourtView({ demo = false }: { demo?: boolean } = {}) {
   const [snapshot, setSnapshot] = useState<CourtViewSnapshot | null>(null);
   const [selected, setSelected] = useState(1);
   const [connected, setConnected] = useState(false);
@@ -36,7 +36,7 @@ export function CourtView() {
       setSnapshot(value); setReceivedAt(Date.now()); setConnected(true);
     };
     const clearPrivatePreview = () => setSnapshot(current => current && current.phase !== "live" && current.phase !== "completed" ? { ...current, courts: [] } : current);
-    const nonce = location.hash.slice(1);
+    const nonce = demo ? "" : location.hash.slice(1);
     if (/^[a-f\d-]{36}$/i.test(nonce) && typeof BroadcastChannel !== "undefined") {
       bus = new BroadcastChannel(`racketeers-courts-${nonce}`);
       bus.onmessage = event => {
@@ -67,7 +67,7 @@ export function CourtView() {
     const timer = setInterval(refresh, 2000);
     document.addEventListener("visibilitychange", visibility);
     return () => { active = false; clearInterval(timer); controller.abort(); bus?.close(); document.removeEventListener("visibilitychange", visibility); };
-  }, []);
+  }, [demo]);
   useEffect(() => {
     const change = () => setFullscreen(Boolean(document.fullscreenElement));
     document.addEventListener("fullscreenchange", change);

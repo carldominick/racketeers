@@ -17,6 +17,18 @@
   }
   .prepare-context label { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .prepare-context select { min-width: 0; width: auto; max-width: min(65vw, 410px); }
+  .division-order-controls, .division-order-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    min-width: 0;
+  }
+  .division-order-controls label { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .division-order-controls select { width: auto; min-width: 0; max-width: min(66vw, 410px); min-height: 44px; }
+  .division-order-buttons button { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
+  .division-order-buttons button[aria-disabled="true"] { opacity: .55; cursor: default; }
+  .division-order-buttons span { font-size: .875rem; color: var(--muted); }
   .prepare-metrics {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

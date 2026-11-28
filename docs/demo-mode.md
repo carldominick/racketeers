@@ -2,13 +2,13 @@
 
 Sign in through **Staff access → Organizer**, then open **Prepare → Setup → Open organizer demo**. If named organizer accounts are active, leave the demo PIN field blank and select **Start demo**. The demo uses the signed-in organizer session and requires edit access. On installations that still use the legacy organizer PIN, enter the current organizer PIN at the demo gate. The normal same-origin, size and failed-credential limits apply.
 
-The demo contains fictional players, a doubles division, ready matches and three sample screenshots in the first shared payment group. It copies no live tournament records, settings or receipts. Use fictional information and sample images while practicing.
+The demo starts in Registration with five fictional doubles divisions, ready matches, a schedule, twelve courts and two personal umpire accounts assigned to courts 1 and 2. The setup includes round-robin and elimination draws, multiple pools, sample registration prices and a future registration deadline. Use fictional information and sample images while practicing.
 
-- Start in Registration to test player registration, pairing, prices, shirts, photo addition/replacement, receipt review and OCR.
-- The first payment group has three screenshots, leaving one slot to exercise the four-photo limit.
-- Change the phase to Live to practice court dispatch and scoring. Initial match PINs are `4317`; initial registration PINs are `12345678`. The demo's own organizer PIN is `98765432` and shared umpire PIN is `87654321`. These are fictional credentials used by the local simulator, separate from the PIN required to enter it.
+- Use **Prepare → Setup** or **Draw** to practice moving divisions up or down. The organizer and registration selectors use the saved order for the rest of the session.
+- Practice registration, pairing, prices and shirts. The first payment group has three screenshots, leaving one slot for an upload. Use OCR to review two sample transfers that cover the pair's fee and one pending transfer. Confirm each completed transfer to see the pair's balance update.
+- Open **Practice umpire devices** in the banner. The consoles display the generated practice PINs. Sign in and start duty, then switch the tournament to Live and dispatch a game to the staffed court from Game Day Desk. The two devices can practice scoring, player checks, no-shows, disputes and handoffs. Existing practice registrations use PIN `12345678`.
 - Test sponsor images, payment instructions, projector slides and print/export actions in the same tab. Exported receipt links are temporary blob URLs and stop working when the demo tab closes or resets. They are not public seven-day share links.
-- Use Projector in this tab to test displays. The separate `/courts` popup is intentionally unavailable in demo mode because it polls the real public court API.
+- Open **Court view** from Game Day Desk to see the practice courts in this tab. Use **Back to organizer** to return to the desk. Projector also runs on the practice data. Manage real organizer accounts through the tournament site's **User management** tab.
 
 The banner identifies demo mode throughout the session. Changes and uploaded images stay in that tab's memory. Reloading, resetting, leaving or the 30-minute session expiry discards them. Reset asks before discarding changes and returns to organizer sign-in. Separate demo tabs have separate records; they do not simulate shared cross-device storage or durable offline saves.
 

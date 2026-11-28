@@ -1325,6 +1325,8 @@ main.registration-view input:not([type="checkbox"]):not([type="radio"]):not([typ
  .demo-banner summary {min-height:44px;display:list-item;cursor:pointer}
  .demo-banner :is(a,button,summary):focus-visible {outline:3px solid var(--focus-chrome);outline-offset:3px}
  .demo-session .topbar {position:relative;top:auto}
+ .demo-court-nav {padding:12px var(--space-section);background:var(--navy)}
+ .demo-court-nav button {min-height:44px}
  .demo-session .auto-projector::after {content:"Demo tournament";position:absolute;right:16px;bottom:16px;color:var(--muted);font-size:14px}
 }
 @media screen and (max-width:834px) {

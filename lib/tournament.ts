@@ -860,6 +860,15 @@ export function addDivision(state: TournamentState, name = `Division ${state.div
   return { ...state, divisions: [...state.divisions, makeDivision(name, "doubles")] };
 }
 
+export function moveDivision(state: TournamentState, divisionId: string, direction: -1 | 1): TournamentState {
+  const index = state.divisions.findIndex(division => division.id === divisionId);
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= state.divisions.length || tournamentEditingLocked(state.status)) return state;
+  const divisions = [...state.divisions];
+  [divisions[index], divisions[nextIndex]] = [divisions[nextIndex], divisions[index]];
+  return { ...state, divisions };
+}
+
 export function duplicateDivision(state: TournamentState, divisionId: string): TournamentState {
   const source = state.divisions.find((division) => division.id === divisionId);
   if (!source) return state;

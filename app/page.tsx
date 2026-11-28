@@ -6,6 +6,7 @@ import { courtOccupant, type GameDayAction } from "../lib/game-day";
 import { OrganizerAccounts } from "./components/organizer-accounts";
 import { StaffAccessDialog } from "./components/staff-access-dialog";
 import { GameDayDesk } from "./components/game-day-desk";
+import { DivisionOrder } from "./components/division-order";
 import { useCourtWindow } from "./components/court-window-launcher";
 import { pollFailure, POLL_TIMEOUT_MS, readStateResponse, STAFF_POLL_MS, syncDisplayState, SYNC_LABELS, type SyncStatus } from "../lib/sync-status";
 import { NextGameNotice } from "./components/next-game-notice";
@@ -92,6 +93,7 @@ import {
   matchWinner,
   matchScoreText,
   matchResultSets,
+  moveDivision,
   regenerateMatchPin,
   removeDivision,
   standingsFor,
@@ -627,7 +629,7 @@ function RegistrationDetails({ player, state, registrationBlocked, busy, organiz
 }
 
 
-export default function Home({ demo = false }: { demo?: boolean } = {}) {
+export default function Home({ demo = false, onOpenDemoCourts }: { demo?: boolean; onOpenDemoCourts?: () => void } = {}) {
   const [state, setState] = useState<TournamentState>(() => initialTournament());
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState("");
@@ -1249,6 +1251,18 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
     ? registrationPaymentReport(state, registrationScope)
     : null;
   const prepareDivision = state.divisions.find(division => division.id === prepareDivisionId) ?? state.divisions[0];
+  const selectPrepareDivision = (divisionId: string) => {
+    setPrepareDivisionId(divisionId);
+    setRegistrationDivisionFilter(current => current === "all" ? current : divisionId);
+    setSelectedRegistrationId("");
+  };
+  const divisionOrder = prepareDivision && <DivisionOrder
+    divisions={state.divisions} selected={prepareDivision.id} locked={registrationBlocked || gameActionBusy}
+    onSelect={selectPrepareDivision} onMove={(divisionId, direction) => {
+      if (registrationBlocked || gameActionBusy || conflictRef.current || !privateDraft.current) return;
+      setPrepareDivisionId(divisionId);
+      commit(current => moveDivision(current, divisionId, direction));
+    }} />;
   const registrationDivisions = state.divisions.filter(division => registrationScope === "all" || division.id === registrationScope);
   const visibleRegistrations = state.registrations.filter(player => registrationScope === "all" || player.divisionId === registrationScope);
   const selectedRegistration = visibleRegistrations.find(player => player.id === selectedRegistrationId);
@@ -1261,6 +1275,7 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
       <RegistrationDeadlineInput value={state.registrationClosesAt || ""} onCommit={registrationClosesAt => commit(current => ({ ...current, registrationClosesAt }))} />
       <PaymentSettings organizerPin={organizerPin} />
       <section className="division-toolbar"><div><p className="eyebrow">Custom competition structure</p><h2>Divisions</h2><p>Add as many divisions as the event needs. Every division can use a different name, competition type, bracket, and scoring format.</p></div><button className="primary" onClick={addNewDivision}>Add Division</button></section>
+      {state.divisions.length > 1 && <section className="card" aria-label="Division order">{divisionOrder}</section>}
       {state.divisions.map((division) => <section className="card" key={division.id}><div className="section-head"><label className="division-name-field">Division name<input className="title-input" value={division.name} onChange={(event) => updateDivision(division.id, { name: event.target.value })} /></label><div className="division-actions"><span className="mode-badge">{division.mode}</span><button className="ghost" onClick={() => copyDivision(division.id)}>Duplicate</button><button className="danger" disabled={state.divisions.length === 1} onClick={() => { if (confirm(`Remove ${division.name}? Its registrations and matches will also be removed.`)) deleteDivision(division.id); }}>Remove</button></div></div><div className="form-grid compact">
         <label>Who can enter this division?<textarea maxLength={300} value={division.eligibilityHint || ""} placeholder="Eligibility, level or invitation requirements" onChange={event => updateDivision(division.id, { eligibilityHint: event.target.value })} /></label>
         <fieldset className="division-pricing"><legend>Registration prices per player (PHP)</legend><p>Enter 0 for an included shirt or free entry. Blank means players must confirm pricing. First and second entry fees exclude the separately listed shirt charge.</p>{([["entry", "First entry"], ["additionalEntry", "Second entry with tournament shirt"], ["additionalEntryNoShirt", "Second entry without shirt"], ["tournamentShirt", "Tournament shirt surcharge"], ["blackShirt", "Black shirt (existing records)"]] as const).map(([key, label]) => <RegistrationPriceInput key={key} label={label} value={division.registrationPricing?.[key] ?? ""} onCommit={value => updateDivision(division.id, { registrationPricing: { ...(division.registrationPricing || emptyPricing()), [key]: value } })} />)}</fieldset>
@@ -1363,11 +1378,7 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
     </div>}
     {tab === "draw" && <div className="stack prepare-page">
       {prepareDivision ? <>
-        <div className="prepare-context"><label>Division<select value={prepareDivision.id} onChange={event => {
-          setPrepareDivisionId(event.target.value);
-          setRegistrationDivisionFilter(current => current === "all" ? current : event.target.value);
-          setSelectedRegistrationId("");
-        }}>{state.divisions.map(division => <option key={division.id} value={division.id}>{division.name}</option>)}</select></label></div>
+        <div className="prepare-context">{divisionOrder}</div>
         <PrepareDraw key={prepareDivision.id} division={prepareDivision}
           matches={state.matches.filter(match => match.divisionId === prepareDivision.id)}
           locked={organizerReadOnly || organizerSessionExpired}
@@ -1380,7 +1391,7 @@ export default function Home({ demo = false }: { demo?: boolean } = {}) {
       </> : <p>No divisions have been added yet.</p>}
     </div>}
     {tab === "umpires" && <UmpireRoster state={state} roster={umpireRoster} personalAccessConfigured={personalAccessConfigured} busy={dirty || gameActionBusy || sync !== "saved"} demo={demo} onAction={umpireOrganizerAction} />}
-    {tab === "scores" && <>{courtWindow.url && <a className="court-tab-fallback" href={courtWindow.url} target="_blank" rel="noopener">Open court view in a tab</a>}{courtWindow.error && <p role="alert">{courtWindow.error}</p>}<GameDayDesk umpireRoster={umpireRoster} connectionLabel={saveConflict ? "Review save conflict" : SYNC_LABELS[displaySync]} onOpenCourtView={courtWindow.open} state={state} busy={dirty || sync !== "saved" || gameActionBusy || helpBusyCourt !== null} help={courtHelp} onAssign={async (id, court) => { await gameCourtAction("dispatchGame", id, { court }); }} onRelease={async id => { await gameCourtAction("releaseGameCourt", id); }} onAction={gameCourtAction} onSettings={updateGameDaySettings} onSettingsPage={() => setTab("setup")} onPin={renewMatchPin} onReset={resetMatch} onPrint={id => setPrintMode({ type: "scorecard", matchId: id })} onPrintAll={perSheet => setPrintMode({ type: "scorecards", perSheet })} onValidate={validateMatch} onUnvalidate={unvalidateMatch} onUpdate={updateMatch} onHelp={(court, help) => void toggleCourtHelp(court, help)} renderScoreEditor={match => <MatchCard match={match} state={state} organizer onChange={updateMatch} onValidate={() => validateMatch(match.id)} onUnvalidate={() => unvalidateMatch(match.id)} onReset={() => resetMatch(match.id)} onPrint={() => setPrintMode({ type: "scorecard", matchId: match.id })} />} />{state.managedUmpires && <OrganizerUmpireReviews state={state} roster={umpireRoster} busy={dirty || gameActionBusy || sync !== "saved"} onAction={umpireOrganizerAction} />}{(gameActionMessage || helpMessage) && <p className="desk-action-message" role="status">{gameActionMessage || helpMessage}</p>}</>}
+    {tab === "scores" && <>{courtWindow.url && <a className="court-tab-fallback" href={courtWindow.url} target="_blank" rel="noopener">Open court view in a tab</a>}{courtWindow.error && <p role="alert">{courtWindow.error}</p>}<GameDayDesk umpireRoster={umpireRoster} connectionLabel={saveConflict ? "Review save conflict" : SYNC_LABELS[displaySync]} onOpenCourtView={demo ? onOpenDemoCourts ?? courtWindow.open : courtWindow.open} state={state} busy={dirty || sync !== "saved" || gameActionBusy || helpBusyCourt !== null} help={courtHelp} onAssign={async (id, court) => { await gameCourtAction("dispatchGame", id, { court }); }} onRelease={async id => { await gameCourtAction("releaseGameCourt", id); }} onAction={gameCourtAction} onSettings={updateGameDaySettings} onSettingsPage={() => setTab("setup")} onPin={renewMatchPin} onReset={resetMatch} onPrint={id => setPrintMode({ type: "scorecard", matchId: id })} onPrintAll={perSheet => setPrintMode({ type: "scorecards", perSheet })} onValidate={validateMatch} onUnvalidate={unvalidateMatch} onUpdate={updateMatch} onHelp={(court, help) => void toggleCourtHelp(court, help)} renderScoreEditor={match => <MatchCard match={match} state={state} organizer onChange={updateMatch} onValidate={() => validateMatch(match.id)} onUnvalidate={() => unvalidateMatch(match.id)} onReset={() => resetMatch(match.id)} onPrint={() => setPrintMode({ type: "scorecard", matchId: match.id })} />} />{state.managedUmpires && <OrganizerUmpireReviews state={state} roster={umpireRoster} busy={dirty || gameActionBusy || sync !== "saved"} onAction={umpireOrganizerAction} />}{(gameActionMessage || helpMessage) && <p className="desk-action-message" role="status">{gameActionMessage || helpMessage}</p>}</>}
     {tab === "schedule" && <section className="card"><div className="section-head"><div><p className="eyebrow">Court plan</p><h2>Tournament Schedule</h2></div><div className="action-row"><button className="ghost" onClick={() => setPrintMode({ type: "schedule" })}>Print Schedule</button><button className="secondary" onClick={() => commit(assignSchedule(state))}>Regenerate Schedule</button></div></div>{state.matches.some(match => !match.scheduledAt) && <p role="status">{state.matches.filter(match => !match.scheduledAt).length} games have no scheduled time. Review daily hours and court capacity.</p>}<div className="schedule-list editable-schedule">{[...state.matches].sort((a, b) => (a.scheduledAt ?? "z").localeCompare(b.scheduledAt ?? "z")).map((match) => <div className="schedule-row" key={match.id}><input aria-label={`${match.label} scheduled time`} type="datetime-local" value={inputDateTime(match.scheduledAt)} disabled={match.validated} onChange={(event) => { const nextMatch = { ...match, scheduledAt: event.target.value ? new Date(event.target.value).toISOString() : null }; const candidate = { ...state, matches: state.matches.map((item) => item.id === match.id ? nextMatch : item) }; if (nextMatch.court && !isCourtAvailable(candidate, nextMatch.court, nextMatch.id)) alert(`Court ${nextMatch.court} is already assigned at that time.`); else updateMatch(nextMatch); }} /><select aria-label={`${match.label} scheduled court`} value={match.court ?? ""} disabled={match.validated} onChange={(event) => { const court = Number(event.target.value) || null; if (!court || isCourtAvailable(state, court, match.id)) updateMatch({ ...match, court }); else alert(`Court ${court} is already assigned at this time.`); }}><option value="">Court TBD</option>{Array.from({ length: state.courts }, (_, index) => { const court = index + 1; const available = isCourtAvailable(state, court, match.id); return <option key={court} value={court} disabled={!available}>Court {court}{available ? "" : " · In use"}</option>; })}</select><span>{match.label}</span><strong>{displayName(entryMap.get(match.entryAId ?? ""))} vs {displayName(entryMap.get(match.entryBId ?? ""))}</strong><Status match={match} /></div>)}</div></section>}
     {tab === "standings" && <TournamentProgress state={state} onPrintAll={perSheet => setPrintMode({ type: "scorecards", perSheet })} />}
   </>;

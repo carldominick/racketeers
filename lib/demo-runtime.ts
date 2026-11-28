@@ -7,8 +7,9 @@ import { courtViewSnapshot } from "./court-view";
 import { demoFixture } from "./demo-fixture";
 
 type Row = { group_id: string; reference_key: string; payload: string; proof_version: string; revision: number; updated_at: string };
-export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array) {
-  const state = await demoFixture();
+export async function createDemoRuntime(expiresAt: number, receipts: readonly (Uint8Array | undefined)[] = []) {
+  const umpireSecret = crypto.randomUUID();
+  const { state, umpireSeats } = await demoFixture(umpireSecret);
   let current = { revision: 1, payload: JSON.stringify({ ...state, paymentProofShareKey: crypto.randomUUID() }), updated_at: state.updatedAt };
   let settings = JSON.stringify({ bankName: "Demo bank (practice only)", accountName: "Practice only", accountNumber: "0000000000", instructions: "Use fictional information and sample images only. No money is collected in this demo." });
   const reviews = new Map<string, Row>();
@@ -19,7 +20,6 @@ export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array)
   let closed = false;
   const umpireTokens = new Map<string, string>();
   const presence = new Map<string, number>();
-  const umpireSecret = crypto.randomUUID();
   const blobUrl = (blob: Blob) => { const url = URL.createObjectURL(blob); blobs.add(url); return url; };
   const db = { prepare(sql: string) {
     const bind = (...v: unknown[]) => ({
@@ -71,7 +71,10 @@ export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array)
   };
   const env = { DB:db, PAYMENT_PROOFS:bucket };
   const handlers = createStateHandlers({ database: async () => db, initialPin: async () => undefined, umpireSecret: async () => umpireSecret, paymentProof: request => handlePaymentProof(request, env) });
-  if (receipt) for (const slot of [1,2,3]) await bucket.put(slot === 1 ? "payments/groups/DEMO-PAYMENT-1/DEMO-PAYMENT-1.png" : `payments/groups/DEMO-PAYMENT-1/DEMO-PAYMENT-1.png/photos/${slot}.png`, receipt);
+  const sampleKey = "payments/groups/DEMO-PAYMENT-1/DEMO-PAYMENT-1.png";
+  for (const [index, receipt] of receipts.entries()) {
+    if (receipt) await bucket.put(index === 0 ? sampleKey : `${sampleKey}/photos/${index + 1}.png`, receipt);
+  }
   const assetUrl = (path: string) => {
     if (closed || Date.now() >= expiresAt) return "";
     const url = new URL(path, "https://demo.invalid");
@@ -135,5 +138,5 @@ export async function createDemoRuntime(expiresAt: number, receipt?: Uint8Array)
       return Response.json({error:"This action is unavailable in the isolated demo."},{status:404});
     } catch { return Response.json({error:"The demo action failed. Reset the demo to start again."},{status:500}); }
   };
-  return { send, assetUrl, close() { closed=true;umpireTokens.clear();presence.clear();objects.clear();reviews.clear();sponsors.clear();assets.clear();for(const url of blobs)URL.revokeObjectURL(url);blobs.clear(); } };
+  return { send, assetUrl, umpireSeats, close() { closed=true;umpireTokens.clear();presence.clear();objects.clear();reviews.clear();sponsors.clear();assets.clear();for(const url of blobs)URL.revokeObjectURL(url);blobs.clear(); } };
 }
