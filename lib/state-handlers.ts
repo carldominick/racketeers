@@ -4,7 +4,7 @@ import { normalizeProjectorSettings } from "./projector-settings";
 import { accountActor, organizerRequestMatches } from "./organizer-accounts";
 import { organizerPinMatches } from "./organizer-auth";
 import { regenerationIssue, isTournamentPhase, phaseChangeIssue, resetTournamentGames, RESET_GAMES_CONFIRMATION } from "./organizer-safety";
-import { freezeAssignedScoring, gameHasStarted, matchupIsLocked, publishedQualificationChanged, regenerateMatches, registrationDeadlineTime, reseedChampionships } from "./tournament";
+import { freezeAssignedScoring, gameDaySettings, gameHasStarted, matchupIsLocked, publishedQualificationChanged, regenerateMatches, registrationDeadlineTime, reseedChampionships } from "./tournament";
 import { courtPresence, handleUmpire } from "./umpire-service";
 import { staffingIssue, type WorkflowInput } from "./umpire-workflow";
 import { provisionalWorkflow } from "./umpire-types";
@@ -84,6 +84,7 @@ function publicState(state: TournamentState, staff = false) {
   safe.registrations = [];
   delete safe.staffNotifications;
   delete safe.courtHelp;
+  if (safe.gameDay) delete safe.gameDay.bracketCourts;
   if (!staff && !tournamentEditingLocked(state.status)) {
     safe.matches = [];
     safe.divisions = safe.divisions.map(division => ({ ...division, entries: [] }));
@@ -266,7 +267,8 @@ async function POST(request: Request) {
     const issue = regenerationIssue(state);
     if (issue) return Response.json({ error: issue }, { status: 423 });
     if (body.confirmation !== "REGENERATE" || body.backupDigest !== await sha(backupPayload(JSON.parse(row.payload), row.payload))) return Response.json({ error: "Download the current recovery backup and confirm regeneration." }, { status: 400 });
-    const saved = await saveStateAtRevision(hydrateTournament(regenerateMatches(state)), row.revision);
+    const rebuilt = hydrateTournament(regenerateMatches(state));
+    const saved = await saveStateAtRevision({ ...rebuilt, gameDay: { ...gameDaySettings(rebuilt), bracketCourts: undefined } }, row.revision);
     return saved ? Response.json({ state: organizerState(saved.state), revision: saved.revision }) : Response.json({ error: "Tournament changed. Reload and review again." }, { status: 409 });
   }
   if (body.action === "updateProjectorSettings") {
@@ -566,7 +568,8 @@ async function PUT(request: Request) {
     if (before && (before.hold || before.forfeit) && (comparable(match.sets) !== comparable(before.sets) || changedSides && (match.entryAId !== expected?.entryAId || match.entryBId !== expected?.entryBId) || Boolean(match.courtInUse) || Boolean(match.dispatchedAt) || (before.hold && match.status !== "ready"))) return Response.json({ error: "Held and forfeited games are locked for scoring. Return the game to the queue or clear the forfeiture first.", conflictMatchId: match.id, state: organizerState(current), revision: row.revision }, { status: 409 });
     if (match.court && isMatchUsingCourt(match) && (!before || !isMatchUsingCourt(before) || before.court !== match.court) && courtOccupant({ ...proposed, matches: proposed.matches.filter(m => m.id !== match.id) }, match.court)) return Response.json({ error: `Court ${match.court} is already in use or reserved. Choose an available court.`, conflictMatchId: match.id, state: organizerState(current), revision: row.revision }, { status: 409 });
   }
-  const next = freezeAssignedScoring(recordCourtCompletions(current, { ...reconciled, lastGameResetId: current.lastGameResetId, umpireDirectory: current.umpireDirectory, courtHelp: current.courtHelp, staffNotifications: current.staffNotifications, organizerAccountsEnabled: current.organizerAccountsEnabled, organizerAccountsActivation: current.organizerAccountsActivation, paymentProofShareKey: current.paymentProofShareKey, organizerPinHash: current.organizerPinHash, umpirePinHash: current.umpirePinHash, updatedAt: new Date().toISOString() }));
+  const gameDay = { ...gameDaySettings(reconciled), bracketCourts: current.gameDay?.bracketCourts };
+  const next = freezeAssignedScoring(recordCourtCompletions(current, { ...reconciled, gameDay, lastGameResetId: current.lastGameResetId, umpireDirectory: current.umpireDirectory, courtHelp: current.courtHelp, staffNotifications: current.staffNotifications, organizerAccountsEnabled: current.organizerAccountsEnabled, organizerAccountsActivation: current.organizerAccountsActivation, paymentProofShareKey: current.paymentProofShareKey, organizerPinHash: current.organizerPinHash, umpirePinHash: current.umpirePinHash, updatedAt: new Date().toISOString() }));
   const revision = row.revision + 1;
   const db = await database();
   const saved = await db.prepare("UPDATE tournament_state SET revision = ?, payload = ?, updated_at = ? WHERE id = ? AND revision = ?").bind(revision, JSON.stringify(next), next.updatedAt, ROW_ID, row.revision).run();

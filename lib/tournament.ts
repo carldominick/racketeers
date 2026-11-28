@@ -140,7 +140,8 @@ export type MedalPoints = { gold: number; silver: number; bronze: number; runner
 export type CourtHelpRequest = { id: string; court: number; requestedAt: string; matchId?: string };
 export type StaffNotification = { id: string; kind: "court_released" | "help_requested" | "help_cleared" | "near_cap"; court: number; createdAt: string; matchId?: string; matchLabel?: string; setNumber?: number; gameComplete?: boolean; available?: boolean; pointsRemaining?: number; nextMatchLabel?: string };
 
-export type GameDaySettings = { evenRotation: boolean; restMinutes: number; nearCapEnabled: boolean; nearCapPoints: number; nextBracketKey?: string };
+export type GameQueueSelection = { divisionIds?: string[]; schedule?: string };
+export type GameDaySettings = { evenRotation: boolean; restMinutes: number; nearCapEnabled: boolean; nearCapPoints: number; nextBracketKey?: string; queue?: GameQueueSelection; bracketCourts?: Record<string, number> };
 
 export type TournamentState = {
   version: number;
@@ -853,7 +854,22 @@ export function hydrateTournament(input: TournamentState): TournamentState {
 /** Operational settings remain editable while structural tournament setup is locked. */
 export function gameDaySettings(state: Pick<TournamentState, "gameDay">): GameDaySettings {
   const bounded = (value: unknown, fallback: number, max: number) => typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(max, Math.trunc(value))) : fallback;
-  return { evenRotation: state.gameDay?.evenRotation !== false, restMinutes: bounded(state.gameDay?.restMinutes, 15, 120), nearCapEnabled: state.gameDay?.nearCapEnabled !== false, nearCapPoints: Math.max(1, bounded(state.gameDay?.nearCapPoints, 5, 99)), nextBracketKey: typeof state.gameDay?.nextBracketKey === "string" ? state.gameDay.nextBracketKey : undefined };
+  const settings = state.gameDay;
+  const divisionIds = Array.isArray(settings?.queue?.divisionIds)
+    ? [...new Set(settings.queue.divisionIds.filter(id => typeof id === "string" && id.length > 0))]
+    : undefined;
+  const date = settings?.queue?.schedule;
+  const schedule = date === "unscheduled" || typeof date === "string" && registrationDeadlineTime(`${date}T00:00`) !== null ? date : undefined;
+  const bracketCourts = Object.entries(settings?.bracketCourts ?? {}).filter(([, court]) => Number.isInteger(court) && court > 0);
+  return {
+    evenRotation: settings?.evenRotation !== false,
+    restMinutes: bounded(settings?.restMinutes, 15, 120),
+    nearCapEnabled: settings?.nearCapEnabled !== false,
+    nearCapPoints: Math.max(1, bounded(settings?.nearCapPoints, 5, 99)),
+    nextBracketKey: typeof settings?.nextBracketKey === "string" ? settings.nextBracketKey : undefined,
+    ...(divisionIds !== undefined || schedule ? { queue: { divisionIds, schedule } } : {}),
+    ...(bracketCourts.length ? { bracketCourts: Object.fromEntries(bracketCourts) } : {}),
+  };
 }
 
 export function addDivision(state: TournamentState, name = `Division ${state.divisions.length + 1}`): TournamentState {

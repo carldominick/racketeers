@@ -37,7 +37,7 @@ test('bulk game reset preserves the draw, replaces legacy PINs and clears holds,
  const division={...initial.divisions[0],manualChampionshipMatchups:true};
  const regular={...match,divisionId:division.id,stage:'regular',entryAId:'a',entryBId:'b',pin:'1245',scheduledAt:'2026-11-29T04:00:00Z',status:'finished',validated:true,court:1,sets:[{a:31,b:6,complete:true}],forfeit:{winnerId:'a'},completedAt:'2026-11-29T04:30:00Z'};
  const final={...match,id:'final',divisionId:division.id,stage:'gold',entryAId:'c',entryBId:'d',pin:'5824',court:2,hold:{reason:'late'},dispatchedAt:'2026-11-29T04:30:00Z',awaitingUmpireCompletion:true};
- const state={...initial,status:'live',divisions:[division],registrations:[{id:'registration',paid:true,shirtReceived:true}],matches:[regular,final],courtHelp:{1:{id:'help'}},staffNotifications:[{id:'release'}],gameDay:{...initial.gameDay,nextBracketKey:'current'}};
+ const state={...initial,status:'live',divisions:[division],registrations:[{id:'registration',paid:true,shirtReceived:true}],matches:[regular,final],courtHelp:{1:{id:'help'}},staffNotifications:[{id:'release'}],gameDay:{...initial.gameDay,nextBracketKey:'current',bracketCourts:{current:1}}};
  const reset=resetTournamentGames(state);
  assert.equal(reset.status,'live');
  assert.deepEqual(reset.registrations,state.registrations);
@@ -45,6 +45,7 @@ test('bulk game reset preserves the draw, replaces legacy PINs and clears holds,
  assert.deepEqual(reset.courtHelp,{});
  assert.deepEqual(reset.staffNotifications,[]);
  assert.equal(reset.gameDay.nextBracketKey,undefined);
+ assert.equal(reset.gameDay.bracketCourts,undefined);
  for(const [index,game] of reset.matches.entries()){
   const before=state.matches[index];
   for(const key of ['id','entryAId','entryBId','scheduledAt'])assert.equal(game[key],before[key]);

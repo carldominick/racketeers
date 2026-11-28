@@ -45,7 +45,7 @@ export function resetTournamentGames(state: TournamentState, now = new Date().to
   });
   return reseedChampionships({
     ...state, matches, courtHelp: {}, staffNotifications: [],
-    gameDay: { ...gameDaySettings(state), nextBracketKey: undefined },
+    gameDay: { ...gameDaySettings(state), nextBracketKey: undefined, bracketCourts: undefined },
   });
 }
 

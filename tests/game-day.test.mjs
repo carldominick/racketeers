@@ -15,6 +15,46 @@ function fixture(){
  const matches=divisions.flatMap(d=>Array.from({length:4},(_,i)=>({id:`${d.id}-m${i}`,divisionId:d.id,stage:'regular',round:1,label:`Game ${i+1}`,entryAId:`${d.id}${i*2}`,entryBId:`${d.id}${i*2+1}`,sets:[{a:0,b:0,complete:false}],status:'ready',court:null,validated:false,pin:`${d.id.charCodeAt(0)}${10+i}`,format:'single_31',scoring:{mode:'first_to_target',target:31,cap:31},subBracket:0,scheduledAt:null})));
  return {...logic.initialTournament(),status:'live',divisions,matches,gameDay:{evenRotation:true,restMinutes:15,nearCapEnabled:true,nearCapPoints:5}};
 }
+test('queue selection combines divisions and Philippine schedule dates before rotating or recommending games',()=>{
+ const state={...fixture(),courts:2};
+ const byId=id=>state.matches.find(match=>match.id===id);
+ byId('A-m0').scheduledAt='2026-11-28T16:00:00.000Z';
+ byId('A-m1').scheduledAt='2026-11-28T15:59:00.000Z';
+ byId('B-m0').scheduledAt='2026-11-28T16:10:00.000Z';
+ byId('C-m0').scheduledAt='2026-11-29T15:59:00.000Z';
+ byId('C-m1').scheduledAt='2026-11-29T16:00:00.000Z';
+ state.gameDay={...state.gameDay,nextBracketKey:'B:0',queue:{divisionIds:['A','C'],schedule:'2026-11-29'}};
+ assert.equal(desk.scheduledGameDate(byId('A-m0').scheduledAt),'2026-11-29');
+ assert.deepEqual(desk.gameQueue(state).ready.map(match=>match.id),['C-m0','A-m0']);
+ assert.deepEqual(desk.gameQueue(state).rotation.map(item=>item.key),['C:0','A:0']);
+ assert.deepEqual(desk.courtRecommendations(state).map(item=>item.match.id),['C-m0','A-m0']);
+ assert.match(desk.dispatchGame(state,'B-m0',1).error,/outside the current queue selection/);
+ assert.match(desk.dispatchGame(state,'A-m1',1).error,/outside the current queue selection/);
+ assert.equal(state.gameDay.nextBracketKey,'B:0');
+ const assigned=desk.dispatchGame(state,'C-m0',1).state;
+ assert.deepEqual(assigned.gameDay.queue,state.gameDay.queue);
+ assert.deepEqual(desk.gameQueue(assigned).ready.map(match=>match.id),['A-m0']);
+ const unscheduled={...state,gameDay:{...state.gameDay,queue:{divisionIds:['A'],schedule:'unscheduled'}}};
+ assert.deepEqual(desk.gameQueue(unscheduled).ready.map(match=>match.id),['A-m2','A-m3']);
+ const paused={...state,gameDay:{...state.gameDay,queue:{divisionIds:[]}}};
+ assert.deepEqual(desk.gameQueue(paused).ready,[]);
+ assert.deepEqual(desk.courtRecommendations(paused),[]);
+});
+test('excluded reservations still occupy courts and block overlapping players',()=>{
+ const state=fixture();
+ state.registrations=[{id:'r1',personId:'same-person'},{id:'r2',personId:'same-person'}];
+ state.divisions[0].entries[0].registrationIds=['r1'];
+ state.divisions[1].entries[0].registrationIds=['r2'];
+ const assigned=desk.dispatchGame(state,'A-m0',1).state;
+ const held=desk.gameDayAction(assigned,'holdGame','D-m0').state;
+ const scoped={...held,gameDay:{...held.gameDay,queue:{divisionIds:['B']}}};
+ assert.equal(desk.courtOccupant(scoped,1).id,'A-m0');
+ assert.equal(desk.gameEligibility(scoped,scoped.matches[0],Date.now(),true).ready,true);
+ assert.deepEqual(desk.gameQueue(scoped).waiting.map(match=>match.id),['B-m0']);
+ assert.deepEqual(desk.gameQueue(scoped).held.map(match=>match.id),['D-m0']);
+ assert.equal(desk.courtRecommendations(scoped)[0].court,2);
+ assert.ok(desk.courtRecommendations(scoped).every(item=>item.match.divisionId==='B'));
+});
 test('round robin dispatch visits every bracket before its second turn',()=>{
  let state=fixture();const order=[];
  for(let i=0;i<8;i++){
@@ -174,7 +214,45 @@ test('court recommendations fill free courts in rotation, skip held games and ne
  const occupied=desk.dispatchGame(state,'A-m0',1).state;
  assert.equal(desk.courtRecommendations(occupied)[0].court,2);
  occupied.matches[0]={...occupied.matches[0],sets:[{a:31,b:10,complete:true}],status:'live',courtInUse:false};
- assert.equal(desk.courtRecommendations(occupied)[0].court,1);
+ assert.equal(desk.courtRecommendations(occupied).find(item=>item.match.divisionId==='A').court,1);
+});
+
+test('a bracket returns to its first court after validation, with a fallback when that court is unavailable',()=>{
+ const initial={...fixture(),courts:3};
+ initial.gameDay.queue={divisionIds:['A','B']};
+ const assigned=desk.dispatchGame(initial,'A-m0',2).state;
+ const completed={...assigned,matches:assigned.matches.map((match,index)=>index?match:{
+  ...match,status:'finished',dispatchedAt:undefined,sets:[{a:31,b:12,complete:true}],
+ })};
+ const state=logic.validateTournamentMatch(completed,'A-m0');
+ assert.equal(state.matches[0].court,null);
+ assert.equal(desk.bracketHomeCourt(state,state.matches[1]),2);
+ state.matches[1].court=1;
+ state.matches[4].court=2;
+ const recommendations=desk.courtRecommendations(state);
+ assert.deepEqual(recommendations.map(item=>item.match.id),['B-m0','A-m1','B-m1']);
+ assert.equal(recommendations.find(item=>item.match.id==='A-m1').court,2);
+ assert.notEqual(recommendations.find(item=>item.match.id==='B-m0').court,2);
+ const fallback=desk.courtRecommendations(state,Date.now(),court=>court!==2).find(item=>item.match.id==='A-m1');
+ assert.ok(fallback);
+ assert.notEqual(fallback.court,2);
+ const reassigned=desk.dispatchGame(state,fallback.match.id,fallback.court).state;
+ assert.equal(reassigned.matches[1].court,fallback.court);
+ assert.equal(desk.bracketHomeCourt(reassigned,reassigned.matches[2]),2);
+});
+
+test('separate pools and championship rounds have independent preferred courts',()=>{
+ let state={...fixture(),courts:4};
+ state.matches[1].subBracket=1;
+ state.matches[2].subBracket=1;
+ const final={...state.matches[3],id:'A-final',stage:'gold'};
+ state.matches[4]={...state.matches[4],status:'finished',validated:true,umpireWorkflow:{phase:'completed',court:4}};
+ state=desk.dispatchGame(state,'A-m0',3).state;
+ state=desk.dispatchGame(state,'A-m1',2).state;
+ assert.equal(desk.bracketHomeCourt(state,state.matches[0]),3);
+ assert.equal(desk.bracketHomeCourt(state,state.matches[2]),2);
+ assert.equal(desk.bracketHomeCourt(state,state.matches[5]),4);
+ assert.equal(desk.bracketHomeCourt(state,final),undefined);
 });
 
 test('a reserved game can be held and returned without consuming rotation or restoring its old court',()=>{
